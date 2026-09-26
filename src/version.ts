@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.185.1';
+export const APP_VERSION = '1.186.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.186.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۵ مدیریت PostgreSQL: ساختار و متادیتای تفصیلی جداول (Table Structure & Metadata)، کاوشگر ستون‌ها، کلیدها، محدودیت‌ها، ایندکس‌ها و آمار ذخیره‌سازی',
+    title_en: 'PostgreSQL Management Phase 5: Detailed Table Structure & Metadata, Columns, Constraints, Indexes & Storage Metrics Explorer',
+    changes: [
+      'پیاده‌سازی کامل فاز ۵ نقشه راه مدیریت PostgreSQL برای نمایش ساختار فنی و متادیتای زنده جداول سرورهای ریموت.',
+      'کاوشگر تفصیلی ستون‌ها (Columns): استخراج انواع داده، قالب‌بندی نوع ستون، وضعیت Nullable، مقادیر پیش‌فرض، ستون‌های هویت (Identity) و محاسباتی (Generated)، ترتیبات زبانی (Collation) و توضیحات (Comments).',
+      'بازرس محدودیت‌ها (Constraints Inspector): شناسایی کلید اصلی (Primary Key) همراه با لیست ستون‌ها و متن DDL، کلیدهای خارجی (Foreign Keys) با نگاشت ستون‌های مبدا به مقصد و اکشن‌های ON UPDATE و ON DELETE، محدودیت‌های یکتایی (Unique) و محدودیت‌های بررسی (Check).',
+      'بازرس تخصصی ایندکس‌ها (Indexes Inspector): بازیابی نام ایندکس، روش دسترسی (btree, hash, gin, gist, brin)، وضعیت کلید اصلی و یکتایی، حجم اشغالی ایندکس، آمار تعداد اسکن‌ها و سطرهای واکشی‌شده و متن کامل دستور ساخت (CREATE INDEX) با دکمه کپی.',
+      'تحلیل فضای فیزیکی و تله‌متری جدول: تفکیک دقیق دیسک (داده‌های Heap، فضای ایندکس‌ها، فضای TOAST)، آمار اسکن ترتیبی در مقابل ایندکس، شمارش سطرهای زنده و مرده (بررسی سلامت و Bloat جهت نیاز به Vacuum)، آمار تغییرات DML و تاریخچه نگهداری Vacuum و Analyze.',
+      'پیش‌نمایش کوئری‌های سریع SQL: کوئری نمونه ۵۰ سطر، شمارش دقیق سطرها و انتخاب صریح کلیه ستون‌ها با قابلیت کپی مستقیم.',
+      'رعایت کامل قانون عدم نشت زبان (Strict Bilingual i18n)، عدم استفاده از داده‌های ساختگی، انطباق با تم تیره و روشن و حفظ حریم فوتر.'
+    ],
+    changes_en: [
+      'Full implementation of PostgreSQL Management Phase 5: Table Structure & Metadata for remote Linux database servers.',
+      'Comprehensive Columns Explorer: data types, formatted type badges, nullability flags, default value expressions, identity columns, generated columns, collations, and official column descriptions.',
+      'Constraints Inspector: Primary Key discovery with column mappings and DDL definition, Foreign Keys with foreign table/column references and ON UPDATE / ON DELETE actions (CASCADE, SET NULL, RESTRICT), Unique constraints, and Check constraints with validation status.',
+      'Dedicated Indexes Inspector: index name, access method classification (btree, hash, gin, gist, brin), primary/unique flags, validity status, physical index size, scan counts, tuples read/fetched, and copyable CREATE INDEX DDL.',
+      'Physical Storage & Activity Telemetry: granular storage breakdown (Heap, Indexes, TOAST), sequential vs index scan distribution, live vs dead tuples ratio (bloat & vacuum health), DML counters (inserts/updates/deletes/HOT), and maintenance history (manual/auto vacuum and analyze timestamps).',
+      'Quick SQL query workbench: 50-row sample query, exact row count query, and explicit column list query with one-click copy.',
+      'Strict adherence to bilingual English/Persian localization rules, authentic live system catalog telemetry without mock data, and full dark/light theme adaptability.'
+    ]
+  },
   {
     version: '1.185.1',
     releaseDate: '2026-09-26',

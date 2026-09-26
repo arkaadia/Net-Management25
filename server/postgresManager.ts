@@ -168,6 +168,130 @@ export interface PostgresExtensionItem {
   relocatable: boolean;
 }
 
+// ==========================================
+// Phase 5: Table Structure & Metadata Types
+// ==========================================
+
+export interface PostgresColumnStructure {
+  attnum: number;
+  name: string;
+  dataType: string;
+  formattedType: string;
+  isNullable: boolean;
+  defaultValue: string | null;
+  isIdentity: boolean;
+  identityGeneration?: string;
+  isGenerated: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  isUnique: boolean;
+  hasCheckConstraint: boolean;
+  comment?: string;
+  collation?: string;
+}
+
+export interface PostgresPrimaryKeyConstraint {
+  name: string;
+  columns: string[];
+  definition?: string;
+}
+
+export interface PostgresForeignKeyConstraint {
+  name: string;
+  columns: string[];
+  foreignSchema: string;
+  foreignTable: string;
+  foreignColumns: string[];
+  onUpdate: string;
+  onDelete: string;
+  matchType?: string;
+  definition?: string;
+}
+
+export interface PostgresUniqueConstraint {
+  name: string;
+  columns: string[];
+  definition?: string;
+}
+
+export interface PostgresCheckConstraint {
+  name: string;
+  columns?: string[];
+  clause: string;
+  noInherit?: boolean;
+  isValidated?: boolean;
+}
+
+export interface PostgresIndexDetail {
+  name: string;
+  definition: string;
+  isPrimary: boolean;
+  isUnique: boolean;
+  isValid: boolean;
+  accessMethod: string;
+  columns: string[];
+  sizePretty: string;
+  sizeBytes: number | null;
+  scansCount: number;
+  tuplesRead: number;
+  tuplesFetched: number;
+  comment?: string;
+}
+
+export interface PostgresTableMetadataStats {
+  schemaName: string;
+  tableName: string;
+  owner: string;
+  persistence: 'permanent' | 'temporary' | 'unlogged';
+  isPartitioned: boolean;
+  partitionKey?: string;
+  tablespace?: string;
+  estimatedRows: number;
+  totalSizePretty: string;
+  totalSizeBytes: number;
+  tableSizePretty: string;
+  tableSizeBytes: number;
+  indexSizePretty: string;
+  indexSizeBytes: number;
+  toastSizePretty: string;
+  toastSizeBytes: number;
+  columnsCount: number;
+  primaryKeyCount: number;
+  foreignKeyCount: number;
+  uniqueConstraintCount: number;
+  checkConstraintCount: number;
+  indexCount: number;
+  seqScans: number;
+  seqTuplesRead: number;
+  idxScans: number;
+  idxTuplesFetched: number;
+  nTuplesIns: number;
+  nTuplesUpd: number;
+  nTuplesDel: number;
+  nTuplesHotUpd: number;
+  nLiveTuples: number;
+  nDeadTuples: number;
+  lastVacuum?: string;
+  lastAutoVacuum?: string;
+  lastAnalyze?: string;
+  lastAutoAnalyze?: string;
+  comment?: string;
+}
+
+export interface PostgresTableStructure {
+  databaseName: string;
+  schemaName: string;
+  tableName: string;
+  metadata: PostgresTableMetadataStats;
+  columns: PostgresColumnStructure[];
+  primaryKey: PostgresPrimaryKeyConstraint | null;
+  foreignKeys: PostgresForeignKeyConstraint[];
+  uniqueConstraints: PostgresUniqueConstraint[];
+  checkConstraints: PostgresCheckConstraint[];
+  indexes: PostgresIndexDetail[];
+  fetchedAt: string;
+}
+
 export interface PostgresSchemaObjects {
   name: string;
   owner: string;
@@ -1264,6 +1388,484 @@ export async function getPostgresDatabaseTree(
       success: false,
       error: err.message || `Failed to explore objects for database "${databaseName}"`,
       errorFa: `خطا در کاوش اجزای پایگاه داده "${databaseName}": ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+function parsePgIntArray(val: any): number[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map((x) => Number(x)).filter((n) => !isNaN(n));
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/^\{|\}$/g, '').trim();
+    if (!cleaned) return [];
+    return cleaned.split(',').map((s) => Number(s.trim())).filter((n) => !isNaN(n));
+  }
+  return [];
+}
+
+function parseInt2VectorArray(val: any): number[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map((x) => Number(x)).filter((n) => !isNaN(n));
+  if (typeof val === 'string') {
+    return val.trim().split(/\s+/).map((s) => Number(s)).filter((n) => !isNaN(n));
+  }
+  return [];
+}
+
+function mapFkActionCode(code: string): string {
+  switch (code) {
+    case 'a': return 'NO ACTION';
+    case 'r': return 'RESTRICT';
+    case 'c': return 'CASCADE';
+    case 'n': return 'SET NULL';
+    case 'd': return 'SET DEFAULT';
+    default: return 'NO ACTION';
+  }
+}
+
+/**
+ * Phase 5: Retrieves detailed table structure, column definitions, constraints (PK, FK, Unique, Check),
+ * indexes, and physical storage metadata without querying full table rows.
+ */
+export async function getPostgresTableStructure(
+  server: RemoteServer,
+  databaseName: string,
+  schemaName: string,
+  tableName: string,
+  options?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; structure?: PostgresTableStructure; error?: string; errorFa?: string }> {
+  if (!databaseName || !databaseName.trim()) {
+    return {
+      success: false,
+      error: 'Target database name is required',
+      errorFa: 'نام پایگاه داده هدف اجباری است',
+    };
+  }
+  if (!schemaName || !schemaName.trim()) {
+    return {
+      success: false,
+      error: 'Target schema name is required',
+      errorFa: 'نام اسکیما اجباری است',
+    };
+  }
+  if (!tableName || !tableName.trim()) {
+    return {
+      success: false,
+      error: 'Target table name is required',
+      errorFa: 'نام جدول اجباری است',
+    };
+  }
+
+  const { client, targetHost } = createPostgresClient(server, {
+    ...options,
+    database: databaseName.trim(),
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  try {
+    await client.connect();
+
+    // 1. Detect server version for conditional feature support
+    let serverVersionNum = 120000;
+    try {
+      const verRes = await client.query(`SELECT current_setting('server_version_num')::integer as ver_num`);
+      if (verRes.rows?.[0]?.ver_num) {
+        serverVersionNum = Number(verRes.rows[0].ver_num);
+      }
+    } catch {}
+
+    const hasIdentity = serverVersionNum >= 100000;
+    const hasGenerated = serverVersionNum >= 120000;
+
+    // 2. Fetch table OID, physical size, storage options, and basic attributes
+    const tableRes = await client.query(
+      `
+      SELECT 
+        c.oid,
+        c.relname as table_name,
+        n.nspname as schema_name,
+        pg_catalog.pg_get_userbyid(c.relowner) as table_owner,
+        CASE c.relpersistence 
+          WHEN 't' THEN 'temporary'
+          WHEN 'u' THEN 'unlogged'
+          ELSE 'permanent'
+        END as persistence,
+        (c.relkind = 'p') as is_partitioned,
+        COALESCE(t.spcname, 'pg_default') as tablespace,
+        GREATEST(c.reltuples::bigint, 0) as estimated_rows,
+        pg_catalog.pg_total_relation_size(c.oid) as total_size_bytes,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as total_size_pretty,
+        pg_catalog.pg_relation_size(c.oid) as table_size_bytes,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) as table_size_pretty,
+        pg_catalog.pg_indexes_size(c.oid) as index_size_bytes,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_indexes_size(c.oid)) as index_size_pretty,
+        GREATEST(pg_catalog.pg_total_relation_size(c.oid) - pg_catalog.pg_relation_size(c.oid) - pg_catalog.pg_indexes_size(c.oid), 0) as toast_size_bytes,
+        pg_catalog.pg_size_pretty(GREATEST(pg_catalog.pg_total_relation_size(c.oid) - pg_catalog.pg_relation_size(c.oid) - pg_catalog.pg_indexes_size(c.oid), 0)) as toast_size_pretty,
+        COALESCE(pg_catalog.obj_description(c.oid, 'pg_class'), '') as comment
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_catalog.pg_tablespace t ON c.reltablespace = t.oid
+      WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p');
+      `,
+      [schemaName.trim(), tableName.trim()]
+    );
+
+    if (!tableRes.rows || tableRes.rows.length === 0) {
+      await client.end();
+      return {
+        success: false,
+        error: `Table "${schemaName}"."${tableName}" was not found in database "${databaseName}".`,
+        errorFa: `جدول "${schemaName}"."${tableName}" در پایگاه داده "${databaseName}" یافت نشد.`,
+      };
+    }
+
+    const tRow = tableRes.rows[0];
+    const tableOid = tRow.oid;
+    const isPartitioned = Boolean(tRow.is_partitioned);
+
+    // 3. Partition key definition if partitioned
+    let partitionKey: string | undefined;
+    if (isPartitioned) {
+      try {
+        const partRes = await client.query(
+          `SELECT COALESCE(pg_catalog.pg_get_partkeydef($1::oid), '') as part_key`,
+          [tableOid]
+        );
+        partitionKey = partRes.rows?.[0]?.part_key || undefined;
+      } catch {}
+    }
+
+    // 4. Activity and scan statistics from pg_stat_all_tables
+    let statsRow: any = {};
+    try {
+      const statsRes = await client.query(
+        `
+        SELECT 
+          COALESCE(stat.seq_scan, 0)::bigint as seq_scans,
+          COALESCE(stat.seq_tup_read, 0)::bigint as seq_tuples_read,
+          COALESCE(stat.idx_scan, 0)::bigint as idx_scans,
+          COALESCE(stat.idx_tup_fetch, 0)::bigint as idx_tuples_fetched,
+          COALESCE(stat.n_tup_ins, 0)::bigint as n_tuples_ins,
+          COALESCE(stat.n_tup_upd, 0)::bigint as n_tuples_upd,
+          COALESCE(stat.n_tup_del, 0)::bigint as n_tuples_del,
+          COALESCE(stat.n_tup_hot_upd, 0)::bigint as n_tuples_hot_upd,
+          COALESCE(stat.n_live_tup, 0)::bigint as n_live_tuples,
+          COALESCE(stat.n_dead_tup, 0)::bigint as n_dead_tuples,
+          stat.last_vacuum::text,
+          stat.last_autovacuum::text,
+          stat.last_analyze::text,
+          stat.last_autoanalyze::text
+        FROM pg_catalog.pg_stat_all_tables stat
+        WHERE stat.relid = $1::oid;
+        `,
+        [tableOid]
+      );
+      statsRow = statsRes.rows?.[0] || {};
+    } catch {}
+
+    // 5. Columns inspection
+    const columnsQuery = `
+      SELECT 
+        a.attnum,
+        a.attname as column_name,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+        a.atttypid::regtype::text as base_data_type,
+        NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)) as is_nullable,
+        pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) as default_value,
+        COALESCE(col_desc.description, '') as comment,
+        COLL.collname as collation_name,
+        ${hasIdentity ? "COALESCE(a.attidentity != '', false)" : "false"} as is_identity,
+        ${hasIdentity ? "COALESCE(a.attidentity, '')" : "''"} as identity_generation,
+        ${hasGenerated ? "COALESCE(a.attgenerated != '', false)" : "false"} as is_generated,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = $1::oid AND con.contype = 'p' AND a.attnum = ANY(con.conkey)
+        ) as is_primary_key,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = $1::oid AND con.contype = 'f' AND a.attnum = ANY(con.conkey)
+        ) as is_foreign_key,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = $1::oid AND con.contype = 'u' AND a.attnum = ANY(con.conkey)
+        ) as is_unique,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = $1::oid AND con.contype = 'c' AND a.attnum = ANY(con.conkey)
+        ) as has_check_constraint
+      FROM pg_catalog.pg_attribute a
+      JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+      LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+      LEFT JOIN pg_catalog.pg_description col_desc ON col_desc.objoid = a.attrelid AND col_desc.objsubid = a.attnum
+      LEFT JOIN pg_catalog.pg_collation COLL ON COLL.oid = a.attcollation AND a.attcollation <> t.typcollation
+      WHERE a.attrelid = $1::oid
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+      ORDER BY a.attnum ASC;
+    `;
+
+    const colsRes = await client.query(columnsQuery, [tableOid]);
+
+    const attnumToName = new Map<number, string>();
+    const columns: PostgresColumnStructure[] = (colsRes.rows || []).map((row: any) => {
+      const attnum = Number(row.attnum);
+      const colName = String(row.column_name);
+      attnumToName.set(attnum, colName);
+
+      return {
+        attnum,
+        name: colName,
+        dataType: String(row.data_type || row.base_data_type || 'text'),
+        formattedType: String(row.data_type || row.base_data_type || 'text'),
+        isNullable: Boolean(row.is_nullable),
+        defaultValue: row.default_value ? String(row.default_value) : null,
+        isIdentity: Boolean(row.is_identity),
+        identityGeneration: row.identity_generation ? String(row.identity_generation) : undefined,
+        isGenerated: Boolean(row.is_generated),
+        isPrimaryKey: Boolean(row.is_primary_key),
+        isForeignKey: Boolean(row.is_foreign_key),
+        isUnique: Boolean(row.is_unique),
+        hasCheckConstraint: Boolean(row.has_check_constraint),
+        comment: row.comment ? String(row.comment) : undefined,
+        collation: row.collation_name ? String(row.collation_name) : undefined,
+      };
+    });
+
+    // 6. Constraints inspection (PK, FK, Unique, Check)
+    const constraintsRes = await client.query(
+      `
+      SELECT 
+        con.oid,
+        con.conname as constraint_name,
+        con.contype as constraint_type,
+        pg_catalog.pg_get_constraintdef(con.oid, true) as definition,
+        con.conkey,
+        con.confkey,
+        con.confrelid,
+        confrel.relname as foreign_table,
+        confn.nspname as foreign_schema,
+        con.confupdtype as conf_upd_type,
+        con.confdeltype as conf_del_type,
+        con.connoinherit as no_inherit,
+        con.convalidated as is_validated
+      FROM pg_catalog.pg_constraint con
+      LEFT JOIN pg_catalog.pg_class confrel ON confrel.oid = con.confrelid
+      LEFT JOIN pg_catalog.pg_namespace confn ON confn.oid = confrel.relnamespace
+      WHERE con.conrelid = $1::oid
+      ORDER BY 
+        CASE con.contype 
+          WHEN 'p' THEN 1 
+          WHEN 'f' THEN 2 
+          WHEN 'u' THEN 3 
+          WHEN 'c' THEN 4 
+          ELSE 5 
+        END, 
+        con.conname ASC;
+      `,
+      [tableOid]
+    );
+
+    // Resolve foreign column names for foreign keys if any
+    const foreignRelOids = new Set<string>();
+    for (const cRow of constraintsRes.rows || []) {
+      if (cRow.confrelid && cRow.confrelid !== '0') {
+        foreignRelOids.add(String(cRow.confrelid));
+      }
+    }
+
+    const foreignAttnumMap = new Map<string, string>(); // "relid:attnum" -> colName
+    if (foreignRelOids.size > 0) {
+      try {
+        const foreignColsRes = await client.query(
+          `SELECT attrelid::text as relid, attnum, attname FROM pg_catalog.pg_attribute WHERE attrelid = ANY($1::oid[]) AND attnum > 0`,
+          [Array.from(foreignRelOids)]
+        );
+        for (const fc of foreignColsRes.rows || []) {
+          foreignAttnumMap.set(`${fc.relid}:${fc.attnum}`, String(fc.attname));
+        }
+      } catch {}
+    }
+
+    let primaryKey: PostgresPrimaryKeyConstraint | null = null;
+    const foreignKeys: PostgresForeignKeyConstraint[] = [];
+    const uniqueConstraints: PostgresUniqueConstraint[] = [];
+    const checkConstraints: PostgresCheckConstraint[] = [];
+
+    for (const cRow of constraintsRes.rows || []) {
+      const cType = cRow.constraint_type;
+      const cName = String(cRow.constraint_name);
+      const def = String(cRow.definition || '');
+      const conkeyNums = parsePgIntArray(cRow.conkey);
+      const localCols = conkeyNums.map((num) => attnumToName.get(num) || `col_${num}`);
+
+      if (cType === 'p') {
+        primaryKey = {
+          name: cName,
+          columns: localCols,
+          definition: def,
+        };
+      } else if (cType === 'f') {
+        const confkeyNums = parsePgIntArray(cRow.confkey);
+        const fRelId = String(cRow.confrelid || '');
+        const foreignCols = confkeyNums.map((num) => foreignAttnumMap.get(`${fRelId}:${num}`) || `fcol_${num}`);
+
+        foreignKeys.push({
+          name: cName,
+          columns: localCols,
+          foreignSchema: String(cRow.foreign_schema || 'public'),
+          foreignTable: String(cRow.foreign_table || ''),
+          foreignColumns: foreignCols,
+          onUpdate: mapFkActionCode(String(cRow.conf_upd_type || 'a')),
+          onDelete: mapFkActionCode(String(cRow.conf_del_type || 'a')),
+          definition: def,
+        });
+      } else if (cType === 'u') {
+        uniqueConstraints.push({
+          name: cName,
+          columns: localCols,
+          definition: def,
+        });
+      } else if (cType === 'c') {
+        checkConstraints.push({
+          name: cName,
+          columns: localCols.length > 0 ? localCols : undefined,
+          clause: def.replace(/^CHECK\s*\(/i, '').replace(/\)$/, ''),
+          noInherit: Boolean(cRow.no_inherit),
+          isValidated: Boolean(cRow.is_validated),
+        });
+      }
+    }
+
+    // 7. Indexes inspection (pg_index + pg_class + pg_am + pg_stat_all_indexes)
+    const indexesRes = await client.query(
+      `
+      SELECT 
+        ic.relname as index_name,
+        pg_catalog.pg_get_indexdef(i.indexrelid, 0, true) as index_definition,
+        i.indisprimary as is_primary,
+        i.indisunique as is_unique,
+        i.indisvalid as is_valid,
+        i.indkey as indkey_raw,
+        am.amname as access_method,
+        pg_catalog.pg_relation_size(i.indexrelid) as size_bytes,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(i.indexrelid)) as size_pretty,
+        COALESCE(stat.idx_scan, 0)::bigint as scans_count,
+        COALESCE(stat.idx_tup_read, 0)::bigint as tuples_read,
+        COALESCE(stat.idx_tup_fetch, 0)::bigint as tuples_fetched,
+        COALESCE(pg_catalog.obj_description(i.indexrelid, 'pg_class'), '') as comment
+      FROM pg_catalog.pg_index i
+      JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+      JOIN pg_catalog.pg_am am ON am.oid = ic.relam
+      LEFT JOIN pg_catalog.pg_stat_all_indexes stat ON stat.indexrelid = i.indexrelid
+      WHERE i.indrelid = $1::oid
+      ORDER BY i.indisprimary DESC, i.indisunique DESC, ic.relname ASC;
+      `,
+      [tableOid]
+    );
+
+    const indexes: PostgresIndexDetail[] = (indexesRes.rows || []).map((iRow: any) => {
+      const indkeyNums = parseInt2VectorArray(iRow.indkey_raw);
+      const cols = indkeyNums
+        .map((num) => {
+          if (num === 0) return '(expression)';
+          return attnumToName.get(num) || `col_${num}`;
+        })
+        .filter(Boolean);
+
+      return {
+        name: String(iRow.index_name),
+        definition: String(iRow.index_definition || ''),
+        isPrimary: Boolean(iRow.is_primary),
+        isUnique: Boolean(iRow.is_unique),
+        isValid: Boolean(iRow.is_valid),
+        accessMethod: String(iRow.access_method || 'btree'),
+        columns: cols,
+        sizePretty: String(iRow.size_pretty || '0 bytes'),
+        sizeBytes: iRow.size_bytes !== null ? Number(iRow.size_bytes) : null,
+        scansCount: Number(iRow.scans_count) || 0,
+        tuplesRead: Number(iRow.tuples_read) || 0,
+        tuplesFetched: Number(iRow.tuples_fetched) || 0,
+        comment: iRow.comment ? String(iRow.comment) : undefined,
+      };
+    });
+
+    await client.end();
+
+    const metadata: PostgresTableMetadataStats = {
+      schemaName: String(tRow.schema_name),
+      tableName: String(tRow.table_name),
+      owner: String(tRow.table_owner || 'postgres'),
+      persistence: (tRow.persistence as any) || 'permanent',
+      isPartitioned,
+      partitionKey,
+      tablespace: String(tRow.tablespace || 'pg_default'),
+      estimatedRows: Number(tRow.estimated_rows) || 0,
+      totalSizePretty: String(tRow.total_size_pretty || '0 bytes'),
+      totalSizeBytes: Number(tRow.total_size_bytes) || 0,
+      tableSizePretty: String(tRow.table_size_pretty || '0 bytes'),
+      tableSizeBytes: Number(tRow.table_size_bytes) || 0,
+      indexSizePretty: String(tRow.index_size_pretty || '0 bytes'),
+      indexSizeBytes: Number(tRow.index_size_bytes) || 0,
+      toastSizePretty: String(tRow.toast_size_pretty || '0 bytes'),
+      toastSizeBytes: Number(tRow.toast_size_bytes) || 0,
+      columnsCount: columns.length,
+      primaryKeyCount: primaryKey ? 1 : 0,
+      foreignKeyCount: foreignKeys.length,
+      uniqueConstraintCount: uniqueConstraints.length,
+      checkConstraintCount: checkConstraints.length,
+      indexCount: indexes.length,
+      seqScans: Number(statsRow.seq_scans) || 0,
+      seqTuplesRead: Number(statsRow.seq_tuples_read) || 0,
+      idxScans: Number(statsRow.idx_scans) || 0,
+      idxTuplesFetched: Number(statsRow.idx_tuples_fetched) || 0,
+      nTuplesIns: Number(statsRow.n_tuples_ins) || 0,
+      nTuplesUpd: Number(statsRow.n_tuples_upd) || 0,
+      nTuplesDel: Number(statsRow.n_tuples_del) || 0,
+      nTuplesHotUpd: Number(statsRow.n_tuples_hot_upd) || 0,
+      nLiveTuples: Number(statsRow.n_live_tuples) || 0,
+      nDeadTuples: Number(statsRow.n_dead_tuples) || 0,
+      lastVacuum: statsRow.last_vacuum ? String(statsRow.last_vacuum) : undefined,
+      lastAutoVacuum: statsRow.last_autovacuum ? String(statsRow.last_autovacuum) : undefined,
+      lastAnalyze: statsRow.last_analyze ? String(statsRow.last_analyze) : undefined,
+      lastAutoAnalyze: statsRow.last_autoanalyze ? String(statsRow.last_autoanalyze) : undefined,
+      comment: tRow.comment ? String(tRow.comment) : undefined,
+    };
+
+    const structure: PostgresTableStructure = {
+      databaseName: databaseName.trim(),
+      schemaName: schemaName.trim(),
+      tableName: tableName.trim(),
+      metadata,
+      columns,
+      primaryKey,
+      foreignKeys,
+      uniqueConstraints,
+      checkConstraints,
+      indexes,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    return { success: true, structure };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || `Failed to fetch structure for table "${schemaName}"."${tableName}"`,
+      errorFa: `خطا در دریافت ساختار و متادیتای جدول "${schemaName}"."${tableName}": ${err.message || 'خطای شبکه'}`,
     };
   }
 }

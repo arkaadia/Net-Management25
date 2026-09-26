@@ -1620,6 +1620,130 @@ export interface PostgresDatabaseTree {
   fetchedAt: string;
 }
 
+// ==========================================
+// Phase 5: Table Structure & Metadata Types
+// ==========================================
+
+export interface PostgresColumnStructure {
+  attnum: number;
+  name: string;
+  dataType: string;
+  formattedType: string;
+  isNullable: boolean;
+  defaultValue: string | null;
+  isIdentity: boolean;
+  identityGeneration?: string;
+  isGenerated: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  isUnique: boolean;
+  hasCheckConstraint: boolean;
+  comment?: string;
+  collation?: string;
+}
+
+export interface PostgresPrimaryKeyConstraint {
+  name: string;
+  columns: string[];
+  definition?: string;
+}
+
+export interface PostgresForeignKeyConstraint {
+  name: string;
+  columns: string[];
+  foreignSchema: string;
+  foreignTable: string;
+  foreignColumns: string[];
+  onUpdate: string;
+  onDelete: string;
+  matchType?: string;
+  definition?: string;
+}
+
+export interface PostgresUniqueConstraint {
+  name: string;
+  columns: string[];
+  definition?: string;
+}
+
+export interface PostgresCheckConstraint {
+  name: string;
+  columns?: string[];
+  clause: string;
+  noInherit?: boolean;
+  isValidated?: boolean;
+}
+
+export interface PostgresIndexDetail {
+  name: string;
+  definition: string;
+  isPrimary: boolean;
+  isUnique: boolean;
+  isValid: boolean;
+  accessMethod: string;
+  columns: string[];
+  sizePretty: string;
+  sizeBytes: number | null;
+  scansCount: number;
+  tuplesRead: number;
+  tuplesFetched: number;
+  comment?: string;
+}
+
+export interface PostgresTableMetadataStats {
+  schemaName: string;
+  tableName: string;
+  owner: string;
+  persistence: 'permanent' | 'temporary' | 'unlogged';
+  isPartitioned: boolean;
+  partitionKey?: string;
+  tablespace?: string;
+  estimatedRows: number;
+  totalSizePretty: string;
+  totalSizeBytes: number;
+  tableSizePretty: string;
+  tableSizeBytes: number;
+  indexSizePretty: string;
+  indexSizeBytes: number;
+  toastSizePretty: string;
+  toastSizeBytes: number;
+  columnsCount: number;
+  primaryKeyCount: number;
+  foreignKeyCount: number;
+  uniqueConstraintCount: number;
+  checkConstraintCount: number;
+  indexCount: number;
+  seqScans: number;
+  seqTuplesRead: number;
+  idxScans: number;
+  idxTuplesFetched: number;
+  nTuplesIns: number;
+  nTuplesUpd: number;
+  nTuplesDel: number;
+  nTuplesHotUpd: number;
+  nLiveTuples: number;
+  nDeadTuples: number;
+  lastVacuum?: string;
+  lastAutoVacuum?: string;
+  lastAnalyze?: string;
+  lastAutoAnalyze?: string;
+  comment?: string;
+}
+
+export interface PostgresTableStructure {
+  databaseName: string;
+  schemaName: string;
+  tableName: string;
+  metadata: PostgresTableMetadataStats;
+  columns: PostgresColumnStructure[];
+  primaryKey: PostgresPrimaryKeyConstraint | null;
+  foreignKeys: PostgresForeignKeyConstraint[];
+  uniqueConstraints: PostgresUniqueConstraint[];
+  checkConstraints: PostgresCheckConstraint[];
+  indexes: PostgresIndexDetail[];
+  fetchedAt: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

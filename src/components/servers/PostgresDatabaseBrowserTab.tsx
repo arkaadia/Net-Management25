@@ -32,6 +32,10 @@ import {
   Tag,
   ListFilter,
   FileCode,
+  Key,
+  Link2,
+  Sparkles,
+  Filter,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -46,10 +50,18 @@ import {
   PostgresExtensionItem,
   PostgresSchemaObjects,
   PostgresDatabaseTree,
+  PostgresTableStructure,
+  PostgresColumnStructure,
+  PostgresPrimaryKeyConstraint,
+  PostgresForeignKeyConstraint,
+  PostgresUniqueConstraint,
+  PostgresCheckConstraint,
+  PostgresIndexDetail,
 } from '../../types';
 import {
   fetchRemoteServerPostgresRoles,
   fetchRemoteServerPostgresDatabaseTree,
+  fetchRemoteServerPostgresTableStructure,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -136,6 +148,56 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
   const [treeFilter, setTreeFilter] = useState('');
   const [detailFilter, setDetailFilter] = useState('');
   const [copiedText, setCopiedText] = useState(false);
+
+  // Phase 5: Table Structure & Metadata state
+  const [tableStructures, setTableStructures] = useState<Record<string, PostgresTableStructure>>({});
+  const [loadingTableStructure, setLoadingTableStructure] = useState(false);
+  const [tableStructureError, setTableStructureError] = useState<{ en: string; fa?: string } | null>(null);
+  const [tableSubTab, setTableSubTab] = useState<'columns' | 'constraints' | 'indexes' | 'storage' | 'sql'>('columns');
+  const [columnSearchQuery, setColumnSearchQuery] = useState('');
+
+  // Fetch detailed table structure (columns, PK, FK, unique, check, indexes, stats)
+  const handleFetchTableStructure = useCallback(
+    async (dbName: string, schemaName: string, tableName: string, force = false) => {
+      if (!server?.id || !dbName || !schemaName || !tableName) return;
+      const cacheKey = `${dbName}:${schemaName}:${tableName}`;
+      if (!force && tableStructures[cacheKey]) return;
+
+      setLoadingTableStructure(true);
+      setTableStructureError(null);
+      try {
+        const res = await fetchRemoteServerPostgresTableStructure(server.id, {
+          database: dbName,
+          schema: schemaName,
+          table: tableName,
+        });
+
+        if (res.success && res.structure) {
+          setTableStructures((prev) => ({ ...prev, [cacheKey]: res.structure! }));
+        } else {
+          setTableStructureError({
+            en: res.error || `Failed to fetch structure for table "${schemaName}"."${tableName}"`,
+            fa: res.errorFa || `خطا در دریافت ساختار و متادیتای جدول "${schemaName}"."${tableName}"`,
+          });
+        }
+      } catch (err: any) {
+        setTableStructureError({
+          en: err.message || `Network error fetching structure for "${tableName}"`,
+          fa: `خطای شبکه در دریافت ساختار جدول "${tableName}"`,
+        });
+      } finally {
+        setLoadingTableStructure(false);
+      }
+    },
+    [server?.id, tableStructures]
+  );
+
+  // Automatically fetch table structure when a table node is selected
+  useEffect(() => {
+    if (selectedNode.type === 'table' && selectedNode.dbName && selectedNode.schemaName && selectedNode.name) {
+      handleFetchTableStructure(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+    }
+  }, [selectedNode.type, selectedNode.dbName, selectedNode.schemaName, selectedNode.name, handleFetchTableStructure]);
 
   // Fetch roles
   const handleFetchRoles = useCallback(async () => {
@@ -2071,134 +2133,1098 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
             )}
 
             {/* ======================================================== */}
-            {/* VIEW E: SINGLE TABLE OBJECT INSPECTOR                     */}
+            {/* VIEW E: PHASE 5 - DETAILED TABLE STRUCTURE & METADATA    */}
             {/* ======================================================== */}
-            {selectedNode.type === 'table' && selectedNode.data && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <TableIcon className="w-5 h-5 text-emerald-400" />
-                    <div>
-                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
-                      <p className="text-xs text-slate-400">
-                        {isEn ? 'Schema: ' : 'اسکیما: '}
-                        <span className="font-mono text-cyan-400">{selectedNode.schemaName}</span>
+            {selectedNode.type === 'table' && selectedNode.data && (() => {
+              const cacheKey = `${selectedNode.dbName || ''}:${selectedNode.schemaName || ''}:${selectedNode.name}`;
+              const struct = tableStructures[cacheKey];
+              const fallbackTable = selectedNode.data as PostgresTableItem;
+
+              return (
+                <div className="space-y-4">
+                  {/* Table Header Bar */}
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                        <TableIcon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-base text-slate-100 font-mono tracking-tight">
+                            {selectedNode.name}
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(selectedNode.name)}
+                            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                            title={isEn ? 'Copy Table Name' : 'کپی نام جدول'}
+                          >
+                            {copiedText ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-400 flex items-center gap-1.5 font-mono">
+                          <span className="text-slate-500 font-sans">{isEn ? 'DB:' : 'دیتابیس:'}</span>
+                          <span className="text-purple-400">{selectedNode.dbName}</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-slate-500 font-sans">{isEn ? 'Schema:' : 'اسکیما:'}</span>
+                          <span className="text-cyan-400">{selectedNode.schemaName}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        {struct?.metadata.persistence || fallbackTable.persistence || 'permanent'}
+                      </span>
+                      {(struct?.primaryKey || fallbackTable.hasPrimaryKey) && (
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center gap-1">
+                          <Key className="w-3 h-3" />
+                          <span>PK</span>
+                        </span>
+                      )}
+                      {(struct?.metadata.isPartitioned || fallbackTable.isPartitioned) && (
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                          {isEn ? 'PARTITIONED' : 'پارتیشن‌شده'}
+                        </span>
+                      )}
+                      {struct && struct.foreignKeys.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-1">
+                          <Link2 className="w-3 h-3" />
+                          <span>FK: {struct.foreignKeys.length}</span>
+                        </span>
+                      )}
+                      {struct && (
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                          IDX: {struct.indexes.length}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableStructure(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, true);
+                          }
+                        }}
+                        disabled={loadingTableStructure}
+                        className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 font-mono transition ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                        } disabled:opacity-50`}
+                        title={isEn ? 'Refresh Structure & Metadata' : 'تازه‌سازی ساختار و متادیتا'}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingTableStructure ? 'animate-spin text-cyan-400' : ''}`} />
+                        <span className="hidden sm:inline font-sans text-[11px]">{isEn ? 'Refresh' : 'تازه‌سازی'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Primary Metrics Summary */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs font-mono">
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Estimated Rows' : 'تخمین سطرها'}
+                      </span>
+                      <p className="font-bold text-sm text-cyan-400 tabular-nums">
+                        {(struct ? struct.metadata.estimatedRows : fallbackTable.estimatedRows)?.toLocaleString?.() || 0}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Columns' : 'ستون‌ها'}
+                      </span>
+                      <p className="font-bold text-sm text-emerald-400">
+                        {struct ? struct.columns.length : (fallbackTable.columnCount ?? 'N/A')}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Total Size' : 'فضای کل'}
+                      </span>
+                      <p className="font-bold text-sm text-purple-400">
+                        {struct ? struct.metadata.totalSizePretty : fallbackTable.sizePretty}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Table Heap' : 'داده جدول'}
+                      </span>
+                      <p className="font-bold text-sm text-slate-200">
+                        {struct ? struct.metadata.tableSizePretty : (fallbackTable.tableSizePretty || 'N/A')}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Index Total' : 'فضای ایندکس'}
+                      </span>
+                      <p className="font-bold text-sm text-blue-400">
+                        {struct ? struct.metadata.indexSizePretty : (fallbackTable.indexSizePretty || 'N/A')}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'TOAST Out-of-line' : 'فضای TOAST'}
+                      </span>
+                      <p className="font-bold text-sm text-amber-400">
+                        {struct ? struct.metadata.toastSizePretty : (fallbackTable.toastSizePretty || '0 bytes')}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Table Owner' : 'مالک جدول'}
+                      </span>
+                      <p className="font-bold text-sm text-slate-200 truncate">
+                        {struct ? struct.metadata.owner : fallbackTable.owner}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`p-2.5 rounded-xl border space-y-0.5 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans block truncate">
+                        {isEn ? 'Tablespace' : 'فضای جدول'}
+                      </span>
+                      <p className="font-bold text-sm text-slate-300 truncate">
+                        {struct?.metadata.tablespace || 'pg_default'}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                      {selectedNode.data.persistence || 'permanent'}
-                    </span>
-                    {selectedNode.data.hasPrimaryKey && (
-                      <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                        PRIMARY KEY
-                      </span>
-                    )}
-                    {selectedNode.data.isPartitioned && (
-                      <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
-                        PARTITIONED
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Primary Metrics */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Estimated Rows' : 'تخمین سطرها'}</span>
-                    <p className="font-bold text-sm text-cyan-400 tabular-nums">
-                      {selectedNode.data.estimatedRows?.toLocaleString?.() || 0}
-                    </p>
-                  </div>
-
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Columns Count' : 'تعداد ستون‌ها'}</span>
-                    <p className="font-bold text-sm text-emerald-400">
-                      {selectedNode.data.columnCount !== undefined ? selectedNode.data.columnCount : 'N/A'}
-                    </p>
-                  </div>
-
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Total Disk Size' : 'کل فضای دیسک'}</span>
-                    <p className="font-bold text-sm text-purple-400">{selectedNode.data.sizePretty}</p>
-                  </div>
-
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Table Owner' : 'مالک جدول'}</span>
-                    <p className="font-bold text-sm text-slate-200 truncate">{selectedNode.data.owner}</p>
-                  </div>
-                </div>
-
-                {/* Storage Size Breakdown */}
-                <div
-                  className={`p-4 rounded-xl border space-y-3 ${
-                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
-                  }`}
-                >
-                  <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5 font-sans">
-                    <HardDrive className="w-3.5 h-3.5 text-blue-400" />
-                    <span>{isEn ? 'Table Physical Storage Breakdown' : 'تفکیک فضای ذخیره‌سازی فیزیکی جدول'}</span>
-                  </h5>
-
-                  <div className="grid grid-cols-3 gap-3 text-xs font-mono">
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'Table Heap Data' : 'داده‌های اصلی'}</span>
-                      <p className="font-bold text-slate-200">{selectedNode.data.tableSizePretty || '0 bytes'}</p>
+                  {/* Loading or Error State */}
+                  {loadingTableStructure && !struct && (
+                    <div className="p-8 rounded-xl border border-slate-800/80 bg-slate-900/40 text-center space-y-3">
+                      <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto" />
+                      <div className="space-y-1">
+                        <p className="font-bold text-slate-200 text-sm">
+                          {isEn ? 'Discovering Table Structure & Constraints...' : 'در حال استخراج ساختار و متادیتای جدول...'}
+                        </p>
+                        <p className="text-xs text-slate-400 font-mono">
+                          {isEn
+                            ? 'Inspecting columns, primary keys, foreign keys, unique & check constraints, and index metadata'
+                            : 'بررسی کاتالوگ‌های ستون‌ها، کلید اصلی، کلیدهای خارجی، محدودیت‌ها و ایندکس‌ها'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'Indexes Total' : 'فضای ایندکس‌ها'}</span>
-                      <p className="font-bold text-blue-400">{selectedNode.data.indexSizePretty || '0 bytes'}</p>
-                    </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'TOAST Out-of-line' : 'فضای TOAST'}</span>
-                      <p className="font-bold text-amber-400">{selectedNode.data.toastSizePretty || '0 bytes'}</p>
-                    </div>
-                  </div>
-                </div>
+                  )}
 
-                {/* Fast SQL queries */}
-                <div
-                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
-                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
-                  }`}
-                >
-                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
-                    {isEn ? 'SQL Data Query Preview' : 'پیش‌نمایش دستور کوئری داده'}
-                  </span>
-                  <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
-                    <code className="text-cyan-300">
-                      SELECT * FROM "{selectedNode.schemaName}"."{selectedNode.name}" LIMIT 50;
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(`SELECT * FROM "${selectedNode.schemaName}"."${selectedNode.name}" LIMIT 50;`)}
-                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
-                      title={isEn ? 'Copy SQL' : 'کپی دستور SQL'}
-                    >
-                      {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                  {tableStructureError && !struct && (
+                    <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 flex items-center justify-between gap-3 text-rose-300 text-xs">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>{isEn ? tableStructureError.en : (tableStructureError.fa || tableStructureError.en)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableStructure(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, true);
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-md bg-rose-500/20 border border-rose-500/40 font-bold hover:bg-rose-500/30 transition"
+                      >
+                        {isEn ? 'Retry' : 'تلاش مجدد'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Navigation Sub-Tabs */}
+                  {struct && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-1.5 border-b border-slate-800/60 pb-2 overflow-x-auto text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setTableSubTab('columns')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'columns'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <TableIcon className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Columns' : 'ستون‌ها'}</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 font-bold">
+                            {struct.columns.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setTableSubTab('constraints')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'constraints'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Constraints' : 'محدودیت‌ها'}</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-500/20 text-blue-300 font-bold">
+                            {(struct.primaryKey ? 1 : 0) +
+                              struct.foreignKeys.length +
+                              struct.uniqueConstraints.length +
+                              struct.checkConstraints.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setTableSubTab('indexes')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'indexes'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Indexes' : 'ایندکس‌ها'}</span>
+                          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-500/20 text-amber-300 font-bold">
+                            {struct.indexes.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setTableSubTab('storage')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'storage'
+                              ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <HardDrive className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Storage & Statistics' : 'حافظه و آمار فعالیت'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setTableSubTab('sql')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'sql'
+                              ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <FileCode className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Quick SQL' : 'کوئری‌های سریع'}</span>
+                        </button>
+                      </div>
+
+                      {/* SUB-TAB 1: COLUMNS */}
+                      {tableSubTab === 'columns' && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="relative flex-1 min-w-[200px] max-w-sm">
+                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                              <input
+                                type="text"
+                                value={columnSearchQuery}
+                                onChange={(e) => setColumnSearchQuery(e.target.value)}
+                                placeholder={isEn ? 'Filter columns by name or type...' : 'جستجوی ستون بر اساس نام یا نوع...'}
+                                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border outline-none font-mono transition ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500'
+                                    : 'bg-slate-900 border-slate-800 text-slate-200 focus:border-emerald-500/50'
+                                }`}
+                              />
+                            </div>
+                            <span className="text-xs text-slate-400 font-mono">
+                              {struct.columns.filter((c) =>
+                                !columnSearchQuery ||
+                                c.name.toLowerCase().includes(columnSearchQuery.toLowerCase()) ||
+                                c.dataType.toLowerCase().includes(columnSearchQuery.toLowerCase())
+                              ).length}{' '}
+                              {isEn ? 'columns shown' : 'ستون نمایش داده شده'}
+                            </span>
+                          </div>
+
+                          <div
+                            className={`rounded-xl border overflow-hidden ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                            }`}
+                          >
+                            <div className="overflow-x-auto max-h-[500px]">
+                              <table className="w-full text-left text-xs">
+                                <thead
+                                  className={`sticky top-0 text-[11px] uppercase tracking-wider font-semibold border-b ${
+                                    isLightMode ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-900 border-slate-800 text-slate-400'
+                                  }`}
+                                >
+                                  <tr>
+                                    <th className="py-2.5 px-3 w-10">#</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Column Name' : 'نام ستون'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Data Type' : 'نوع داده'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Nullable' : 'قابلیت Null'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Default Value' : 'مقدار پیش‌فرض'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Constraints' : 'محدودیت‌ها'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Attributes' : 'ویژگی‌ها'}</th>
+                                    <th className="py-2.5 px-3">{isEn ? 'Description' : 'توضیحات'}</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800/40 font-mono text-xs">
+                                  {struct.columns
+                                    .filter((c) =>
+                                      !columnSearchQuery ||
+                                      c.name.toLowerCase().includes(columnSearchQuery.toLowerCase()) ||
+                                      c.dataType.toLowerCase().includes(columnSearchQuery.toLowerCase())
+                                    )
+                                    .map((col) => (
+                                      <tr
+                                        key={col.attnum}
+                                        className={`transition ${
+                                          isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-900/60'
+                                        } ${col.isPrimaryKey ? (isLightMode ? 'bg-blue-50/40' : 'bg-blue-950/20') : ''}`}
+                                      >
+                                        <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">
+                                          {col.attnum}
+                                        </td>
+                                        <td className="py-2.5 px-3 font-bold text-slate-200">
+                                          <div className="flex items-center gap-1.5">
+                                            {col.isPrimaryKey && (
+                                              <span title="Primary Key">
+                                                <Key className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                              </span>
+                                            )}
+                                            {col.isForeignKey && (
+                                              <span title="Foreign Key">
+                                                <Link2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                              </span>
+                                            )}
+                                            {col.isUnique && !col.isPrimaryKey && (
+                                              <span title="Unique">
+                                                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                              </span>
+                                            )}
+                                            <span className={col.isPrimaryKey ? 'text-blue-300 font-bold' : ''}>
+                                              {col.name}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td className="py-2.5 px-3">
+                                          <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                                            {col.formattedType}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3">
+                                          {col.isNullable ? (
+                                            <span className="text-slate-400 font-sans text-[11px]">NULL</span>
+                                          ) : (
+                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                              NOT NULL
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-slate-300 font-mono text-[11px] max-w-xs truncate">
+                                          {col.defaultValue ? (
+                                            <code className="text-amber-300 bg-black/30 px-1 py-0.5 rounded">
+                                              {col.defaultValue}
+                                            </code>
+                                          ) : (
+                                            <span className="text-slate-600">—</span>
+                                          )}
+                                        </td>
+                                        <td className="py-2.5 px-3">
+                                          <div className="flex items-center gap-1 flex-wrap font-sans text-[10px]">
+                                            {col.isPrimaryKey && (
+                                              <span className="px-1.5 py-0.5 rounded font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                                PK
+                                              </span>
+                                            )}
+                                            {col.isForeignKey && (
+                                              <span className="px-1.5 py-0.5 rounded font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                                FK
+                                              </span>
+                                            )}
+                                            {col.isUnique && (
+                                              <span className="px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                                UNIQUE
+                                              </span>
+                                            )}
+                                            {col.hasCheckConstraint && (
+                                              <span className="px-1.5 py-0.5 rounded font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                                CHECK
+                                              </span>
+                                            )}
+                                            {!col.isPrimaryKey && !col.isForeignKey && !col.isUnique && !col.hasCheckConstraint && (
+                                              <span className="text-slate-600">—</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-[11px] text-slate-400">
+                                          <div className="space-y-0.5">
+                                            {col.isIdentity && (
+                                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-sky-500/15 text-sky-400 border border-sky-500/30 mr-1">
+                                                IDENTITY {col.identityGeneration ? `(${col.identityGeneration})` : ''}
+                                              </span>
+                                            )}
+                                            {col.isGenerated && (
+                                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-purple-500/15 text-purple-400 border border-purple-500/30 mr-1">
+                                                GENERATED
+                                              </span>
+                                            )}
+                                            {col.collation && (
+                                              <span className="text-slate-500 text-[10px] font-mono">
+                                                collate: {col.collation}
+                                              </span>
+                                            )}
+                                            {!col.isIdentity && !col.isGenerated && !col.collation && (
+                                              <span className="text-slate-600">—</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-slate-400 text-xs font-sans max-w-xs truncate">
+                                          {col.comment || <span className="text-slate-600 italic">—</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SUB-TAB 2: CONSTRAINTS */}
+                      {tableSubTab === 'constraints' && (
+                        <div className="space-y-4">
+                          {/* 1. Primary Key */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-2.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <h5 className="font-bold text-xs uppercase tracking-wider text-blue-400 flex items-center gap-1.5 font-sans">
+                                <Key className="w-4 h-4" />
+                                <span>{isEn ? 'Primary Key Constraint' : 'محدودیت کلید اصلی (Primary Key)'}</span>
+                              </h5>
+                              {struct.primaryKey && (
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(struct.primaryKey?.definition || '')}
+                                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                  title={isEn ? 'Copy PK Definition' : 'کپی تعریف کلید اصلی'}
+                                >
+                                  {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              )}
+                            </div>
+
+                            {struct.primaryKey ? (
+                              <div className="space-y-2 font-mono text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 font-sans">{isEn ? 'Name:' : 'نام:'}</span>
+                                  <span className="font-bold text-slate-200">{struct.primaryKey.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 font-sans">{isEn ? 'Columns:' : 'ستون‌ها:'}</span>
+                                  <div className="flex items-center gap-1">
+                                    {struct.primaryKey.columns.map((colName) => (
+                                      <span
+                                        key={colName}
+                                        className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 font-bold border border-blue-500/30"
+                                      >
+                                        {colName}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                {struct.primaryKey.definition && (
+                                  <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 text-cyan-300 font-mono">
+                                    <code>{struct.primaryKey.definition}</code>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500 font-sans italic">
+                                {isEn
+                                  ? 'No Primary Key constraint is defined for this table.'
+                                  : 'هیچ کلید اصلی برای این جدول تعریف نشده است.'}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* 2. Foreign Keys */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-indigo-400 flex items-center gap-1.5 font-sans">
+                              <Link2 className="w-4 h-4" />
+                              <span>
+                                {isEn ? 'Foreign Key Constraints' : 'محدودیت‌های کلید خارجی (Foreign Keys)'} (
+                                {struct.foreignKeys.length})
+                              </span>
+                            </h5>
+
+                            {struct.foreignKeys.length > 0 ? (
+                              <div className="space-y-2.5">
+                                {struct.foreignKeys.map((fk) => (
+                                  <div
+                                    key={fk.name}
+                                    className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-2 text-xs font-mono"
+                                  >
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                      <span className="font-bold text-slate-200">{fk.name}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
+                                          ON UPDATE: <b className="text-indigo-400">{fk.onUpdate}</b>
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
+                                          ON DELETE: <b className="text-indigo-400">{fk.onDelete}</b>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyToClipboard(fk.definition || '')}
+                                          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                          title={isEn ? 'Copy FK Definition' : 'کپی تعریف'}
+                                        >
+                                          {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 flex-wrap text-slate-300">
+                                      <span className="text-slate-400 font-sans">{isEn ? 'References:' : 'ارجاع:'}</span>
+                                      <span className="text-blue-400 font-bold">({fk.columns.join(', ')})</span>
+                                      <span className="text-slate-500 font-sans">➔</span>
+                                      <span className="text-purple-400 font-bold">
+                                        "{fk.foreignSchema}"."{fk.foreignTable}"
+                                      </span>
+                                      <span className="text-emerald-400 font-bold">({fk.foreignColumns.join(', ')})</span>
+                                    </div>
+
+                                    {fk.definition && (
+                                      <div className="p-2 rounded bg-black/30 border border-slate-800/60 text-slate-400 text-[11px]">
+                                        <code>{fk.definition}</code>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500 font-sans italic">
+                                {isEn
+                                  ? 'No foreign key constraints defined on this table.'
+                                  : 'هیچ کلید خارجی برای این جدول تعریف نشده است.'}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* 3. Unique Constraints */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-amber-400 flex items-center gap-1.5 font-sans">
+                              <Sparkles className="w-4 h-4" />
+                              <span>
+                                {isEn ? 'Unique Constraints' : 'محدودیت‌های یکتایی (Unique Constraints)'} (
+                                {struct.uniqueConstraints.length})
+                              </span>
+                            </h5>
+
+                            {struct.uniqueConstraints.length > 0 ? (
+                              <div className="space-y-2">
+                                {struct.uniqueConstraints.map((u) => (
+                                  <div
+                                    key={u.name}
+                                    className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 flex items-center justify-between gap-3 text-xs font-mono"
+                                  >
+                                    <div className="space-y-1">
+                                      <span className="font-bold text-slate-200">{u.name}</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-slate-400 font-sans">{isEn ? 'Columns:' : 'ستون‌ها:'}</span>
+                                        <span className="text-amber-300 font-bold">({u.columns.join(', ')})</span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(u.definition || '')}
+                                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                      title={isEn ? 'Copy' : 'کپی'}
+                                    >
+                                      {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500 font-sans italic">
+                                {isEn
+                                  ? 'No unique constraints defined.'
+                                  : 'هیچ محدودیت یکتایی برای این جدول ثبت نشده است.'}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* 4. Check Constraints */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-purple-400 flex items-center gap-1.5 font-sans">
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>
+                                {isEn ? 'Check Constraints' : 'محدودیت‌های بررسی (Check Constraints)'} (
+                                {struct.checkConstraints.length})
+                              </span>
+                            </h5>
+
+                            {struct.checkConstraints.length > 0 ? (
+                              <div className="space-y-2">
+                                {struct.checkConstraints.map((chk) => (
+                                  <div
+                                    key={chk.name}
+                                    className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-1.5 text-xs font-mono"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-slate-200">{chk.name}</span>
+                                      {chk.isValidated && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                          VALIDATED
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="p-2 rounded bg-black/40 border border-slate-800 text-purple-300">
+                                      <code>CHECK ({chk.clause})</code>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500 font-sans italic">
+                                {isEn ? 'No check constraints defined.' : 'هیچ محدودیت بررسی (Check) برای این جدول ثبت نشده است.'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SUB-TAB 3: INDEXES */}
+                      {tableSubTab === 'indexes' && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-400 font-mono">
+                              {struct.indexes.length} {isEn ? 'indexes found' : 'ایندکس یافت شد'}
+                            </span>
+                            <div className="flex items-center gap-2 text-xs font-mono">
+                              <span className="text-slate-400 font-sans">{isEn ? 'Total Index Size:' : 'فضای کل ایندکس‌ها:'}</span>
+                              <span className="font-bold text-blue-400">{struct.metadata.indexSizePretty}</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {struct.indexes.map((idx) => (
+                              <div
+                                key={idx.name}
+                                className={`p-4 rounded-xl border space-y-3 text-xs font-mono transition ${
+                                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                                    <span className="font-bold text-sm text-slate-100">{idx.name}</span>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                      {idx.accessMethod}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {idx.isPrimary && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                        PRIMARY KEY
+                                      </span>
+                                    )}
+                                    {idx.isUnique && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                        UNIQUE
+                                      </span>
+                                    )}
+                                    {idx.isValid && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                        VALID
+                                      </span>
+                                    )}
+                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-800 text-cyan-300 border border-slate-700">
+                                      {idx.sizePretty}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] text-slate-500 font-sans block">
+                                      {isEn ? 'Indexed Columns' : 'ستون‌های ایندکس‌شده'}
+                                    </span>
+                                    <p className="font-bold text-slate-200">
+                                      {idx.columns.length > 0 ? idx.columns.join(', ') : '(expression)'}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] text-slate-500 font-sans block">
+                                      {isEn ? 'Scans Count' : 'تعداد اسکن‌ها (Scans)'}
+                                    </span>
+                                    <p className="font-bold text-cyan-400 tabular-nums">
+                                      {idx.scansCount.toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] text-slate-500 font-sans block">
+                                      {isEn ? 'Tuples Read / Fetched' : 'سطرهای خوانده‌شده / واکشی‌شده'}
+                                    </span>
+                                    <p className="font-bold text-emerald-400 tabular-nums">
+                                      {idx.tuplesRead.toLocaleString()} / {idx.tuplesFetched.toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                                  <code className="text-cyan-300 text-[11px] truncate">{idx.definition}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(idx.definition)}
+                                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white shrink-0"
+                                    title={isEn ? 'Copy DDL' : 'کپی دستور ساخت ایندکس'}
+                                  >
+                                    {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SUB-TAB 4: STORAGE & STATISTICS */}
+                      {tableSubTab === 'storage' && (
+                        <div className="space-y-4">
+                          {/* Physical Storage Breakdown */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-purple-400 flex items-center gap-1.5 font-sans">
+                              <HardDrive className="w-4 h-4" />
+                              <span>{isEn ? 'Physical Disk Storage Metrics' : 'فضای دیسک فیزیکی و تفکیک ابعاد'}</span>
+                            </h5>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                              <div className="space-y-1 p-2.5 rounded-lg bg-black/20 border border-slate-800">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Table Heap Data' : 'داده‌های اصلی (Heap)'}
+                                </span>
+                                <p className="font-bold text-sm text-slate-200">{struct.metadata.tableSizePretty}</p>
+                              </div>
+                              <div className="space-y-1 p-2.5 rounded-lg bg-black/20 border border-slate-800">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Indexes Total' : 'فضای ایندکس‌ها'}
+                                </span>
+                                <p className="font-bold text-sm text-blue-400">{struct.metadata.indexSizePretty}</p>
+                              </div>
+                              <div className="space-y-1 p-2.5 rounded-lg bg-black/20 border border-slate-800">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'TOAST Storage' : 'فضای TOAST'}
+                                </span>
+                                <p className="font-bold text-sm text-amber-400">{struct.metadata.toastSizePretty}</p>
+                              </div>
+                              <div className="space-y-1 p-2.5 rounded-lg bg-black/20 border border-slate-800">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Total Relation Size' : 'فضای کل جدول'}
+                                </span>
+                                <p className="font-bold text-sm text-purple-400">{struct.metadata.totalSizePretty}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Scan and Tuple Activity */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-cyan-400 flex items-center gap-1.5 font-sans">
+                              <BarChart3 className="w-4 h-4" />
+                              <span>{isEn ? 'Scan Patterns & Table Activity' : 'آمار اسکن و عملیات سطرها'}</span>
+                            </h5>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Sequential Scans' : 'اسکن‌های ترتیبی (Seq Scans)'}
+                                </span>
+                                <p className="font-bold text-amber-400 tabular-nums">
+                                  {struct.metadata.seqScans.toLocaleString()}
+                                </p>
+                                <span className="text-[10px] text-slate-500">
+                                  {struct.metadata.seqTuplesRead.toLocaleString()} {isEn ? 'rows read' : 'سطر خوانده‌شده'}
+                                </span>
+                              </div>
+
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Index Scans' : 'اسکن‌های ایندکس (Idx Scans)'}
+                                </span>
+                                <p className="font-bold text-emerald-400 tabular-nums">
+                                  {struct.metadata.idxScans.toLocaleString()}
+                                </p>
+                                <span className="text-[10px] text-slate-500">
+                                  {struct.metadata.idxTuplesFetched.toLocaleString()} {isEn ? 'rows fetched' : 'سطر واکشی‌شده'}
+                                </span>
+                              </div>
+
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Live Tuples' : 'سطرهای زنده (Live)'}
+                                </span>
+                                <p className="font-bold text-cyan-400 tabular-nums">
+                                  {struct.metadata.nLiveTuples.toLocaleString()}
+                                </p>
+                              </div>
+
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Dead Tuples (Bloat)' : 'سطرهای مرده (نیاز به Vacuum)'}
+                                </span>
+                                <p
+                                  className={`font-bold tabular-nums ${
+                                    struct.metadata.nDeadTuples > 1000 ? 'text-rose-400' : 'text-slate-300'
+                                  }`}
+                                >
+                                  {struct.metadata.nDeadTuples.toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono pt-2 border-t border-slate-800/60">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Tuples Inserted' : 'سطرهای درج‌شده'}
+                                </span>
+                                <p className="font-bold text-slate-200 tabular-nums">
+                                  {struct.metadata.nTuplesIns.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Tuples Updated' : 'سطرهای به‌روزرسانی‌شده'}
+                                </span>
+                                <p className="font-bold text-slate-200 tabular-nums">
+                                  {struct.metadata.nTuplesUpd.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Tuples Deleted' : 'سطرهای حذف‌شده'}
+                                </span>
+                                <p className="font-bold text-slate-200 tabular-nums">
+                                  {struct.metadata.nTuplesDel.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'HOT Updates' : 'به‌روزرسانی سریع (HOT)'}
+                                </span>
+                                <p className="font-bold text-emerald-400 tabular-nums">
+                                  {struct.metadata.nTuplesHotUpd.toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Maintenance History */}
+                          <div
+                            className={`p-4 rounded-xl border space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <h5 className="font-bold text-xs uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 font-sans">
+                              <Clock className="w-4 h-4" />
+                              <span>{isEn ? 'Vacuum & Analyze Maintenance History' : 'تاریخچه تعمیر و نگهداری (Vacuum / Analyze)'}</span>
+                            </h5>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Last Vacuum (Manual)' : 'آخرین Vacuum دستی'}
+                                </span>
+                                <p className="font-bold text-slate-300">
+                                  {struct.metadata.lastVacuum || <span className="text-slate-600 font-sans italic">never</span>}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Last Autovacuum' : 'آخرین Autovacuum'}
+                                </span>
+                                <p className="font-bold text-emerald-400">
+                                  {struct.metadata.lastAutoVacuum || <span className="text-slate-600 font-sans italic">never</span>}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Last Analyze (Manual)' : 'آخرین Analyze دستی'}
+                                </span>
+                                <p className="font-bold text-slate-300">
+                                  {struct.metadata.lastAnalyze || <span className="text-slate-600 font-sans italic">never</span>}
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] text-slate-500 font-sans block">
+                                  {isEn ? 'Last Autoanalyze' : 'آخرین Autoanalyze'}
+                                </span>
+                                <p className="font-bold text-emerald-400">
+                                  {struct.metadata.lastAutoAnalyze || <span className="text-slate-600 font-sans italic">never</span>}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SUB-TAB 5: QUICK SQL */}
+                      {tableSubTab === 'sql' && (
+                        <div className="space-y-3 font-mono text-xs">
+                          {/* Query 1: SELECT 50 */}
+                          <div
+                            className={`p-3.5 rounded-xl border space-y-1.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                              {isEn ? 'Select Sample Rows (50)' : 'انتخاب نمونه سطرها (۵۰ سطر)'}
+                            </span>
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                              <code className="text-cyan-300">
+                                SELECT * FROM "{selectedNode.schemaName}"."{selectedNode.name}" LIMIT 50;
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyToClipboard(`SELECT * FROM "${selectedNode.schemaName}"."${selectedNode.name}" LIMIT 50;`)
+                                }
+                                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                title={isEn ? 'Copy' : 'کپی'}
+                              >
+                                {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Query 2: SELECT COUNT */}
+                          <div
+                            className={`p-3.5 rounded-xl border space-y-1.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                              {isEn ? 'Exact Row Count' : 'شمارش دقیق تعداد کل سطرها'}
+                            </span>
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                              <code className="text-cyan-300">
+                                SELECT count(*) AS total_rows FROM "{selectedNode.schemaName}"."{selectedNode.name}";
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyToClipboard(
+                                    `SELECT count(*) AS total_rows FROM "${selectedNode.schemaName}"."${selectedNode.name}";`
+                                  )
+                                }
+                                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                                title={isEn ? 'Copy' : 'کپی'}
+                              >
+                                {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Query 3: Column list */}
+                          <div
+                            className={`p-3.5 rounded-xl border space-y-1.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                              {isEn ? 'Select All Explicit Columns' : 'انتخاب با ذکر صریح تمام ستون‌ها'}
+                            </span>
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                              <code className="text-cyan-300 truncate">
+                                SELECT {struct.columns.map((c) => `"${c.name}"`).join(', ')} FROM "{selectedNode.schemaName}".
+                                "{selectedNode.name}" LIMIT 50;
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyToClipboard(
+                                    `SELECT ${struct.columns.map((c) => `"${c.name}"`).join(', ')} FROM "${
+                                      selectedNode.schemaName
+                                    }"."${selectedNode.name}" LIMIT 50;`
+                                  )
+                                }
+                                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white shrink-0"
+                                title={isEn ? 'Copy' : 'کپی'}
+                              >
+                                {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ======================================================== */}
             {/* VIEW F: SINGLE TYPE / ENUM OBJECT INSPECTOR              */}

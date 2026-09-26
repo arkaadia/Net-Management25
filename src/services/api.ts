@@ -18,6 +18,7 @@ import {
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
+  PostgresTableStructure,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1307,6 +1308,25 @@ export async function fetchRemoteServerPostgresDatabaseTree(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...(data || {}), database }),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresTableStructure(
+  id: string,
+  params: {
+    database: string;
+    schema: string;
+    table: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; structure?: PostgresTableStructure; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-structure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
   });
   return res.json();
 }
