@@ -1867,6 +1867,8 @@ export interface PostgresQueryExecutionRequest {
   query: string;
   maxRows?: number;
   explain?: boolean;
+  confirmedDestructive?: boolean;
+  auditNotes?: string;
   port?: number;
   user?: string;
   password?: string;
@@ -1904,11 +1906,53 @@ export interface PostgresQueryExecutionError {
   internalQuery?: string;
 }
 
+// ==========================================
+// Phase 9: SQL Safety & Query Execution Controls
+// ==========================================
+
+export type PostgresSqlClassificationType =
+  | 'read_only'
+  | 'write'
+  | 'ddl'
+  | 'administrative'
+  | 'destructive';
+
+export type PostgresSqlRiskLevel =
+  | 'safe'
+  | 'low'
+  | 'moderate'
+  | 'high'
+  | 'critical';
+
+export interface PostgresSqlStatementAnalysis {
+  sql: string;
+  command: string;
+  type: PostgresSqlClassificationType;
+  riskLevel: PostgresSqlRiskLevel;
+  isDestructive: boolean;
+  targetObject?: string;
+  reasons: string[];
+  reasonsFa: string[];
+}
+
+export interface PostgresSqlQuerySafetyReport {
+  overallType: PostgresSqlClassificationType;
+  overallRiskLevel: PostgresSqlRiskLevel;
+  isDestructive: boolean;
+  requiresConfirmation: boolean;
+  statementCount: number;
+  destructiveReasons: string[];
+  destructiveReasonsFa: string[];
+  statements: PostgresSqlStatementAnalysis[];
+}
+
 export interface PostgresQueryExecutionResponse {
   success: boolean;
   results?: PostgresQueryStatementResult[];
   totalDurationMs?: number;
   executedAt?: string;
+  safetyReport?: PostgresSqlQuerySafetyReport;
+  requiresConfirmation?: boolean;
   error?: PostgresQueryExecutionError;
   errorFa?: string;
 }
@@ -1935,6 +1979,8 @@ export interface PostgresQueryHistoryItem {
   durationMs: number;
   rowCount: number;
   command?: string;
+  classificationType?: PostgresSqlClassificationType;
+  riskLevel?: PostgresSqlRiskLevel;
   errorMessage?: string;
 }
 

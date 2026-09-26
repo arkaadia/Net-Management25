@@ -34,6 +34,10 @@ import {
   Tag,
   Shield,
   HelpCircle,
+  Flame,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -43,8 +47,13 @@ import {
   PostgresQueryStatementResult,
   PostgresQueryTab,
   PostgresQueryHistoryItem,
+  PostgresSqlQuerySafetyReport,
+  PostgresSqlClassificationType,
+  PostgresSqlRiskLevel,
 } from '../../types';
 import { executeRemoteServerPostgresQuery } from '../../services/api';
+import { analyzePostgresSqlSafety } from '../../utils/postgresSqlSafety';
+import { PostgresDestructiveConfirmModal } from './PostgresDestructiveConfirmModal';
 
 export interface PostgresSqlEditorTabProps {
   server: RemoteServer;
@@ -166,6 +175,60 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [inspectedRow, setInspectedRow] = useState<Record<string, any> | null>(null);
 
+  // Phase 9: SQL Safety & Destructive Confirmation State
+  const [showDestructiveModal, setShowDestructiveModal] = useState(false);
+  const [pendingDestructiveQuery, setPendingDestructiveQuery] = useState<{
+    query: string;
+    options?: { explain?: boolean };
+    safetyReport: PostgresSqlQuerySafetyReport;
+  } | null>(null);
+  const [isExecutingDestructive, setIsExecutingDestructive] = useState(false);
+
+  // Real-time SQL Safety Analysis of active tab query
+  const activeTabSafety = useMemo(() => {
+    return analyzePostgresSqlSafety(activeTab?.query || '');
+  }, [activeTab?.query]);
+
+  // Helper to render consistent classification & risk badge
+  const renderClassificationBadge = (type?: PostgresSqlClassificationType, risk?: PostgresSqlRiskLevel) => {
+    if (!type) return null;
+    const isDestr = type === 'destructive' || risk === 'critical' || risk === 'high';
+    const isReadOnly = type === 'read_only';
+    const isDdl = type === 'ddl';
+    const isAdmin = type === 'administrative';
+
+    let bg = 'bg-slate-800 text-slate-300 border-slate-700';
+    let label = isEn ? 'Write' : 'نوشتن داده';
+
+    if (isReadOnly) {
+      bg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+      label = isEn ? 'Read-only' : 'فقط خواندنی';
+    } else if (isDestr) {
+      bg = 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+      label = isEn ? 'Destructive' : 'مخرب و پرخطر';
+    } else if (isDdl) {
+      bg = 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+      label = isEn ? 'DDL / Schema' : 'تغییر ساختار';
+    } else if (isAdmin) {
+      bg = 'bg-purple-500/20 text-purple-400 border-purple-500/40';
+      label = isEn ? 'Admin' : 'مدیریتی';
+    }
+
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono border ${bg}`}>
+        {isReadOnly && <ShieldCheck className="w-3 h-3 text-emerald-400" />}
+        {isDestr && <Flame className="w-3 h-3 text-rose-400" />}
+        {isDdl && <Layers className="w-3 h-3 text-amber-400" />}
+        {isAdmin && <Sliders className="w-3 h-3 text-purple-400" />}
+        {!isReadOnly && !isDestr && !isDdl && !isAdmin && <Shield className="w-3 h-3 text-cyan-400" />}
+        <span>{label}</span>
+        {risk && risk !== 'safe' && (
+          <span className="opacity-75 uppercase">({risk})</span>
+        )}
+      </span>
+    );
+  };
+
   // Save history to localStorage
   const saveToHistory = useCallback(
     (item: Omit<PostgresQueryHistoryItem, 'id' | 'timestamp'>) => {
@@ -254,8 +317,13 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
     );
   };
 
-  // Execute active query
-  const handleExecuteQuery = async (options?: { explain?: boolean; queryOverride?: string }) => {
+  // Execute active query with SQL Safety Analysis
+  const handleExecuteQuery = async (options?: {
+    explain?: boolean;
+    queryOverride?: string;
+    confirmedDestructive?: boolean;
+    auditNotes?: string;
+  }) => {
     if (!activeTab || activeTab.isExecuting) return;
 
     // Check if text is highlighted in textarea
@@ -276,6 +344,18 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
 
     if (!queryToRun) return;
 
+    // Phase 9: Client-Side Safety Scan
+    const safetyCheck = analyzePostgresSqlSafety(queryToRun);
+    if (safetyCheck.isDestructive && !options?.confirmedDestructive) {
+      setPendingDestructiveQuery({
+        query: queryToRun,
+        options,
+        safetyReport: safetyCheck,
+      });
+      setShowDestructiveModal(true);
+      return;
+    }
+
     // Set tab executing state
     setTabs((prev) =>
       prev.map((t) => (t.id === activeTabId ? { ...t, isExecuting: true } : t))
@@ -290,6 +370,8 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
         query: queryToRun,
         explain: options?.explain,
         maxRows: 1000,
+        confirmedDestructive: options?.confirmedDestructive,
+        auditNotes: options?.auditNotes,
       });
 
       // Update tab with result
@@ -301,7 +383,7 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
         )
       );
 
-      // Record to history
+      // Record to history with safety classification
       const totalRowCount = (response.results || []).reduce((acc, r) => acc + (r.rowCount || 0), 0);
       const firstCommand = response.results && response.results[0] ? response.results[0].command : 'QUERY';
 
@@ -313,6 +395,8 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
         durationMs: response.totalDurationMs || 0,
         rowCount: totalRowCount,
         command: firstCommand,
+        classificationType: response.safetyReport?.overallType || safetyCheck.overallType,
+        riskLevel: response.safetyReport?.overallRiskLevel || safetyCheck.overallRiskLevel,
         errorMessage: response.error?.message,
       });
     } catch (err: any) {
@@ -336,8 +420,27 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
         durationMs: 0,
         rowCount: 0,
         command: 'ERROR',
+        classificationType: safetyCheck.overallType,
+        riskLevel: safetyCheck.overallRiskLevel,
         errorMessage: err.message,
       });
+    }
+  };
+
+  const handleConfirmDestructiveExecution = async (auditNotes?: string) => {
+    if (!pendingDestructiveQuery) return;
+    setIsExecutingDestructive(true);
+    try {
+      await handleExecuteQuery({
+        ...pendingDestructiveQuery.options,
+        queryOverride: pendingDestructiveQuery.query,
+        confirmedDestructive: true,
+        auditNotes,
+      });
+    } finally {
+      setIsExecutingDestructive(false);
+      setShowDestructiveModal(false);
+      setPendingDestructiveQuery(null);
     }
   };
 
@@ -760,6 +863,11 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
               title={isEn ? 'Target Schema (search_path)' : 'اسکیما هدف'}
             />
           </div>
+
+          {/* Phase 9: Real-time SQL Safety Meter */}
+          <div className="flex items-center">
+            {renderClassificationBadge(activeTabSafety.overallType, activeTabSafety.overallRiskLevel)}
+          </div>
         </div>
 
         {/* Action Buttons */}
@@ -835,6 +943,32 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Phase 9: Real-time Destructive Hazard Banner */}
+      {activeTabSafety.isDestructive && (
+        <div
+          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs shrink-0 ${
+            isLightMode
+              ? 'bg-rose-50 border-rose-300 text-rose-950'
+              : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Flame className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" />
+            <div className="min-w-0 truncate">
+              <span className="font-bold">
+                {isEn ? 'Destructive SQL Detected: ' : 'دستور مخرب شناسایی شد: '}
+              </span>
+              <span className="font-mono text-[11px] opacity-90 truncate">
+                {(isEn ? activeTabSafety.destructiveReasons : activeTabSafety.destructiveReasonsFa).join(' | ')}
+              </span>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
+            {isEn ? 'Requires Operator Confirmation' : 'نیاز به تأیید صریح اپراتور'}
+          </span>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. MAIN WORKSPACE: EDITOR & RESULTS / HISTORY (SPLIT VIEW)                */}
@@ -974,6 +1108,7 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
                           <span className="text-slate-400">
                             {item.rowCount} {isEn ? 'rows' : 'سطر'}
                           </span>
+                          {renderClassificationBadge(item.classificationType, item.riskLevel)}
                           <span className="text-slate-500">•</span>
                           <span className="text-slate-500 text-[10px]">{new Date(item.timestamp).toLocaleTimeString()}</span>
                         </div>
@@ -1138,6 +1273,15 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
                     <span>
                       {activeStatementResult?.rowCount || 0} {isEn ? 'rows' : 'سطر'}
                     </span>
+                    {activeTab.lastResult.safetyReport && (
+                      <>
+                        <span>•</span>
+                        {renderClassificationBadge(
+                          activeTab.lastResult.safetyReport.overallType,
+                          activeTab.lastResult.safetyReport.overallRiskLevel
+                        )}
+                      </>
+                    )}
                     {activeStatementResult?.isTruncated && (
                       <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
                         {isEn ? 'Capped at 1,000' : 'محدود به ۱۰۰۰ سطر'}
@@ -1485,6 +1629,26 @@ export const PostgresSqlEditorTab: React.FC<PostgresSqlEditorTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Phase 9: Destructive SQL Confirmation Modal */}
+      {showDestructiveModal && pendingDestructiveQuery && (
+        <PostgresDestructiveConfirmModal
+          isOpen={showDestructiveModal}
+          onClose={() => {
+            setShowDestructiveModal(false);
+            setPendingDestructiveQuery(null);
+          }}
+          onConfirm={handleConfirmDestructiveExecution}
+          serverName={server.name}
+          serverIp={server.ip}
+          databaseName={activeTab?.database || 'postgres'}
+          query={pendingDestructiveQuery.query}
+          safetyReport={pendingDestructiveQuery.safetyReport}
+          isExecuting={isExecutingDestructive}
+          isEn={isEn}
+          isLightMode={isLightMode}
+        />
       )}
     </div>
   );

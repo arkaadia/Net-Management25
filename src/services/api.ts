@@ -1403,6 +1403,18 @@ export async function executeRemoteServerPostgresQuery(
   return res.json();
 }
 
+export async function analyzeRemoteServerPostgresQuery(
+  id: string,
+  query: string
+): Promise<{ success: boolean; report?: any; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/query/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  return res.json();
+}
+
 export function getRemoteServerWebSocketUrl(
   serverId: string,
   shell: 'bash' | 'zsh' = 'bash',

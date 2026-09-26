@@ -70,6 +70,7 @@ import {
   updatePostgresTableRow,
   deletePostgresTableRow,
   executePostgresQuery,
+  analyzePostgresSqlSafety,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1827,7 +1828,7 @@ apiRouter.post('/remote-servers/:id/postgres/table-row/delete', handlePostgresTa
 const handlePostgresQuery = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { database, schema, query, maxRows, explain, port, user, password } = req.body;
+    const { database, schema, query, maxRows, explain, confirmedDestructive, auditNotes, port, user, password } = req.body;
 
     const server = await getRemoteServerById(id);
     if (!server) {
@@ -1860,10 +1861,36 @@ const handlePostgresQuery = async (req: Request, res: Response) => {
       query,
       maxRows: maxRows ? Number(maxRows) : 1000,
       explain: Boolean(explain),
+      confirmedDestructive: Boolean(confirmedDestructive),
+      auditNotes: auditNotes ? String(auditNotes).trim() : undefined,
       port: port ? Number(port) : undefined,
       user,
       password,
     });
+
+    // Phase 9: Server-side audit logging for administrative and destructive operations
+    if (result.safetyReport && (result.safetyReport.isDestructive || result.safetyReport.overallType === 'administrative' || result.safetyReport.overallType === 'ddl')) {
+      const isDestructive = result.safetyReport.isDestructive;
+      const actionName = isDestructive
+        ? 'PostgreSQL Destructive Query Executed'
+        : result.safetyReport.overallType === 'administrative'
+        ? 'PostgreSQL Admin Command Executed'
+        : 'PostgreSQL DDL Migration Executed';
+
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || user || 'Administrator',
+        action: actionName,
+        category: isDestructive ? 'security' : 'operation',
+        target: `${server.name} (${server.ip}) / DB: ${database}`,
+        status: result.success ? 'success' : 'warning',
+        details: `[${result.safetyReport.overallType.toUpperCase()} | Risk: ${result.safetyReport.overallRiskLevel}] ${
+          isDestructive ? 'Operator confirmed execution. ' : ''
+        }Statements: ${result.safetyReport.statementCount}. Query: ${query.trim().slice(0, 160)}${query.trim().length > 160 ? '...' : ''}${
+          auditNotes ? ` | Reason: ${auditNotes}` : ''
+        }`,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+    }
 
     return res.json(result);
   } catch (err: any) {
@@ -1875,6 +1902,25 @@ const handlePostgresQuery = async (req: Request, res: Response) => {
   }
 };
 apiRouter.post('/remote-servers/:id/postgres/query', handlePostgresQuery);
+
+// POST /api/remote-servers/:id/postgres/query/analyze - Phase 9 SQL Safety Analysis Endpoint
+apiRouter.post('/remote-servers/:id/postgres/query/analyze', async (req: Request, res: Response) => {
+  try {
+    const { query } = req.body;
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query text is required for safety analysis',
+        errorFa: 'متن کوئری برای ارزیابی ایمنی الزامی است',
+      });
+    }
+
+    const report = analyzePostgresSqlSafety(query);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 
 

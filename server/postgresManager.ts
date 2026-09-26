@@ -1,7 +1,10 @@
 import { Client } from 'pg';
 import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
+import { analyzePostgresSqlSafety, PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
 
+export { analyzePostgresSqlSafety } from './postgresSqlSafety';
+export type { PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
 export type PostgresConnectionStatus =
   | 'connected'
   | 'connection_failed'
@@ -2808,6 +2811,8 @@ export interface PostgresQueryExecutionParams {
   query: string;
   maxRows?: number;
   explain?: boolean;
+  confirmedDestructive?: boolean;
+  auditNotes?: string;
   port?: number;
   user?: string;
   password?: string;
@@ -2829,6 +2834,8 @@ export async function executePostgresQuery(
   }>;
   totalDurationMs?: number;
   executedAt?: string;
+  safetyReport?: PostgresSqlQuerySafetyReport;
+  requiresConfirmation?: boolean;
   error?: {
     message: string;
     code?: string;
@@ -2843,7 +2850,7 @@ export async function executePostgresQuery(
   };
   errorFa?: string;
 }> {
-  const { database, schema, query, maxRows = 1000, explain = false } = params;
+  const { database, schema, query, maxRows = 1000, explain = false, confirmedDestructive = false } = params;
 
   if (!database || !database.trim()) {
     return {
@@ -2858,6 +2865,24 @@ export async function executePostgresQuery(
       success: false,
       error: { message: 'Query string cannot be empty.' },
       errorFa: 'متن کوئری نمی‌تواند خالی باشد.',
+    };
+  }
+
+  // Phase 9: SQL Safety & Risk Classification
+  const safetyReport = analyzePostgresSqlSafety(query);
+
+  // If query contains destructive operations and user hasn't explicitly confirmed it, block execution
+  if (safetyReport.isDestructive && !confirmedDestructive) {
+    return {
+      success: false,
+      requiresConfirmation: true,
+      safetyReport,
+      totalDurationMs: 0,
+      executedAt: new Date().toISOString(),
+      error: {
+        message: `Destructive operation blocked by SQL Safety Guard: ${safetyReport.destructiveReasons.join('; ')}. Explicit operator confirmation is required.`,
+      },
+      errorFa: `عملیات مخرب توسط سامانه ایمنی SQL متوقف شد: ${safetyReport.destructiveReasonsFa.join('؛ ')}. نیاز به تأیید صریح اپراتور دارد.`,
     };
   }
 
@@ -2936,6 +2961,7 @@ export async function executePostgresQuery(
     return {
       success: true,
       results,
+      safetyReport,
       totalDurationMs,
       executedAt: new Date().toISOString(),
     };
@@ -2955,6 +2981,7 @@ export async function executePostgresQuery(
 
     return {
       success: false,
+      safetyReport,
       totalDurationMs,
       executedAt: new Date().toISOString(),
       error: {

@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.189.0';
+export const APP_VERSION = '1.190.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.190.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۹ مدیریت PostgreSQL: سامانه ایمنی SQL، طبقه‌بندی هوشمند ریسک کوئری‌ها، تاییدیه دومرحله‌ای عملیات مخرب و ثبت لاگ امنیتی (SQL Safety & Execution Controls)',
+    title_en: 'PostgreSQL Management Phase 9: SQL Safety & Query Execution Controls, Intelligent Risk Classification, Destructive Operation Guard & Audit Logging',
+    changes: [
+      'پیاده‌سازی جامع فاز ۹ نقشه راه مدیریت PostgreSQL برای محافظت کامل از پایگاه داده در برابر خطاهای انسانی، دستورات مخرب و تغییرات ناخواسته.',
+      'موتور طبقه‌بندی و تحلیل ایمنی کوئری‌ها (SQL Safety Classifier): اسکن نحوی توکن‌های SQL برای تفکیک دستورات به ۵ دسته اصلی: فقط خواندنی (Read-only)، نوشتن داده (Write)، تغییر ساختار (DDL)، مدیریتی و نگهداری (Administrative)، و پرخطر/مخرب (Destructive).',
+      'سطوح ۵‌گانه ارزیابی ریسک (Risk Levels): درجه‌بندی خودکار کوئری به سطوح Safe، Low، Moderate، High و Critical بر اساس دامنه اثرگذاری و ماهیت دستورات.',
+      'تشخیص هوشمند عملیات تخریبی: شناسایی خودکار دستورات خطرناک نظیر DROP DATABASE/TABLE/SCHEMA، دستور پاک‌سازی فوری TRUNCATE، دستورات DELETE و UPDATE بدون شرط مشخص WHERE یا با شروط بدیهی نظیر 1=1، حذف ستون و قید با ALTER ... DROP و سلب دسترسی با REVOKE.',
+      'نشانگر بلادرنگ ایمنی در محیط ادیتور: نمایش برچسب سطح ریسک و نوع کوئری در نوار ابزار به همراه بنر هشدار قرمز رنگ در صورت تشخیص دستورات مخرب قبل از فشردن دکمه اجرا.',
+      'مودال اختصاصی تایید اپراتور برای عملیات مخرب (PostgresDestructiveConfirmModal): توقف اجرای دستورات مخرب، نمایش لیست صریح خطرات شناسایی‌شده، پیش‌نمایش کوئری، الزام به چک‌باکس پذیرش مسئولیت و تایپ کلمه تایید یا CONFIRM به همراه فیلد اختیاری توضیحات تیکت.',
+      'سد محافظتی در سمت سرور (Server-side Guard): ممانعت از اجرای هرگونه کوئری مخرب بدون تاییدیه صریح در سطح کنترلر و API دیتابیس (جلوگیری از دور زدن کلاینت).',
+      'سیستم ثبت لاگ امنیتی (Structured Audit Logging): ثبت خودکار وقایع اجرای دستورات مخرب، DDL و مدیریتی در سامانه addAuditLog شامل نام کاربر، آی‌پی کلاینت، سرور و دیتابیس مقصد، سطح ریسک، تعداد دستورات و متن کوئری.',
+      'ردیابی سطح ریسک در تاریخچه کوئری‌ها و تله‌متری نتایج، رعایت کامل قانون دوزبانه بودن، پشتیبانی از تم‌های تیره و روشن و معماری استاندارد پنجره‌ها.'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 9: Production-grade SQL Safety and permission-aware Query Execution Controls protecting databases against unintended destruction.',
+      'Intelligent SQL Safety Classifier: deep token-level AST scanning classifying statements into 5 distinct categories: Read-only, Write, DDL / Schema, Administrative, and Destructive.',
+      '5-Tier Risk Assessment Matrix: automatic risk scoring across Safe, Low, Moderate, High, and Critical based on operation impact scope and irreversibility.',
+      'Precision Destructive Pattern Detection: automated identification of DROP DATABASE/TABLE/SCHEMA/ROLE, immediate TRUNCATE TABLE, unbounded DELETE and UPDATE statements lacking specific WHERE clauses (or with trivial 1=1 conditions), ALTER ... DROP COLUMN/CONSTRAINT, and mass REVOKE privileges.',
+      'Real-Time Safety Meter in SQL Editor: dynamic visual risk badge in query toolbar and prominent hazard notification banner for destructive statements before execution.',
+      'Dedicated Operator Confirmation Modal (PostgresDestructiveConfirmModal): intercepts destructive queries, displays exact hazards and statement counts, requires explicit risk acknowledgment checkbox, typed "CONFIRM" verification, and optional change ticket / audit note.',
+      'Server-Side Safety Authorization Guard: enforces confirmation checks at the backend controller level, rejecting unconfirmed destructive executions even if client guards are bypassed.',
+      'Structured Security Audit Logging: automatic recording of destructive, DDL, and administrative executions in the system audit log (addAuditLog) capturing operator username, client IP, target server and database, risk level, and query summary.',
+      'Integrated risk badges across query execution history and result telemetry, strict bilingual i18n enforcement without language leakage, and full theme contrast compliance.'
+    ]
+  },
   {
     version: '1.189.0',
     releaseDate: '2026-09-26',
