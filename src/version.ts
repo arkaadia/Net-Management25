@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.187.0';
+export const APP_VERSION = '1.188.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.188.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۷ مدیریت PostgreSQL: ویرایش ایمن داده‌های جدول (Table Data Editing)، درج سطر، ویرایش مقادیر، حذف ایمن با پشتیبانی از کلید اصلی و ctid در تراکنش‌های ایزوله',
+    title_en: 'PostgreSQL Management Phase 7: Controlled Table Data Editing, Row Insert, Field Updates, Safe Deletion with Primary Key & ctid Fallback in Isolated Transactions',
+    changes: [
+      'پیاده‌سازی کامل فاز ۷ نقشه راه مدیریت PostgreSQL برای ویرایش کنترل‌شده و کاملاً تراکنش‌محور داده‌های جداول سرورهای ریموت لینوکس.',
+      'افزودن سطر جدید (Insert Row): فرم هوشمند درج سطر با شناسایی ستون‌های کلیدی و سریال خودکار، امکان تعیین مقادیر پیش‌فرض (DEFAULT) یا تهی (NULL) و اعتبارسنجی مقادیر JSON و فرمت‌های مختلف داده.',
+      'ویرایش سطرها (Edit Row): هدف‌گیری اتمیک سطر با استخراج کلیدهای اصلی (Single/Composite PK) و فال‌بک خودکار به شناسه فیزیکی سطر (ctid) در جداول بدون کلید اصلی با رعایت عدم بروز تداخل همزمانی.',
+      'حذف ایمن سطر (Safe Deletion): تاییدیه صریح قبل از حذف با مکانیسم سنجش دقیق سطر هدف؛ در صورتی که تعداد سطرهای تحت تاثیر مخالف دقیقاً ۱ باشد، تراکنش فوراً به طور خودکار Rollback می‌شود تا از حذف ناخواسته حتی یک سطر اضافی جلوگیری گردد.',
+      'تراکنش‌های ایزوله سمت سرور (Transaction Isolation): کلیه عملیات‌های DML (درج، ویرایش، حذف) در قالب تراکنش‌های امن BEGIN ... COMMIT اجرا شده و در صورت بروز هرگونه خطای پایگاه داده یا نقض یکپارچگی ارجاعی به صورت خودکار Rollback می‌گردند.',
+      'اعتبارسنجی سمت سرور و جلوگیری از حملات تزریق SQL: استفاده انحصاری از کوئری‌های پارامتری با اعتبارسنجی ستون‌ها از طریق کاتالوگ pg_attribute جهت جلوگیری کامل از تزریق SQL.',
+      'مودال سه‌کنترله (بستن، کوچک‌نمایی و تمام‌صفحه) همراه با رندرینگ پورتال در ریشه سند (createPortal)، رعایت حریم فوتر و سازگاری کامل با تم تیره و روشن.',
+      'رعایت کامل قانون عدم نشت زبان (Strict Bilingual i18n) و عدم استفاده از داده‌های شبیه‌سازی‌شده یا ساختگی.'
+    ],
+    changes_en: [
+      'Full implementation of PostgreSQL Management Phase 7: Controlled, transaction-safe row manipulation for remote Linux database tables.',
+      'Insert Row: intelligent column-aware insert form supporting automatic SERIAL/Identity default handling, explicit DEFAULT and NULL toggles, and live JSON syntax validation.',
+      'Edit Row: atomic row targeting with single or composite Primary Keys and automatic physical pointer (ctid) fallback for tables lacking primary keys, preventing race condition collisions.',
+      'Safe Deletion: explicit deletion confirmation workflow with single-row impact enforcement; transactions immediately roll back if affected row count differs from exactly 1, completely preventing unintended multi-row deletions.',
+      'Isolated Server Transactions: all DML operations (INSERT, UPDATE, DELETE) run within dedicated BEGIN ... COMMIT transaction blocks with automatic rollback on database constraint violations.',
+      'Server-Side Validation & SQL Injection Prevention: parameterized queries with strict column catalog validation via pg_attribute preventing SQL injection.',
+      'Universal 3-button modal (Close, Minimize, Fullscreen) portaled directly to document body (createPortal) with strict footer clearance and dark/light theme contrast.',
+      'Strict adherence to bilingual English/Persian localization rules, authentic live system catalog telemetry without mock data.'
+    ]
+  },
   {
     version: '1.187.0',
     releaseDate: '2026-09-26',

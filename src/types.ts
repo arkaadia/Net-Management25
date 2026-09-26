@@ -1803,6 +1803,60 @@ export interface PostgresTableDataResult {
   fetchedAt: string;
 }
 
+// Phase 7: Table Data Editing Types
+export interface PostgresRowColumnValue {
+  value: any;
+  isNull?: boolean;
+  isDefault?: boolean;
+}
+
+export interface PostgresRowInsertRequest {
+  database: string;
+  schema: string;
+  table: string;
+  values: Record<string, PostgresRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowUpdateRequest {
+  database: string;
+  schema: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  ctid?: string;
+  originalRow?: Record<string, any>;
+  updatedValues: Record<string, PostgresRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowDeleteRequest {
+  database: string;
+  schema: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  ctid?: string;
+  originalRow?: Record<string, any>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowMutationResult {
+  success: boolean;
+  operation: 'insert' | 'update' | 'delete';
+  affectedRows: number;
+  data?: Record<string, any>;
+  executionTimeMs?: number;
+  message?: string;
+  messageFa?: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

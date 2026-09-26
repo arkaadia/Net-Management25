@@ -48,6 +48,7 @@ import {
   Trash2,
   Maximize2,
   X,
+  Pencil,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -72,13 +73,18 @@ import {
   PostgresTableDataResult,
   PostgresTableDataFilter,
   PostgresFilterOperator,
+  PostgresRowColumnValue,
 } from '../../types';
 import {
   fetchRemoteServerPostgresRoles,
   fetchRemoteServerPostgresDatabaseTree,
   fetchRemoteServerPostgresTableStructure,
   fetchRemoteServerPostgresTableData,
+  insertRemoteServerPostgresTableRow,
+  updateRemoteServerPostgresTableRow,
+  deleteRemoteServerPostgresTableRow,
 } from '../../services/api';
+import { PostgresTableRowEditModal } from './PostgresTableRowEditModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface PostgresDatabaseBrowserTabProps {
@@ -319,6 +325,143 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
       });
     }
   }, [selectedNode.type, selectedNode.dbName, selectedNode.schemaName, selectedNode.name]);
+
+  // Phase 7: Table Data Editing state & handlers
+  const [isInsertRowModalOpen, setIsInsertRowModalOpen] = useState(false);
+  const [editingRowForModal, setEditingRowForModal] = useState<Record<string, any> | null>(null);
+  const [deletingRowForModal, setDeletingRowForModal] = useState<Record<string, any> | null>(null);
+  const [rowMutationNotice, setRowMutationNotice] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  // Auto-dismiss row mutation feedback after 5 seconds
+  useEffect(() => {
+    if (!rowMutationNotice) return;
+    const timer = setTimeout(() => {
+      setRowMutationNotice(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [rowMutationNotice]);
+
+  const handleInsertRowSubmit = useCallback(
+    async (values: Record<string, PostgresRowColumnValue>): Promise<{ success: boolean; error?: string }> => {
+      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
+      }
+      try {
+        const res = await insertRemoteServerPostgresTableRow(server.id, {
+          database: selectedNode.dbName,
+          schema: selectedNode.schemaName,
+          table: selectedNode.name,
+          values,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? (res.message || 'Row successfully inserted.')
+              : (res.messageFa || 'سطر با موفقیت در جدول درج شد.'),
+          });
+          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? (res.error || 'Failed to insert row') : (res.errorFa || res.error || 'خطا در درج سطر'),
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedNode, isEn, handleFetchTableData]
+  );
+
+  const handleUpdateRowSubmit = useCallback(
+    async (
+      updatedValues: Record<string, PostgresRowColumnValue>,
+      primaryKeyValues?: Record<string, any>,
+      ctid?: string,
+      originalRow?: Record<string, any>
+    ): Promise<{ success: boolean; error?: string }> => {
+      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
+      }
+      try {
+        const res = await updateRemoteServerPostgresTableRow(server.id, {
+          database: selectedNode.dbName,
+          schema: selectedNode.schemaName,
+          table: selectedNode.name,
+          primaryKeyValues,
+          ctid,
+          originalRow,
+          updatedValues,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? (res.message || 'Row successfully updated.')
+              : (res.messageFa || 'سطر با موفقیت به‌روزرسانی شد.'),
+          });
+          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? (res.error || 'Failed to update row') : (res.errorFa || res.error || 'خطا در به‌روزرسانی سطر'),
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedNode, isEn, handleFetchTableData]
+  );
+
+  const handleDeleteRowSubmit = useCallback(
+    async (
+      primaryKeyValues?: Record<string, any>,
+      ctid?: string,
+      originalRow?: Record<string, any>
+    ): Promise<{ success: boolean; error?: string }> => {
+      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
+      }
+      try {
+        const res = await deleteRemoteServerPostgresTableRow(server.id, {
+          database: selectedNode.dbName,
+          schema: selectedNode.schemaName,
+          table: selectedNode.name,
+          primaryKeyValues,
+          ctid,
+          originalRow,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? (res.message || 'Row successfully deleted.')
+              : (res.messageFa || 'سطر با موفقیت از جدول حذف شد.'),
+          });
+          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? (res.error || 'Failed to delete row') : (res.errorFa || res.error || 'خطا در حذف سطر'),
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedNode, isEn, handleFetchTableData]
+  );
 
   // Fetch roles
   const handleFetchRoles = useCallback(async () => {
@@ -2764,10 +2907,47 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
 
                         return (
                           <div className="space-y-3">
+                            {/* Phase 7: Row Mutation Feedback Notice Banner */}
+                            {rowMutationNotice && (
+                              <div
+                                className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-semibold animate-in fade-in duration-150 ${
+                                  rowMutationNotice.type === 'success'
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                    : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {rowMutationNotice.type === 'success' ? (
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                  ) : (
+                                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                                  )}
+                                  <span>{rowMutationNotice.message}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setRowMutationNotice(null)}
+                                  className="p-1 rounded hover:bg-black/20 text-slate-400 hover:text-white transition"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
                             {/* Toolbar Top Bar */}
                             <div className="flex items-center justify-between gap-2.5 flex-wrap">
-                              {/* Left: Search input & Filter / Column Popovers */}
+                              {/* Left: Search input, Filters, Columns & Insert Row Button */}
                               <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[280px]">
+                                {/* Phase 7: Insert Row Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setIsInsertRowModalOpen(true)}
+                                  className="px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition shadow-sm bg-emerald-500 hover:bg-emerald-600 text-black font-bold border-emerald-400"
+                                  title={isEn ? 'Insert a new row into this table' : 'افزودن سطر جدید به این جدول'}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Insert Row' : 'افزودن سطر'}</span>
+                                </button>
                                 {/* Search Form */}
                                 <form onSubmit={handleApplySearch} className="relative flex-1 min-w-[180px] max-w-sm flex items-center">
                                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -3145,8 +3325,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                   >
                                     <tr>
                                       <th className="py-2.5 px-3 w-12 text-slate-500">#</th>
-                                      <th className="py-2.5 px-2 w-10 text-center">
-                                        <span className="sr-only">Detail</span>
+                                      <th className="py-2.5 px-2 w-20 text-center">
+                                        <span>{isEn ? 'Actions' : 'عملیات'}</span>
                                       </th>
                                       {visibleCols.map((col) => {
                                         const isSorted = dataSortColumn === col.name;
@@ -3200,15 +3380,33 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                             <td className="py-2 px-3 text-slate-500 text-[11px]">
                                               {absoluteRowNum}
                                             </td>
-                                            <td className="py-2 px-2 text-center">
-                                              <button
-                                                type="button"
-                                                onClick={() => setSelectedRowForModal(row)}
-                                                className="p-1 rounded hover:bg-slate-800 text-slate-500 hover:text-cyan-400 transition"
-                                                title={isEn ? 'View row details' : 'مشاهده جزئیات سطر'}
-                                              >
-                                                <Maximize2 className="w-3 h-3" />
-                                              </button>
+                                            <td className="py-2 px-2 text-center whitespace-nowrap">
+                                              <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setSelectedRowForModal(row)}
+                                                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-cyan-400 transition"
+                                                  title={isEn ? 'View row details' : 'مشاهده جزئیات سطر'}
+                                                >
+                                                  <Maximize2 className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setEditingRowForModal(row)}
+                                                  className="p-1 rounded hover:bg-amber-950/40 text-slate-400 hover:text-amber-400 transition"
+                                                  title={isEn ? 'Edit row' : 'ویرایش سطر'}
+                                                >
+                                                  <Pencil className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setDeletingRowForModal(row)}
+                                                  className="p-1 rounded hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition"
+                                                  title={isEn ? 'Delete row' : 'حذف سطر'}
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              </div>
                                             </td>
                                             {visibleCols.map((col) => {
                                               const rawVal = row[col.name];
@@ -3462,6 +3660,26 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                 </div>
                               </div>
                             )}
+                            {/* Phase 7: Table Row Edit / Insert / Delete Modal */}
+                            <PostgresTableRowEditModal
+                              isOpen={isInsertRowModalOpen || !!editingRowForModal || !!deletingRowForModal}
+                              onClose={() => {
+                                setIsInsertRowModalOpen(false);
+                                setEditingRowForModal(null);
+                                setDeletingRowForModal(null);
+                              }}
+                              mode={isInsertRowModalOpen ? 'insert' : editingRowForModal ? 'edit' : 'delete'}
+                              databaseName={selectedNode.dbName || ''}
+                              schemaName={selectedNode.schemaName || ''}
+                              tableName={selectedNode.name || ''}
+                              columns={tableData?.columns || []}
+                              initialRow={editingRowForModal || deletingRowForModal}
+                              onSubmitInsert={handleInsertRowSubmit}
+                              onSubmitUpdate={handleUpdateRowSubmit}
+                              onSubmitDelete={handleDeleteRowSubmit}
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
                           </div>
                         );
                       })()}

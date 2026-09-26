@@ -66,6 +66,9 @@ import {
   getPostgresDatabaseTree,
   getPostgresTableStructure,
   getPostgresTableData,
+  insertPostgresTableRow,
+  updatePostgresTableRow,
+  deletePostgresTableRow,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1678,6 +1681,146 @@ const handlePostgresTableData = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/postgres/table-data', handlePostgresTableData);
 apiRouter.post('/remote-servers/:id/postgres/table-data', handlePostgresTableData);
+
+// POST /api/remote-servers/:id/postgres/table-row/insert - Insert single row inside safe transaction
+const handlePostgresTableRowInsert = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: `Server with ID "${id}" not found.`,
+        errorFa: `سرور با شناسه "${id}" یافت نشد.`,
+      });
+    }
+
+    const { database, schema, table, values, port, user, password } = req.body;
+    if (!database || !schema || !table) {
+      return res.status(400).json({
+        success: false,
+        error: 'database, schema, and table are required.',
+        errorFa: 'نام دیتابیس، اسکیما و جدول الزامی است.',
+      });
+    }
+
+    const result = await insertPostgresTableRow(server, {
+      database,
+      schema,
+      table,
+      values,
+      port,
+      user,
+      password,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      operation: 'insert',
+      affectedRows: 0,
+      error: err.message || 'Internal error inserting table row',
+      errorFa: 'خطای داخلی هنگام درج سطر در جدول',
+    });
+  }
+};
+apiRouter.post('/remote-servers/:id/postgres/table-row/insert', handlePostgresTableRowInsert);
+
+// POST /api/remote-servers/:id/postgres/table-row/update - Update identified single row inside safe transaction
+const handlePostgresTableRowUpdate = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: `Server with ID "${id}" not found.`,
+        errorFa: `سرور با شناسه "${id}" یافت نشد.`,
+      });
+    }
+
+    const { database, schema, table, primaryKeyValues, ctid, originalRow, updatedValues, port, user, password } = req.body;
+    if (!database || !schema || !table) {
+      return res.status(400).json({
+        success: false,
+        error: 'database, schema, and table are required.',
+        errorFa: 'نام دیتابیس، اسکیما و جدول الزامی است.',
+      });
+    }
+
+    const result = await updatePostgresTableRow(server, {
+      database,
+      schema,
+      table,
+      primaryKeyValues,
+      ctid,
+      originalRow,
+      updatedValues,
+      port,
+      user,
+      password,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: err.message || 'Internal error updating table row',
+      errorFa: 'خطای داخلی هنگام به‌روزرسانی سطر جدول',
+    });
+  }
+};
+apiRouter.post('/remote-servers/:id/postgres/table-row/update', handlePostgresTableRowUpdate);
+
+// POST /api/remote-servers/:id/postgres/table-row/delete - Delete identified single row inside safe transaction
+const handlePostgresTableRowDelete = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: `Server with ID "${id}" not found.`,
+        errorFa: `سرور با شناسه "${id}" یافت نشد.`,
+      });
+    }
+
+    const { database, schema, table, primaryKeyValues, ctid, originalRow, port, user, password } = req.body;
+    if (!database || !schema || !table) {
+      return res.status(400).json({
+        success: false,
+        error: 'database, schema, and table are required.',
+        errorFa: 'نام دیتابیس، اسکیما و جدول الزامی است.',
+      });
+    }
+
+    const result = await deletePostgresTableRow(server, {
+      database,
+      schema,
+      table,
+      primaryKeyValues,
+      ctid,
+      originalRow,
+      port,
+      user,
+      password,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      error: err.message || 'Internal error deleting table row',
+      errorFa: 'خطای داخلی هنگام حذف سطر جدول',
+    });
+  }
+};
+apiRouter.post('/remote-servers/:id/postgres/table-row/delete', handlePostgresTableRowDelete);
 
 
 // POST /api/remote-servers/:id/tags - Update tags only

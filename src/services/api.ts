@@ -21,6 +21,10 @@ import {
   PostgresTableStructure,
   PostgresTableDataResult,
   PostgresTableDataRequest,
+  PostgresRowInsertRequest,
+  PostgresRowUpdateRequest,
+  PostgresRowDeleteRequest,
+  PostgresRowMutationResult,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1342,6 +1346,42 @@ export async function fetchRemoteServerPostgresTableData(
   }
 ): Promise<{ success: boolean; data?: PostgresTableDataResult; error?: string; errorFa?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-data`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function insertRemoteServerPostgresTableRow(
+  id: string,
+  params: PostgresRowInsertRequest
+): Promise<PostgresRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-row/insert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresTableRow(
+  id: string,
+  params: PostgresRowUpdateRequest
+): Promise<PostgresRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-row/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function deleteRemoteServerPostgresTableRow(
+  id: string,
+  params: PostgresRowDeleteRequest
+): Promise<PostgresRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-row/delete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),

@@ -2182,7 +2182,7 @@ export async function getPostgresTableData(
     const offsetParam = `$${paramIndex++}`;
 
     const dataQuery = `
-      SELECT * 
+      SELECT ctid::text AS _pg_ctid, * 
       FROM ${fullRelationIdent} 
       ${whereSql} 
       ${orderSql} 
@@ -2199,6 +2199,10 @@ export async function getPostgresTableData(
     const sanitizedRows = (rowsRes.rows || []).map((row: any) => {
       const cleanRow: Record<string, any> = {};
       for (const [key, val] of Object.entries(row)) {
+        if (key === '_pg_ctid') {
+          cleanRow._pg_ctid = val ? String(val) : undefined;
+          continue;
+        }
         if (val === null || val === undefined) {
           cleanRow[key] = null;
         } else if (typeof val === 'bigint') {
@@ -2239,6 +2243,552 @@ export async function getPostgresTableData(
       success: false,
       error: err.message || `Failed to fetch data for table "${schema}"."${table}"`,
       errorFa: `خطا در دریافت داده‌های جدول "${schema}"."${table}": ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+/**
+ * ============================================================================
+ * PHASE 7: TABLE DATA EDITING (INSERT, UPDATE, DELETE)
+ * Controlled, transaction-safe row manipulation with parameterization,
+ * row identification, and strict single-row impact validation.
+ * ============================================================================
+ */
+
+export interface PostgresRowColumnValue {
+  value: any;
+  isNull?: boolean;
+  isDefault?: boolean;
+}
+
+export interface PostgresRowInsertRequest {
+  database: string;
+  schema: string;
+  table: string;
+  values: Record<string, PostgresRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowUpdateRequest {
+  database: string;
+  schema: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  ctid?: string;
+  originalRow?: Record<string, any>;
+  updatedValues: Record<string, PostgresRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowDeleteRequest {
+  database: string;
+  schema: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  ctid?: string;
+  originalRow?: Record<string, any>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresRowMutationResult {
+  success: boolean;
+  operation: 'insert' | 'update' | 'delete';
+  affectedRows: number;
+  data?: Record<string, any>;
+  executionTimeMs?: number;
+  message?: string;
+  messageFa?: string;
+  error?: string;
+  errorFa?: string;
+}
+
+// Helper to query valid columns from PostgreSQL catalog to prevent SQL injection
+async function getTableCatalogColumns(
+  client: Client,
+  schema: string,
+  table: string
+): Promise<Map<string, { dataType: string; isNotNull: boolean }>> {
+  const colRes = await client.query(
+    `
+    SELECT 
+      a.attname as col_name, 
+      pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type, 
+      a.attnotnull as is_not_null
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+    WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped;
+    `,
+    [schema.trim(), table.trim()]
+  );
+
+  const colMap = new Map<string, { dataType: string; isNotNull: boolean }>();
+  for (const r of colRes.rows || []) {
+    colMap.set(String(r.col_name), {
+      dataType: String(r.data_type),
+      isNotNull: Boolean(r.is_not_null),
+    });
+  }
+  return colMap;
+}
+
+/**
+ * Inserts a single new row into a table within a safe transaction.
+ */
+export async function insertPostgresTableRow(
+  server: RemoteServer,
+  params: PostgresRowInsertRequest
+): Promise<PostgresRowMutationResult> {
+  const startTime = Date.now();
+  const { database, schema, table, values } = params;
+
+  if (!database || !schema || !table) {
+    return {
+      success: false,
+      operation: 'insert',
+      affectedRows: 0,
+      error: 'Missing required parameters: database, schema, table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس، اسکیما یا جدول ارسال نشده است.',
+    };
+  }
+
+  const { client, targetHost, targetPort } = createPostgresClient(server, {
+    database,
+    port: params.port,
+    user: params.user,
+    password: params.password,
+  });
+
+  try {
+    await client.connect();
+
+    const colMap = await getTableCatalogColumns(client, schema, table);
+    if (colMap.size === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'insert',
+        affectedRows: 0,
+        error: `Table "${schema}"."${table}" does not exist or has no accessible columns.`,
+        errorFa: `جدول "${schema}"."${table}" وجود ندارد یا ستونی برای آن یافت نشد.`,
+      };
+    }
+
+    const safeSchemaIdent = `"${schema.trim().replace(/"/g, '""')}"`;
+    const safeTableIdent = `"${table.trim().replace(/"/g, '""')}"`;
+    const fullRelationIdent = `${safeSchemaIdent}.${safeTableIdent}`;
+
+    const insertCols: string[] = [];
+    const valPlaceholders: string[] = [];
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    for (const [colName, colVal] of Object.entries(values || {})) {
+      if (!colMap.has(colName)) continue;
+      // If DEFAULT requested, omit column so PostgreSQL assigns DEFAULT
+      if (colVal.isDefault) continue;
+
+      insertCols.push(`"${colName.replace(/"/g, '""')}"`);
+      if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
+        valPlaceholders.push('NULL');
+      } else {
+        valPlaceholders.push(`$${paramIndex++}`);
+        queryParams.push(colVal.value);
+      }
+    }
+
+    let insertSql = '';
+    if (insertCols.length === 0) {
+      insertSql = `INSERT INTO ${fullRelationIdent} DEFAULT VALUES RETURNING ctid::text as _pg_ctid, *;`;
+    } else {
+      insertSql = `INSERT INTO ${fullRelationIdent} (${insertCols.join(', ')}) VALUES (${valPlaceholders.join(', ')}) RETURNING ctid::text as _pg_ctid, *;`;
+    }
+
+    await client.query('BEGIN;');
+    const res = await client.query(insertSql, queryParams);
+    await client.query('COMMIT;');
+    await client.end();
+
+    const affectedRows = res.rowCount || 0;
+    const insertedRow = res.rows?.[0] || undefined;
+
+    return {
+      success: true,
+      operation: 'insert',
+      affectedRows,
+      data: insertedRow,
+      executionTimeMs: Date.now() - startTime,
+      message: `Successfully inserted 1 row into "${schema}"."${table}".`,
+      messageFa: `۱ سطر با موفقیت در جدول "${schema}"."${table}" درج شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      operation: 'insert',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || `Failed to insert row into "${schema}"."${table}".`,
+      errorFa: `خطا در درج سطر در جدول "${schema}"."${table}": ${err.message || 'خطای تراکنش دیتابیس'}`,
+    };
+  }
+}
+
+/**
+ * Updates an identified target row within a safe transaction with strict row count verification.
+ */
+export async function updatePostgresTableRow(
+  server: RemoteServer,
+  params: PostgresRowUpdateRequest
+): Promise<PostgresRowMutationResult> {
+  const startTime = Date.now();
+  const { database, schema, table, primaryKeyValues, ctid, originalRow, updatedValues } = params;
+
+  if (!database || !schema || !table) {
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: 'Missing required parameters: database, schema, table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس، اسکیما یا جدول ارسال نشده است.',
+    };
+  }
+
+  if (!updatedValues || Object.keys(updatedValues).length === 0) {
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: 'No column changes provided for update.',
+      errorFa: 'هیچ مقداری برای به‌روزرسانی ارسال نشده است.',
+    };
+  }
+
+  const { client } = createPostgresClient(server, {
+    database,
+    port: params.port,
+    user: params.user,
+    password: params.password,
+  });
+
+  try {
+    await client.connect();
+
+    const colMap = await getTableCatalogColumns(client, schema, table);
+    if (colMap.size === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        error: `Table "${schema}"."${table}" does not exist.`,
+        errorFa: `جدول "${schema}"."${table}" یافت نشد.`,
+      };
+    }
+
+    const safeSchemaIdent = `"${schema.trim().replace(/"/g, '""')}"`;
+    const safeTableIdent = `"${table.trim().replace(/"/g, '""')}"`;
+    const fullRelationIdent = `${safeSchemaIdent}.${safeTableIdent}`;
+
+    const setClauses: string[] = [];
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    for (const [colName, colVal] of Object.entries(updatedValues)) {
+      if (!colMap.has(colName)) continue;
+
+      const safeColIdent = `"${colName.replace(/"/g, '""')}"`;
+      if (colVal.isDefault) {
+        setClauses.push(`${safeColIdent} = DEFAULT`);
+      } else if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
+        setClauses.push(`${safeColIdent} = NULL`);
+      } else {
+        setClauses.push(`${safeColIdent} = $${paramIndex++}`);
+        queryParams.push(colVal.value);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        error: 'No valid table columns to update.',
+        errorFa: 'هیچ ستون معتبری برای به‌روزرسانی یافت نشد.',
+      };
+    }
+
+    // Build WHERE clause with priority: Primary Key -> ctid -> original row values
+    const whereClauses: string[] = [];
+
+    if (primaryKeyValues && Object.keys(primaryKeyValues).length > 0) {
+      for (const [pkCol, pkVal] of Object.entries(primaryKeyValues)) {
+        if (!colMap.has(pkCol)) continue;
+        const safePkIdent = `"${pkCol.replace(/"/g, '""')}"`;
+        if (pkVal === null || pkVal === undefined) {
+          whereClauses.push(`${safePkIdent} IS NULL`);
+        } else {
+          whereClauses.push(`${safePkIdent} = $${paramIndex++}`);
+          queryParams.push(pkVal);
+        }
+      }
+    }
+
+    if (whereClauses.length === 0 && ctid && typeof ctid === 'string' && /^\(\d+,\d+\)$/.test(ctid.trim())) {
+      whereClauses.push(`ctid = $${paramIndex++}::tid`);
+      queryParams.push(ctid.trim());
+    }
+
+    if (whereClauses.length === 0 && originalRow && Object.keys(originalRow).length > 0) {
+      for (const [colName, origVal] of Object.entries(originalRow)) {
+        if (!colMap.has(colName)) continue;
+        const safeColIdent = `"${colName.replace(/"/g, '""')}"`;
+        if (origVal === null || origVal === undefined) {
+          whereClauses.push(`${safeColIdent} IS NULL`);
+        } else {
+          whereClauses.push(`${safeColIdent}::text = $${paramIndex++}::text`);
+          queryParams.push(String(origVal));
+        }
+      }
+    }
+
+    if (whereClauses.length === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        error: 'Unable to identify unique target row. Update requires primary key, ctid, or complete row values.',
+        errorFa: 'شناسایی دقیق سطر هدف ممکن نشد. به‌روزرسانی نیازمند کلید اصلی، شناسه ctid یا مقادیر کامل سطر است.',
+      };
+    }
+
+    const updateSql = `
+      UPDATE ${fullRelationIdent}
+      SET ${setClauses.join(', ')}
+      WHERE ${whereClauses.join(' AND ')}
+      RETURNING ctid::text as _pg_ctid, *;
+    `;
+
+    await client.query('BEGIN;');
+    const res = await client.query(updateSql, queryParams);
+
+    if (res.rowCount === 1) {
+      await client.query('COMMIT;');
+      await client.end();
+      return {
+        success: true,
+        operation: 'update',
+        affectedRows: 1,
+        data: res.rows?.[0],
+        executionTimeMs: Date.now() - startTime,
+        message: `Successfully updated 1 row in "${schema}"."${table}".`,
+        messageFa: `۱ سطر با موفقیت در جدول "${schema}"."${table}" به‌روزرسانی شد.`,
+      };
+    } else if (res.rowCount === 0) {
+      await client.query('ROLLBACK;');
+      await client.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        executionTimeMs: Date.now() - startTime,
+        error: 'Target row was not found or was modified/deleted by another session. Transaction rolled back.',
+        errorFa: 'سطر هدف یافت نشد یا همزمان توسط کاربر دیگری تغییر کرده یا حذف شده است. تراکنش لغو شد.',
+      };
+    } else {
+      await client.query('ROLLBACK;');
+      await client.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: res.rowCount || 0,
+        executionTimeMs: Date.now() - startTime,
+        error: `Safety abort: Update condition matched ${res.rowCount} rows instead of exactly 1. Transaction rolled back.`,
+        errorFa: `توقف ایمنی: شرط به‌روزرسانی به جای دقیقاً ۱ سطر، ${res.rowCount} سطر را هدف قرار داد. تراکنش لغو شد.`,
+      };
+    }
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || `Failed to update row in "${schema}"."${table}".`,
+      errorFa: `خطا در به‌روزرسانی سطر جدول "${schema}"."${table}": ${err.message || 'خطای تراکنش دیتابیس'}`,
+    };
+  }
+}
+
+/**
+ * Deletes an identified target row within a safe transaction with strict row count verification.
+ */
+export async function deletePostgresTableRow(
+  server: RemoteServer,
+  params: PostgresRowDeleteRequest
+): Promise<PostgresRowMutationResult> {
+  const startTime = Date.now();
+  const { database, schema, table, primaryKeyValues, ctid, originalRow } = params;
+
+  if (!database || !schema || !table) {
+    return {
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      error: 'Missing required parameters: database, schema, table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس، اسکیما یا جدول ارسال نشده است.',
+    };
+  }
+
+  const { client } = createPostgresClient(server, {
+    database,
+    port: params.port,
+    user: params.user,
+    password: params.password,
+  });
+
+  try {
+    await client.connect();
+
+    const colMap = await getTableCatalogColumns(client, schema, table);
+    if (colMap.size === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: 0,
+        error: `Table "${schema}"."${table}" does not exist.`,
+        errorFa: `جدول "${schema}"."${table}" یافت نشد.`,
+      };
+    }
+
+    const safeSchemaIdent = `"${schema.trim().replace(/"/g, '""')}"`;
+    const safeTableIdent = `"${table.trim().replace(/"/g, '""')}"`;
+    const fullRelationIdent = `${safeSchemaIdent}.${safeTableIdent}`;
+
+    const whereClauses: string[] = [];
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    if (primaryKeyValues && Object.keys(primaryKeyValues).length > 0) {
+      for (const [pkCol, pkVal] of Object.entries(primaryKeyValues)) {
+        if (!colMap.has(pkCol)) continue;
+        const safePkIdent = `"${pkCol.replace(/"/g, '""')}"`;
+        if (pkVal === null || pkVal === undefined) {
+          whereClauses.push(`${safePkIdent} IS NULL`);
+        } else {
+          whereClauses.push(`${safePkIdent} = $${paramIndex++}`);
+          queryParams.push(pkVal);
+        }
+      }
+    }
+
+    if (whereClauses.length === 0 && ctid && typeof ctid === 'string' && /^\(\d+,\d+\)$/.test(ctid.trim())) {
+      whereClauses.push(`ctid = $${paramIndex++}::tid`);
+      queryParams.push(ctid.trim());
+    }
+
+    if (whereClauses.length === 0 && originalRow && Object.keys(originalRow).length > 0) {
+      for (const [colName, origVal] of Object.entries(originalRow)) {
+        if (!colMap.has(colName)) continue;
+        const safeColIdent = `"${colName.replace(/"/g, '""')}"`;
+        if (origVal === null || origVal === undefined) {
+          whereClauses.push(`${safeColIdent} IS NULL`);
+        } else {
+          whereClauses.push(`${safeColIdent}::text = $${paramIndex++}::text`);
+          queryParams.push(String(origVal));
+        }
+      }
+    }
+
+    if (whereClauses.length === 0) {
+      await client.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: 0,
+        error: 'Unable to identify unique target row. Delete requires primary key, ctid, or complete row values.',
+        errorFa: 'شناسایی دقیق سطر هدف برای حذف ممکن نشد. عملیات نیازمند کلید اصلی، شناسه ctid یا مقادیر کامل سطر است.',
+      };
+    }
+
+    const deleteSql = `
+      DELETE FROM ${fullRelationIdent}
+      WHERE ${whereClauses.join(' AND ')};
+    `;
+
+    await client.query('BEGIN;');
+    const res = await client.query(deleteSql, queryParams);
+
+    if (res.rowCount === 1) {
+      await client.query('COMMIT;');
+      await client.end();
+      return {
+        success: true,
+        operation: 'delete',
+        affectedRows: 1,
+        executionTimeMs: Date.now() - startTime,
+        message: `Successfully deleted 1 row from "${schema}"."${table}".`,
+        messageFa: `۱ سطر با موفقیت از جدول "${schema}"."${table}" حذف شد.`,
+      };
+    } else if (res.rowCount === 0) {
+      await client.query('ROLLBACK;');
+      await client.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: 0,
+        executionTimeMs: Date.now() - startTime,
+        error: 'Target row was not found or was already deleted by another session. Transaction rolled back.',
+        errorFa: 'سطر هدف یافت نشد یا قبلاً توسط نشست دیگری حذف شده است. تراکنش لغو شد.',
+      };
+    } else {
+      await client.query('ROLLBACK;');
+      await client.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: res.rowCount || 0,
+        executionTimeMs: Date.now() - startTime,
+        error: `Safety abort: Delete condition matched ${res.rowCount} rows instead of exactly 1. Transaction rolled back.`,
+        errorFa: `توقف ایمنی: شرط حذف به جای دقیقاً ۱ سطر، ${res.rowCount} سطر را هدف قرار داد. تراکنش لغو شد.`,
+      };
+    }
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || `Failed to delete row from "${schema}"."${table}".`,
+      errorFa: `خطا در حذف سطر از جدول "${schema}"."${table}": ${err.message || 'خطای تراکنش دیتابیس'}`,
     };
   }
 }
