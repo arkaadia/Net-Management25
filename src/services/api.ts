@@ -19,6 +19,8 @@ import {
   PostgresRoleItem,
   PostgresDatabaseTree,
   PostgresTableStructure,
+  PostgresTableDataResult,
+  PostgresTableDataRequest,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1324,6 +1326,22 @@ export async function fetchRemoteServerPostgresTableStructure(
   }
 ): Promise<{ success: boolean; structure?: PostgresTableStructure; error?: string; errorFa?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-structure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresTableData(
+  id: string,
+  params: PostgresTableDataRequest & {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; data?: PostgresTableDataResult; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-data`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),

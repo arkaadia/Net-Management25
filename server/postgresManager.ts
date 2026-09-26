@@ -292,6 +292,65 @@ export interface PostgresTableStructure {
   fetchedAt: string;
 }
 
+// ==========================================
+// Phase 6: Table Data Viewer Types
+// ==========================================
+
+export type PostgresFilterOperator =
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'notContains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'isNull'
+  | 'isNotNull';
+
+export interface PostgresTableDataFilter {
+  column: string;
+  operator: PostgresFilterOperator;
+  value?: string;
+}
+
+export interface PostgresTableDataRequest {
+  database: string;
+  schema: string;
+  table: string;
+  page?: number;
+  pageSize?: number;
+  sortColumn?: string;
+  sortDirection?: 'ASC' | 'DESC';
+  search?: string;
+  filters?: PostgresTableDataFilter[];
+  countExact?: boolean;
+}
+
+export interface PostgresTableDataColumnInfo {
+  name: string;
+  dataType: string;
+  formattedType: string;
+  isPrimaryKey: boolean;
+}
+
+export interface PostgresTableDataResult {
+  databaseName: string;
+  schemaName: string;
+  tableName: string;
+  columns: PostgresTableDataColumnInfo[];
+  rows: Record<string, any>[];
+  totalRows: number;
+  isExactCount: boolean;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  executionTimeMs: number;
+  fetchedAt: string;
+}
+
 export interface PostgresSchemaObjects {
   name: string;
   owner: string;
@@ -1866,6 +1925,320 @@ export async function getPostgresTableStructure(
       success: false,
       error: err.message || `Failed to fetch structure for table "${schemaName}"."${tableName}"`,
       errorFa: `خطا در دریافت ساختار و متادیتای جدول "${schemaName}"."${tableName}": ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+/**
+ * Phase 6: Production-safe server-side table data browser.
+ * Executes paginated, filtered, and sorted SELECT queries with parameterization and identifier validation.
+ * Never performs full table scans unless exact count is requested on filtered datasets.
+ */
+export async function getPostgresTableData(
+  server: RemoteServer,
+  request: PostgresTableDataRequest,
+  options?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; data?: PostgresTableDataResult; error?: string; errorFa?: string }> {
+  const {
+    database,
+    schema,
+    table,
+    page = 1,
+    pageSize = 50,
+    sortColumn,
+    sortDirection = 'ASC',
+    search,
+    filters = [],
+    countExact = false,
+  } = request;
+
+  if (!database || !database.trim()) {
+    return {
+      success: false,
+      error: 'Target database name is required',
+      errorFa: 'نام پایگاه داده اجباری است',
+    };
+  }
+  if (!schema || !schema.trim()) {
+    return {
+      success: false,
+      error: 'Target schema name is required',
+      errorFa: 'نام اسکیما اجباری است',
+    };
+  }
+  if (!table || !table.trim()) {
+    return {
+      success: false,
+      error: 'Target table name is required',
+      errorFa: 'نام جدول اجباری است',
+    };
+  }
+
+  const { client, targetHost } = createPostgresClient(server, {
+    ...options,
+    database: database.trim(),
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  try {
+    await client.connect();
+
+    // 1. Verify table exists and retrieve authorized columns + primary key info
+    const colsRes = await client.query(
+      `
+      SELECT 
+        a.attnum,
+        a.attname as column_name,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+        a.atttypid::regtype::text as base_type,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = c.oid AND con.contype = 'p' AND a.attnum = ANY(con.conkey)
+        ) as is_primary_key,
+        GREATEST(c.reltuples::bigint, 0) as estimated_rows
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+      WHERE n.nspname = $1 AND c.relname = $2
+        AND a.attnum > 0 AND NOT a.attisdropped
+      ORDER BY a.attnum ASC;
+      `,
+      [schema.trim(), table.trim()]
+    );
+
+    if (!colsRes.rows || colsRes.rows.length === 0) {
+      await client.end();
+      return {
+        success: false,
+        error: `Table "${schema}"."${table}" does not exist in database "${database}".`,
+        errorFa: `جدول "${schema}"."${table}" در دیتابیس "${database}" وجود ندارد.`,
+      };
+    }
+
+    const estimatedRowsFromCatalog = Number(colsRes.rows[0].estimated_rows) || 0;
+    const columns: PostgresTableDataColumnInfo[] = colsRes.rows.map((r: any) => ({
+      name: String(r.column_name),
+      dataType: String(r.base_type || r.data_type || 'text'),
+      formattedType: String(r.data_type || r.base_type || 'text'),
+      isPrimaryKey: Boolean(r.is_primary_key),
+    }));
+
+    const columnMap = new Map<string, PostgresTableDataColumnInfo>();
+    const textSearchableCols: string[] = [];
+    let primaryKeyColName: string | undefined;
+
+    for (const col of columns) {
+      columnMap.set(col.name, col);
+      if (col.isPrimaryKey && !primaryKeyColName) {
+        primaryKeyColName = col.name;
+      }
+      textSearchableCols.push(col.name);
+    }
+
+    const safeSchemaIdent = `"${schema.trim().replace(/"/g, '""')}"`;
+    const safeTableIdent = `"${table.trim().replace(/"/g, '""')}"`;
+    const fullRelationIdent = `${safeSchemaIdent}.${safeTableIdent}`;
+
+    // 2. Build WHERE clauses with parameterized values
+    const whereClauses: string[] = [];
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    // A. Global text search
+    if (search && search.trim() && textSearchableCols.length > 0) {
+      const searchTerms = textSearchableCols.map(
+        (colName) => `"${colName.replace(/"/g, '""')}"::text ILIKE $${paramIndex}`
+      );
+      whereClauses.push(`(${searchTerms.join(' OR ')})`);
+      queryParams.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    // B. Column-specific filters
+    if (Array.isArray(filters)) {
+      for (const filter of filters) {
+        if (!filter.column || !columnMap.has(filter.column)) continue;
+        const colIdent = `"${filter.column.replace(/"/g, '""')}"`;
+        const val = filter.value !== undefined ? String(filter.value).trim() : '';
+
+        switch (filter.operator) {
+          case 'eq':
+            whereClauses.push(`${colIdent}::text = $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'neq':
+            whereClauses.push(`${colIdent}::text <> $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'contains':
+            whereClauses.push(`${colIdent}::text ILIKE $${paramIndex}`);
+            queryParams.push(`%${val}%`);
+            paramIndex++;
+            break;
+          case 'notContains':
+            whereClauses.push(`(${colIdent} IS NULL OR ${colIdent}::text NOT ILIKE $${paramIndex})`);
+            queryParams.push(`%${val}%`);
+            paramIndex++;
+            break;
+          case 'startsWith':
+            whereClauses.push(`${colIdent}::text ILIKE $${paramIndex}`);
+            queryParams.push(`${val}%`);
+            paramIndex++;
+            break;
+          case 'endsWith':
+            whereClauses.push(`${colIdent}::text ILIKE $${paramIndex}`);
+            queryParams.push(`%${val}`);
+            paramIndex++;
+            break;
+          case 'gt':
+            whereClauses.push(`${colIdent} > $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'gte':
+            whereClauses.push(`${colIdent} >= $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'lt':
+            whereClauses.push(`${colIdent} < $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'lte':
+            whereClauses.push(`${colIdent} <= $${paramIndex}`);
+            queryParams.push(val);
+            paramIndex++;
+            break;
+          case 'isNull':
+            whereClauses.push(`${colIdent} IS NULL`);
+            break;
+          case 'isNotNull':
+            whereClauses.push(`${colIdent} IS NOT NULL`);
+            break;
+        }
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // 3. Sorting clause
+    let orderSql = '';
+    if (sortColumn && columnMap.has(sortColumn)) {
+      const dir = sortDirection.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+      orderSql = `ORDER BY "${sortColumn.replace(/"/g, '""')}" ${dir} NULLS LAST`;
+    } else if (primaryKeyColName) {
+      orderSql = `ORDER BY "${primaryKeyColName.replace(/"/g, '""')}" ASC`;
+    } else if (columns.length > 0) {
+      orderSql = `ORDER BY "${columns[0].name.replace(/"/g, '""')}" ASC`;
+    }
+
+    // 4. Calculate total row count
+    let totalRows = 0;
+    let isExactCount = false;
+
+    const hasFiltersOrSearch = whereClauses.length > 0;
+    if (hasFiltersOrSearch || countExact || estimatedRowsFromCatalog < 2000) {
+      try {
+        const countRes = await client.query(
+          `SELECT count(*)::bigint as total FROM ${fullRelationIdent} ${whereSql};`,
+          queryParams
+        );
+        totalRows = Number(countRes.rows?.[0]?.total) || 0;
+        isExactCount = true;
+      } catch (err: any) {
+        totalRows = estimatedRowsFromCatalog;
+        isExactCount = false;
+      }
+    } else {
+      totalRows = estimatedRowsFromCatalog;
+      isExactCount = false;
+    }
+
+    // 5. Pagination calculation
+    const validatedPageSize = Math.min(Math.max(1, Number(pageSize) || 50), 500);
+    const totalPages = Math.max(1, Math.ceil(totalRows / validatedPageSize));
+    const validatedPage = Math.min(Math.max(1, Number(page) || 1), Math.max(1, totalPages));
+    const offset = (validatedPage - 1) * validatedPageSize;
+
+    // 6. Query actual rows with LIMIT and OFFSET
+    const rowsParams = [...queryParams];
+    rowsParams.push(validatedPageSize);
+    const limitParam = `$${paramIndex++}`;
+    rowsParams.push(offset);
+    const offsetParam = `$${paramIndex++}`;
+
+    const dataQuery = `
+      SELECT * 
+      FROM ${fullRelationIdent} 
+      ${whereSql} 
+      ${orderSql} 
+      LIMIT ${limitParam} OFFSET ${offsetParam};
+    `;
+
+    const startTimer = Date.now();
+    const rowsRes = await client.query(dataQuery, rowsParams);
+    const executionTimeMs = Date.now() - startTimer;
+
+    await client.end();
+
+    // 7. Sanitize output rows for JSON serialization
+    const sanitizedRows = (rowsRes.rows || []).map((row: any) => {
+      const cleanRow: Record<string, any> = {};
+      for (const [key, val] of Object.entries(row)) {
+        if (val === null || val === undefined) {
+          cleanRow[key] = null;
+        } else if (typeof val === 'bigint') {
+          cleanRow[key] = val.toString();
+        } else if (Buffer.isBuffer(val)) {
+          cleanRow[key] = `\\x${val.toString('hex')}`;
+        } else if (val instanceof Date) {
+          cleanRow[key] = val.toISOString();
+        } else {
+          cleanRow[key] = val;
+        }
+      }
+      return cleanRow;
+    });
+
+    const result: PostgresTableDataResult = {
+      databaseName: database.trim(),
+      schemaName: schema.trim(),
+      tableName: table.trim(),
+      columns,
+      rows: sanitizedRows,
+      totalRows,
+      isExactCount,
+      page: validatedPage,
+      pageSize: validatedPageSize,
+      totalPages,
+      executionTimeMs,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    return { success: true, data: result };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || `Failed to fetch data for table "${schema}"."${table}"`,
+      errorFa: `خطا در دریافت داده‌های جدول "${schema}"."${table}": ${err.message || 'خطای شبکه'}`,
     };
   }
 }

@@ -1744,6 +1744,65 @@ export interface PostgresTableStructure {
   fetchedAt: string;
 }
 
+// ==========================================
+// Phase 6: Table Data Viewer Types
+// ==========================================
+
+export type PostgresFilterOperator =
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'notContains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'isNull'
+  | 'isNotNull';
+
+export interface PostgresTableDataFilter {
+  column: string;
+  operator: PostgresFilterOperator;
+  value?: string;
+}
+
+export interface PostgresTableDataRequest {
+  database: string;
+  schema: string;
+  table: string;
+  page?: number;
+  pageSize?: number;
+  sortColumn?: string;
+  sortDirection?: 'ASC' | 'DESC';
+  search?: string;
+  filters?: PostgresTableDataFilter[];
+  countExact?: boolean;
+}
+
+export interface PostgresTableDataColumnInfo {
+  name: string;
+  dataType: string;
+  formattedType: string;
+  isPrimaryKey: boolean;
+}
+
+export interface PostgresTableDataResult {
+  databaseName: string;
+  schemaName: string;
+  tableName: string;
+  columns: PostgresTableDataColumnInfo[];
+  rows: Record<string, any>[];
+  totalRows: number;
+  isExactCount: boolean;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  executionTimeMs: number;
+  fetchedAt: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

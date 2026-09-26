@@ -36,6 +36,18 @@ import {
   Link2,
   Sparkles,
   Filter,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  EyeOff,
+  Download,
+  Plus,
+  Trash2,
+  Maximize2,
+  X,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -57,11 +69,15 @@ import {
   PostgresUniqueConstraint,
   PostgresCheckConstraint,
   PostgresIndexDetail,
+  PostgresTableDataResult,
+  PostgresTableDataFilter,
+  PostgresFilterOperator,
 } from '../../types';
 import {
   fetchRemoteServerPostgresRoles,
   fetchRemoteServerPostgresDatabaseTree,
   fetchRemoteServerPostgresTableStructure,
+  fetchRemoteServerPostgresTableData,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -153,8 +169,28 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
   const [tableStructures, setTableStructures] = useState<Record<string, PostgresTableStructure>>({});
   const [loadingTableStructure, setLoadingTableStructure] = useState(false);
   const [tableStructureError, setTableStructureError] = useState<{ en: string; fa?: string } | null>(null);
-  const [tableSubTab, setTableSubTab] = useState<'columns' | 'constraints' | 'indexes' | 'storage' | 'sql'>('columns');
+  const [tableSubTab, setTableSubTab] = useState<'data' | 'columns' | 'constraints' | 'indexes' | 'storage' | 'sql'>('data');
   const [columnSearchQuery, setColumnSearchQuery] = useState('');
+
+  // Phase 6: Table Data Viewer state
+  const [tableDataResults, setTableDataResults] = useState<Record<string, PostgresTableDataResult>>({});
+  const [loadingTableData, setLoadingTableData] = useState(false);
+  const [tableDataError, setTableDataError] = useState<{ en: string; fa?: string } | null>(null);
+  const [dataPage, setDataPage] = useState(1);
+  const [dataPageSize, setDataPageSize] = useState(50);
+  const [dataSortColumn, setDataSortColumn] = useState<string | undefined>(undefined);
+  const [dataSortDirection, setDataSortDirection] = useState<'ASC' | 'DESC'>('ASC');
+  const [dataSearchInput, setDataSearchInput] = useState('');
+  const [dataActiveSearch, setDataActiveSearch] = useState('');
+  const [dataFilters, setDataFilters] = useState<PostgresTableDataFilter[]>([]);
+  const [dataCountExact, setDataCountExact] = useState(false);
+  const [dataHiddenColumns, setDataHiddenColumns] = useState<Record<string, boolean>>({});
+  const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false);
+  const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [selectedRowForModal, setSelectedRowForModal] = useState<Record<string, any> | null>(null);
+  const [newFilterColumn, setNewFilterColumn] = useState('');
+  const [newFilterOperator, setNewFilterOperator] = useState<PostgresFilterOperator>('eq');
+  const [newFilterValue, setNewFilterValue] = useState('');
 
   // Fetch detailed table structure (columns, PK, FK, unique, check, indexes, stats)
   const handleFetchTableStructure = useCallback(
@@ -192,12 +228,97 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
     [server?.id, tableStructures]
   );
 
-  // Automatically fetch table structure when a table node is selected
+  // Phase 6: Fetch table rows safely with pagination, filtering & sorting
+  const handleFetchTableData = useCallback(
+    async (
+      dbName: string,
+      schemaName: string,
+      tableName: string,
+      overrides?: {
+        page?: number;
+        pageSize?: number;
+        sortColumn?: string;
+        sortDirection?: 'ASC' | 'DESC';
+        search?: string;
+        filters?: PostgresTableDataFilter[];
+        countExact?: boolean;
+      }
+    ) => {
+      if (!server?.id || !dbName || !schemaName || !tableName) return;
+      const targetPage = overrides?.page !== undefined ? overrides.page : dataPage;
+      const targetPageSize = overrides?.pageSize !== undefined ? overrides.pageSize : dataPageSize;
+      const targetSortCol = overrides?.sortColumn !== undefined ? overrides.sortColumn : dataSortColumn;
+      const targetSortDir = overrides?.sortDirection !== undefined ? overrides.sortDirection : dataSortDirection;
+      const targetSearch = overrides?.search !== undefined ? overrides.search : dataActiveSearch;
+      const targetFilters = overrides?.filters !== undefined ? overrides.filters : dataFilters;
+      const targetExact = overrides?.countExact !== undefined ? overrides.countExact : dataCountExact;
+
+      const cacheKey = `${dbName}:${schemaName}:${tableName}`;
+      setLoadingTableData(true);
+      setTableDataError(null);
+
+      try {
+        const res = await fetchRemoteServerPostgresTableData(server.id, {
+          database: dbName,
+          schema: schemaName,
+          table: tableName,
+          page: targetPage,
+          pageSize: targetPageSize,
+          sortColumn: targetSortCol,
+          sortDirection: targetSortDir,
+          search: targetSearch,
+          filters: targetFilters,
+          countExact: targetExact,
+        });
+
+        if (res.success && res.data) {
+          setTableDataResults((prev) => ({ ...prev, [cacheKey]: res.data! }));
+        } else {
+          setTableDataError({
+            en: res.error || `Failed to fetch data for table "${schemaName}"."${tableName}"`,
+            fa: res.errorFa || `خطا در دریافت داده‌های جدول "${schemaName}"."${tableName}"`,
+          });
+        }
+      } catch (err: any) {
+        setTableDataError({
+          en: err.message || `Network error fetching data for "${tableName}"`,
+          fa: `خطای شبکه در دریافت داده‌های جدول "${tableName}"`,
+        });
+      } finally {
+        setLoadingTableData(false);
+      }
+    },
+    [
+      server?.id,
+      dataPage,
+      dataPageSize,
+      dataSortColumn,
+      dataSortDirection,
+      dataActiveSearch,
+      dataFilters,
+      dataCountExact,
+    ]
+  );
+
+  // Automatically fetch table structure and initial data when a table node is selected
   useEffect(() => {
     if (selectedNode.type === 'table' && selectedNode.dbName && selectedNode.schemaName && selectedNode.name) {
       handleFetchTableStructure(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+      setDataPage(1);
+      setDataSearchInput('');
+      setDataActiveSearch('');
+      setDataFilters([]);
+      setDataSortColumn(undefined);
+      setDataSortDirection('ASC');
+      handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+        page: 1,
+        search: '',
+        filters: [],
+        sortColumn: undefined,
+        sortDirection: 'ASC',
+      });
     }
-  }, [selectedNode.type, selectedNode.dbName, selectedNode.schemaName, selectedNode.name, handleFetchTableStructure]);
+  }, [selectedNode.type, selectedNode.dbName, selectedNode.schemaName, selectedNode.name]);
 
   // Fetch roles
   const handleFetchRoles = useCallback(async () => {
@@ -2369,6 +2490,26 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       <div className="flex items-center gap-1.5 border-b border-slate-800/60 pb-2 overflow-x-auto text-xs font-semibold">
                         <button
                           type="button"
+                          onClick={() => setTableSubTab('data')}
+                          className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
+                            tableSubTab === 'data'
+                              ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-sm'
+                              : isLightMode
+                              ? 'hover:bg-slate-100 text-slate-600'
+                              : 'hover:bg-slate-800/60 text-slate-400'
+                          }`}
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Table Data' : 'داده‌های جدول'}</span>
+                          {tableDataResults[`${selectedNode.dbName || ''}:${selectedNode.schemaName || ''}:${selectedNode.name}`] && (
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-300 font-bold">
+                              {tableDataResults[`${selectedNode.dbName || ''}:${selectedNode.schemaName || ''}:${selectedNode.name}`].rows.length}
+                            </span>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => setTableSubTab('columns')}
                           className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 ${
                             tableSubTab === 'columns'
@@ -2454,6 +2595,876 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                           <span>{isEn ? 'Quick SQL' : 'کوئری‌های سریع'}</span>
                         </button>
                       </div>
+
+                      {/* SUB-TAB 0: PHASE 6 - TABLE DATA VIEWER */}
+                      {tableSubTab === 'data' && (() => {
+                        const dataCacheKey = `${selectedNode.dbName || ''}:${selectedNode.schemaName || ''}:${selectedNode.name}`;
+                        const tableData = tableDataResults[dataCacheKey];
+                        const availableCols = struct.columns;
+                        const visibleCols = availableCols.filter((c) => !dataHiddenColumns[c.name]);
+
+                        const exportJson = () => {
+                          if (!tableData || !tableData.rows.length) return;
+                          const jsonStr = JSON.stringify(tableData.rows, null, 2);
+                          const blob = new Blob([jsonStr], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `${selectedNode.name}_page_${tableData.page}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        };
+
+                        const exportCsv = () => {
+                          if (!tableData || !tableData.rows.length) return;
+                          const headers = visibleCols.map((c) => c.name);
+                          const rows = tableData.rows.map((row) =>
+                            headers
+                              .map((header) => {
+                                const val = row[header];
+                                if (val === null || val === undefined) return '';
+                                const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                                return `"${str.replace(/"/g, '""')}"`;
+                              })
+                              .join(',')
+                          );
+                          const csvContent = [headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(','), ...rows].join('\n');
+                          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `${selectedNode.name}_page_${tableData.page}.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        };
+
+                        const toggleColumnSort = (colName: string) => {
+                          let newSortCol: string | undefined = colName;
+                          let newSortDir: 'ASC' | 'DESC' = 'ASC';
+
+                          if (dataSortColumn === colName) {
+                            if (dataSortDirection === 'ASC') {
+                              newSortDir = 'DESC';
+                            } else {
+                              newSortCol = undefined;
+                            }
+                          }
+
+                          setDataSortColumn(newSortCol);
+                          setDataSortDirection(newSortDir);
+                          setDataPage(1);
+
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              sortColumn: newSortCol,
+                              sortDirection: newSortDir,
+                            });
+                          }
+                        };
+
+                        const handleAddFilter = () => {
+                          const col = newFilterColumn || (availableCols[0]?.name || '');
+                          if (!col) return;
+                          const newF: PostgresTableDataFilter = {
+                            column: col,
+                            operator: newFilterOperator,
+                            value: newFilterValue,
+                          };
+                          const updated = [...dataFilters, newF];
+                          setDataFilters(updated);
+                          setNewFilterValue('');
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              filters: updated,
+                            });
+                          }
+                        };
+
+                        const handleRemoveFilter = (index: number) => {
+                          const updated = dataFilters.filter((_, i) => i !== index);
+                          setDataFilters(updated);
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              filters: updated,
+                            });
+                          }
+                        };
+
+                        const handleClearAllFilters = () => {
+                          setDataFilters([]);
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              filters: [],
+                            });
+                          }
+                        };
+
+                        const handleApplySearch = (e?: React.FormEvent) => {
+                          if (e) e.preventDefault();
+                          setDataActiveSearch(dataSearchInput);
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              search: dataSearchInput,
+                            });
+                          }
+                        };
+
+                        const handleClearSearch = () => {
+                          setDataSearchInput('');
+                          setDataActiveSearch('');
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              search: '',
+                            });
+                          }
+                        };
+
+                        const handlePageChange = (newPage: number) => {
+                          const maxP = tableData ? tableData.totalPages : 1;
+                          const p = Math.max(1, Math.min(newPage, maxP));
+                          setDataPage(p);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: p,
+                            });
+                          }
+                        };
+
+                        const handlePageSizeChange = (newSize: number) => {
+                          setDataPageSize(newSize);
+                          setDataPage(1);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              page: 1,
+                              pageSize: newSize,
+                            });
+                          }
+                        };
+
+                        const handleToggleExactCount = () => {
+                          const nextExact = !dataCountExact;
+                          setDataCountExact(nextExact);
+                          if (selectedNode.dbName && selectedNode.schemaName) {
+                            handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name, {
+                              countExact: nextExact,
+                            });
+                          }
+                        };
+
+                        return (
+                          <div className="space-y-3">
+                            {/* Toolbar Top Bar */}
+                            <div className="flex items-center justify-between gap-2.5 flex-wrap">
+                              {/* Left: Search input & Filter / Column Popovers */}
+                              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[280px]">
+                                {/* Search Form */}
+                                <form onSubmit={handleApplySearch} className="relative flex-1 min-w-[180px] max-w-sm flex items-center">
+                                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                  <input
+                                    type="text"
+                                    value={dataSearchInput}
+                                    onChange={(e) => setDataSearchInput(e.target.value)}
+                                    placeholder={isEn ? 'Search table rows...' : 'جستجو در سطرهای جدول...'}
+                                    className={`w-full pl-8 pr-16 py-1.5 text-xs rounded-lg border outline-none font-mono transition ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-300 text-slate-900 focus:border-cyan-500'
+                                        : 'bg-slate-900 border-slate-800 text-slate-200 focus:border-cyan-500/50'
+                                    }`}
+                                  />
+                                  <div className="absolute right-1.5 flex items-center gap-1">
+                                    {dataSearchInput && (
+                                      <button
+                                        type="button"
+                                        onClick={handleClearSearch}
+                                        className="p-1 rounded text-slate-400 hover:text-white"
+                                        title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button
+                                      type="submit"
+                                      className="px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition border border-cyan-500/30"
+                                    >
+                                      {isEn ? 'Search' : 'جستجو'}
+                                    </button>
+                                  </div>
+                                </form>
+
+                                {/* Filter Toggle Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setIsFilterBuilderOpen((prev) => !prev)}
+                                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                                    isFilterBuilderOpen || dataFilters.length > 0
+                                      ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-sm'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <Filter className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Filters' : 'فیلترها'}</span>
+                                  {dataFilters.length > 0 && (
+                                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-500 text-white font-bold">
+                                      {dataFilters.length}
+                                    </span>
+                                  )}
+                                </button>
+
+                                {/* Column Visibility Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setIsColumnVisibilityOpen((prev) => !prev)}
+                                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition ${
+                                    isColumnVisibilityOpen
+                                      ? 'bg-purple-500/20 text-purple-400 border-purple-500/40 shadow-sm'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Columns' : 'ستون‌ها'}</span>
+                                  <span className="text-[10px] font-mono text-slate-400">
+                                    ({visibleCols.length}/{availableCols.length})
+                                  </span>
+                                </button>
+                              </div>
+
+                              {/* Right: Page Size, Count & Export */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {/* Page size selector */}
+                                <div className="flex items-center gap-1 text-xs font-mono text-slate-400">
+                                  <span className="font-sans text-[11px] hidden sm:inline">{isEn ? 'Rows:' : 'سطر:'}</span>
+                                  <select
+                                    value={dataPageSize}
+                                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                                    className={`px-2 py-1 rounded-lg border text-xs font-mono outline-none cursor-pointer ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-300 text-slate-900'
+                                        : 'bg-slate-900 border-slate-800 text-slate-200'
+                                    }`}
+                                  >
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                    <option value={250}>250</option>
+                                  </select>
+                                </div>
+
+                                {/* Count exact badge / toggle */}
+                                <button
+                                  type="button"
+                                  onClick={handleToggleExactCount}
+                                  className={`px-2 py-1 rounded-lg border text-xs font-mono flex items-center gap-1 transition ${
+                                    dataCountExact
+                                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                  title={
+                                    dataCountExact
+                                      ? isEn
+                                        ? 'Exact row count enabled'
+                                        : 'شمارش دقیق سطرها فعال است'
+                                      : isEn
+                                      ? 'Click to calculate exact row count'
+                                      : 'کلیک جهت محاسبه تعداد دقیق سطرها'
+                                  }
+                                >
+                                  <Hash className="w-3 h-3 text-cyan-400" />
+                                  <span className="font-sans text-[11px]">
+                                    {tableData
+                                      ? `${tableData.totalRows.toLocaleString()} ${
+                                          tableData.isExactCount ? '' : (isEn ? '(est.)' : '(تخمینی)')
+                                        }`
+                                      : '...'}
+                                  </span>
+                                </button>
+
+                                {/* Export buttons */}
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={exportCsv}
+                                    disabled={!tableData || !tableData.rows.length}
+                                    className={`px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 transition ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                    } disabled:opacity-40`}
+                                    title={isEn ? 'Export visible rows as CSV' : 'خروجی CSV سطرهای جاری'}
+                                  >
+                                    <Download className="w-3 h-3 text-emerald-400" />
+                                    <span>CSV</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={exportJson}
+                                    disabled={!tableData || !tableData.rows.length}
+                                    className={`px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 transition ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                    } disabled:opacity-40`}
+                                    title={isEn ? 'Export visible rows as JSON' : 'خروجی JSON سطرهای جاری'}
+                                  >
+                                    <Download className="w-3 h-3 text-purple-400" />
+                                    <span>JSON</span>
+                                  </button>
+                                </div>
+
+                                {/* Refresh */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (selectedNode.dbName && selectedNode.schemaName) {
+                                      handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+                                    }
+                                  }}
+                                  disabled={loadingTableData}
+                                  className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition ${
+                                    isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                  } disabled:opacity-50`}
+                                  title={isEn ? 'Refresh table data' : 'تازه‌سازی داده‌های جدول'}
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-cyan-400' : ''}`} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Collapsible Filter Builder Panel */}
+                            {isFilterBuilderOpen && (
+                              <div
+                                className={`p-3.5 rounded-xl border space-y-3 ${
+                                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <h6 className="font-bold text-xs flex items-center gap-1.5 text-blue-400 uppercase tracking-wider">
+                                    <Filter className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Table Column Filters' : 'فیلترهای پیشرفته ستون‌ها'}</span>
+                                  </h6>
+                                  {dataFilters.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={handleClearAllFilters}
+                                      className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1 transition"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>{isEn ? 'Clear All' : 'حذف همه فیلترها'}</span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Active Filters List */}
+                                {dataFilters.length > 0 && (
+                                  <div className="space-y-1.5">
+                                    {dataFilters.map((f, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-center gap-2 flex-wrap p-2 rounded-lg bg-black/20 border border-slate-800 text-xs font-mono"
+                                      >
+                                        <span className="font-bold text-slate-200">"{f.column}"</span>
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                          {f.operator}
+                                        </span>
+                                        {f.operator !== 'isNull' && f.operator !== 'isNotNull' && (
+                                          <span className="text-amber-300 font-bold bg-black/40 px-1.5 py-0.5 rounded">
+                                            "{f.value}"
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveFilter(idx)}
+                                          className="p-1 rounded text-slate-500 hover:text-rose-400 transition ml-auto"
+                                          title={isEn ? 'Remove filter' : 'حذف فیلتر'}
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Add New Filter Form */}
+                                <div className="flex items-center gap-2 flex-wrap pt-1">
+                                  <select
+                                    value={newFilterColumn || (availableCols[0]?.name || '')}
+                                    onChange={(e) => setNewFilterColumn(e.target.value)}
+                                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
+                                      isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                    }`}
+                                  >
+                                    {availableCols.map((c) => (
+                                      <option key={c.name} value={c.name}>
+                                        {c.name} ({c.dataType})
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <select
+                                    value={newFilterOperator}
+                                    onChange={(e) => setNewFilterOperator(e.target.value as PostgresFilterOperator)}
+                                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
+                                      isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                    }`}
+                                  >
+                                    <option value="eq">= ({isEn ? 'equals' : 'برابر با'})</option>
+                                    <option value="neq">!= ({isEn ? 'not equals' : 'نابرابر با'})</option>
+                                    <option value="contains">{isEn ? 'contains' : 'شامل'}</option>
+                                    <option value="notContains">{isEn ? 'not contains' : 'شامل نشود'}</option>
+                                    <option value="startsWith">{isEn ? 'starts with' : 'شروع شود با'}</option>
+                                    <option value="endsWith">{isEn ? 'ends with' : 'پایان یابد با'}</option>
+                                    <option value="gt">&gt; ({isEn ? 'greater than' : 'بزرگتر از'})</option>
+                                    <option value="gte">&gt;= ({isEn ? 'greater or equal' : 'بزرگتر یا مساوی'})</option>
+                                    <option value="lt">&lt; ({isEn ? 'less than' : 'کوچکتر از'})</option>
+                                    <option value="lte">&lt;= ({isEn ? 'less or equal' : 'کوچکتر یا مساوی'})</option>
+                                    <option value="isNull">{isEn ? 'is NULL' : 'مقدار NULL باشد'}</option>
+                                    <option value="isNotNull">{isEn ? 'is NOT NULL' : 'مقدار NULL نباشد'}</option>
+                                  </select>
+
+                                  {newFilterOperator !== 'isNull' && newFilterOperator !== 'isNotNull' && (
+                                    <input
+                                      type="text"
+                                      value={newFilterValue}
+                                      onChange={(e) => setNewFilterValue(e.target.value)}
+                                      placeholder={isEn ? 'Filter value...' : 'مقدار شرط...'}
+                                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none flex-1 min-w-[140px] ${
+                                        isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                      }`}
+                                    />
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={handleAddFilter}
+                                    className="px-3 py-1.5 rounded-lg bg-blue-500 text-white font-semibold text-xs flex items-center gap-1 hover:bg-blue-600 transition shadow-sm"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Add Filter' : 'افزودن فیلتر'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Collapsible Column Visibility Popover */}
+                            {isColumnVisibilityOpen && (
+                              <div
+                                className={`p-3.5 rounded-xl border space-y-2.5 ${
+                                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <h6 className="font-bold text-xs flex items-center gap-1.5 text-purple-400 uppercase tracking-wider">
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Column Visibility' : 'نمایش / مخفی‌سازی ستون‌ها'}</span>
+                                  </h6>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setDataHiddenColumns({})}
+                                      className="text-[11px] font-semibold text-cyan-400 hover:underline"
+                                    >
+                                      {isEn ? 'Show All' : 'نمایش همه'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-48 overflow-y-auto pt-1">
+                                  {availableCols.map((c) => {
+                                    const isHidden = Boolean(dataHiddenColumns[c.name]);
+                                    return (
+                                      <label
+                                        key={c.name}
+                                        className={`flex items-center gap-2 p-1.5 rounded-lg border text-xs font-mono cursor-pointer transition ${
+                                          isHidden
+                                            ? 'opacity-50 border-transparent bg-black/10'
+                                            : isLightMode
+                                            ? 'bg-white border-slate-200 shadow-sm'
+                                            : 'bg-slate-950 border-slate-800 text-slate-200'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={!isHidden}
+                                          onChange={(e) => {
+                                            setDataHiddenColumns((prev) => ({
+                                              ...prev,
+                                              [c.name]: !e.target.checked,
+                                            }));
+                                          }}
+                                          className="rounded border-slate-700 text-purple-500 focus:ring-0"
+                                        />
+                                        <span className="truncate">{c.name}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Data Table Grid */}
+                            <div
+                              className={`rounded-xl border overflow-hidden ${
+                                isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                              }`}
+                            >
+                              <div className="overflow-x-auto max-h-[600px] relative">
+                                {loadingTableData && (
+                                  <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center z-20">
+                                    <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-900 border border-slate-800 shadow-lg text-xs font-mono text-cyan-400">
+                                      <RefreshCw className="w-4 h-4 animate-spin" />
+                                      <span>{isEn ? 'Executing query...' : 'در حال اجرای کوئری...'}</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <table className="w-full text-left text-xs font-mono">
+                                  <thead
+                                    className={`sticky top-0 text-[11px] uppercase tracking-wider font-semibold border-b z-10 ${
+                                      isLightMode
+                                        ? 'bg-slate-100 border-slate-200 text-slate-600'
+                                        : 'bg-slate-900 border-slate-800 text-slate-400'
+                                    }`}
+                                  >
+                                    <tr>
+                                      <th className="py-2.5 px-3 w-12 text-slate-500">#</th>
+                                      <th className="py-2.5 px-2 w-10 text-center">
+                                        <span className="sr-only">Detail</span>
+                                      </th>
+                                      {visibleCols.map((col) => {
+                                        const isSorted = dataSortColumn === col.name;
+                                        return (
+                                          <th
+                                            key={col.name}
+                                            onClick={() => toggleColumnSort(col.name)}
+                                            className="py-2.5 px-3 cursor-pointer hover:bg-slate-800/40 transition select-none group"
+                                          >
+                                            <div className="flex items-center gap-1.5">
+                                              {col.isPrimaryKey && (
+                                                <span title="Primary Key">
+                                                  <Key className="w-3 h-3 text-blue-400 shrink-0" />
+                                                </span>
+                                              )}
+                                              <span className={isSorted ? 'text-cyan-400 font-bold' : ''}>
+                                                {col.name}
+                                              </span>
+                                              <span className="text-[9px] px-1 py-0.2 rounded font-mono font-normal bg-black/30 text-slate-400">
+                                                {col.formattedType}
+                                              </span>
+                                              <span className="ml-auto text-slate-500 group-hover:text-slate-300">
+                                                {isSorted ? (
+                                                  dataSortDirection === 'ASC' ? (
+                                                    <ArrowUp className="w-3 h-3 text-cyan-400" />
+                                                  ) : (
+                                                    <ArrowDown className="w-3 h-3 text-cyan-400" />
+                                                  )
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100" />
+                                                )}
+                                              </span>
+                                            </div>
+                                          </th>
+                                        );
+                                      })}
+                                    </tr>
+                                  </thead>
+
+                                  <tbody className="divide-y divide-slate-800/40 text-xs">
+                                    {tableData && tableData.rows.length > 0 ? (
+                                      tableData.rows.map((row, rIdx) => {
+                                        const absoluteRowNum = (tableData.page - 1) * tableData.pageSize + rIdx + 1;
+                                        return (
+                                          <tr
+                                            key={rIdx}
+                                            className={`transition ${
+                                              isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-900/60'
+                                            }`}
+                                          >
+                                            <td className="py-2 px-3 text-slate-500 text-[11px]">
+                                              {absoluteRowNum}
+                                            </td>
+                                            <td className="py-2 px-2 text-center">
+                                              <button
+                                                type="button"
+                                                onClick={() => setSelectedRowForModal(row)}
+                                                className="p-1 rounded hover:bg-slate-800 text-slate-500 hover:text-cyan-400 transition"
+                                                title={isEn ? 'View row details' : 'مشاهده جزئیات سطر'}
+                                              >
+                                                <Maximize2 className="w-3 h-3" />
+                                              </button>
+                                            </td>
+                                            {visibleCols.map((col) => {
+                                              const rawVal = row[col.name];
+                                              const isNull = rawVal === null || rawVal === undefined;
+
+                                              let displayNode: React.ReactNode;
+                                              if (isNull) {
+                                                displayNode = (
+                                                  <span className="text-slate-500 italic text-[11px]">NULL</span>
+                                                );
+                                              } else if (typeof rawVal === 'boolean') {
+                                                displayNode = rawVal ? (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                    TRUE
+                                                  </span>
+                                                ) : (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                                                    FALSE
+                                                  </span>
+                                                );
+                                              } else if (typeof rawVal === 'object') {
+                                                const jsonStr = JSON.stringify(rawVal);
+                                                displayNode = (
+                                                  <span
+                                                    className="text-purple-300 font-mono text-[11px] truncate block max-w-xs cursor-pointer hover:underline"
+                                                    onClick={() => setSelectedRowForModal(row)}
+                                                    title={jsonStr}
+                                                  >
+                                                    {jsonStr}
+                                                  </span>
+                                                );
+                                              } else {
+                                                const strVal = String(rawVal);
+                                                displayNode = (
+                                                  <span
+                                                    className={`truncate block max-w-sm ${
+                                                      col.isPrimaryKey ? 'text-blue-300 font-semibold' : 'text-slate-200'
+                                                    }`}
+                                                    title={strVal}
+                                                  >
+                                                    {strVal}
+                                                  </span>
+                                                );
+                                              }
+
+                                              return (
+                                                <td key={col.name} className="py-2 px-3 whitespace-nowrap">
+                                                  {displayNode}
+                                                </td>
+                                              );
+                                            })}
+                                          </tr>
+                                        );
+                                      })
+                                    ) : (
+                                      <tr>
+                                        <td
+                                          colSpan={visibleCols.length + 2}
+                                          className="py-12 text-center text-slate-500 font-sans"
+                                        >
+                                          {loadingTableData ? (
+                                            <div className="flex flex-col items-center gap-2">
+                                              <RefreshCw className="w-5 h-5 text-cyan-400 animate-spin" />
+                                              <span>{isEn ? 'Loading rows...' : 'در حال بارگذاری سطرها...'}</span>
+                                            </div>
+                                          ) : (
+                                            <div className="space-y-1">
+                                              <p className="font-semibold text-slate-300">
+                                                {isEn ? 'No rows found in this table.' : 'هیچ سطری در این جدول یافت نشد.'}
+                                              </p>
+                                              <p className="text-xs text-slate-500">
+                                                {isEn
+                                                  ? 'Try adjusting or clearing your filters and search query.'
+                                                  : 'فیلترها یا عبارت جستجوی خود را تغییر دهید.'}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {/* Table Bottom Pagination Bar */}
+                              {tableData && (
+                                <div
+                                  className={`p-3 border-t flex items-center justify-between gap-3 flex-wrap text-xs font-mono ${
+                                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800'
+                                  }`}
+                                >
+                                  {/* Left: Execution info & row range */}
+                                  <div className="flex items-center gap-3 text-slate-400">
+                                    <span className="flex items-center gap-1 font-sans">
+                                      <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                                      <span>{tableData.executionTimeMs} ms</span>
+                                    </span>
+                                    <span className="text-slate-600">|</span>
+                                    <span className="font-sans">
+                                      {isEn ? 'Showing ' : 'نمایش '}
+                                      <b className="text-slate-200">
+                                        {tableData.rows.length > 0
+                                          ? `${(tableData.page - 1) * tableData.pageSize + 1}–${Math.min(
+                                              tableData.page * tableData.pageSize,
+                                              tableData.totalRows
+                                            )}`
+                                          : 0}
+                                      </b>{' '}
+                                      {isEn ? 'of ' : 'از '}
+                                      <b className="text-cyan-400">{tableData.totalRows.toLocaleString()}</b>{' '}
+                                      {tableData.isExactCount ? '' : (isEn ? '(estimated)' : '(تخمینی)')}
+                                    </span>
+                                  </div>
+
+                                  {/* Right: Pagination Controls */}
+                                  <div className="flex items-center gap-1.5 ml-auto">
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePageChange(1)}
+                                      disabled={tableData.page <= 1 || loadingTableData}
+                                      className={`p-1.5 rounded-lg border transition ${
+                                        isLightMode
+                                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                      } disabled:opacity-30`}
+                                      title={isEn ? 'First page' : 'صفحه نخست'}
+                                    >
+                                      <ChevronsLeft className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePageChange(tableData.page - 1)}
+                                      disabled={tableData.page <= 1 || loadingTableData}
+                                      className={`p-1.5 rounded-lg border transition ${
+                                        isLightMode
+                                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                      } disabled:opacity-30`}
+                                      title={isEn ? 'Previous page' : 'صفحه قبل'}
+                                    >
+                                      <ChevronLeft className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    <span className="px-2 text-slate-400 font-sans">
+                                      {isEn ? 'Page' : 'صفحه'} <b className="text-slate-200">{tableData.page}</b>{' '}
+                                      {isEn ? 'of' : 'از'} <b className="text-slate-200">{tableData.totalPages}</b>
+                                    </span>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePageChange(tableData.page + 1)}
+                                      disabled={tableData.page >= tableData.totalPages || loadingTableData}
+                                      className={`p-1.5 rounded-lg border transition ${
+                                        isLightMode
+                                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                      } disabled:opacity-30`}
+                                      title={isEn ? 'Next page' : 'صفحه بعد'}
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePageChange(tableData.totalPages)}
+                                      disabled={tableData.page >= tableData.totalPages || loadingTableData}
+                                      className={`p-1.5 rounded-lg border transition ${
+                                        isLightMode
+                                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                      } disabled:opacity-30`}
+                                      title={isEn ? 'Last page' : 'صفحه آخر'}
+                                    >
+                                      <ChevronsRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Row Detail Full Modal */}
+                            {selectedRowForModal && (
+                              <div className="fixed inset-0 z-[999995] bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+                                <div
+                                  className={`w-full max-w-2xl max-h-[85vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden ${
+                                    isLightMode ? 'bg-white border-slate-300' : 'bg-slate-950 border-slate-800'
+                                  }`}
+                                >
+                                  {/* Header */}
+                                  <div className="p-4 border-b border-slate-800/80 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                      <Maximize2 className="w-4 h-4 text-cyan-400" />
+                                      <h5 className="font-bold text-sm text-slate-100 font-mono">
+                                        {isEn ? 'Row Details Inspector' : 'جزئیات کامل سطر داده'}
+                                      </h5>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => copyToClipboard(JSON.stringify(selectedRowForModal, null, 2))}
+                                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition border border-slate-800"
+                                        title={isEn ? 'Copy Row JSON' : 'کپی کل سطر به صورت JSON'}
+                                      >
+                                        {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedRowForModal(null)}
+                                        className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Body */}
+                                  <div className="p-4 overflow-y-auto space-y-3 font-mono text-xs flex-1">
+                                    <div className="divide-y divide-slate-800/60">
+                                      {Object.entries(selectedRowForModal).map(([key, val]) => (
+                                        <div key={key} className="py-2.5 flex items-start justify-between gap-3">
+                                          <div className="w-1/3 min-w-[120px]">
+                                            <span className="font-bold text-slate-300 block truncate">{key}</span>
+                                            <span className="text-[10px] text-slate-500 font-sans">
+                                              {availableCols.find((c) => c.name === key)?.formattedType || typeof val}
+                                            </span>
+                                          </div>
+                                          <div className="w-2/3 flex items-center justify-between gap-2 p-2 rounded-lg bg-black/30 border border-slate-900">
+                                            <span className="text-cyan-300 break-all select-all font-mono">
+                                              {val === null || val === undefined ? (
+                                                <i className="text-slate-500 font-sans">NULL</i>
+                                              ) : typeof val === 'object' ? (
+                                                JSON.stringify(val, null, 2)
+                                              ) : (
+                                                String(val)
+                                              )}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => copyToClipboard(typeof val === 'object' ? JSON.stringify(val) : String(val))}
+                                              className="p-1 text-slate-500 hover:text-white shrink-0"
+                                              title={isEn ? 'Copy value' : 'کپی مقدار'}
+                                            >
+                                              <Copy className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* SUB-TAB 1: COLUMNS */}
                       {tableSubTab === 'columns' && (

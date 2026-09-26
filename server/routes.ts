@@ -65,6 +65,7 @@ import {
   getPostgresRoles,
   getPostgresDatabaseTree,
   getPostgresTableStructure,
+  getPostgresTableData,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1586,6 +1587,97 @@ const handlePostgresTableStructure = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/postgres/table-structure', handlePostgresTableStructure);
 apiRouter.post('/remote-servers/:id/postgres/table-structure', handlePostgresTableStructure);
+
+// GET & POST /api/remote-servers/:id/postgres/table-data - Retrieve paginated, filtered, sorted table rows safely
+const handlePostgresTableData = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: `Remote server "${id}" not found`,
+        errorFa: `سرور ریموت با شناسه "${id}" یافت نشد`,
+      });
+    }
+
+    const database = (req.body?.database || req.query.database || '').toString().trim();
+    const schema = (req.body?.schema || req.query.schema || '').toString().trim();
+    const table = (req.body?.table || req.query.table || '').toString().trim();
+
+    if (!database) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query parameter or body field "database" is required',
+        errorFa: 'پارامتر نام پایگاه داده اجباری است',
+      });
+    }
+    if (!schema) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query parameter or body field "schema" is required',
+        errorFa: 'پارامتر نام اسکیما اجباری است',
+      });
+    }
+    if (!table) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query parameter or body field "table" is required',
+        errorFa: 'پارامتر نام جدول اجباری است',
+      });
+    }
+
+    const page = req.body?.page || (req.query.page ? Number(req.query.page) : 1);
+    const pageSize = req.body?.pageSize || (req.query.pageSize ? Number(req.query.pageSize) : 50);
+    const sortColumn = req.body?.sortColumn || (req.query.sortColumn ? String(req.query.sortColumn) : undefined);
+    const sortDirection = req.body?.sortDirection || (req.query.sortDirection ? String(req.query.sortDirection) : undefined);
+    const search = req.body?.search || (req.query.search ? String(req.query.search) : undefined);
+    const countExact = req.body?.countExact !== undefined ? Boolean(req.body.countExact) : req.query.countExact === 'true';
+
+    let filters = req.body?.filters;
+    if (!filters && req.query.filters) {
+      try {
+        filters = JSON.parse(String(req.query.filters));
+      } catch {}
+    }
+
+    const port = req.body?.port || (req.query.port ? Number(req.query.port) : undefined);
+    const user = req.body?.user || (req.query.user ? String(req.query.user) : undefined);
+    const password = req.body?.password;
+
+    const result = await getPostgresTableData(
+      server,
+      {
+        database,
+        schema,
+        table,
+        page: Number(page) || 1,
+        pageSize: Number(pageSize) || 50,
+        sortColumn: sortColumn ? String(sortColumn) : undefined,
+        sortDirection: sortDirection === 'DESC' ? 'DESC' : 'ASC',
+        search: search ? String(search) : undefined,
+        filters: Array.isArray(filters) ? filters : [],
+        countExact,
+      },
+      {
+        port,
+        user,
+        password,
+      }
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error retrieving table rows',
+      errorFa: 'خطای داخلی هنگام دریافت داده‌های جدول',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/table-data', handlePostgresTableData);
+apiRouter.post('/remote-servers/:id/postgres/table-data', handlePostgresTableData);
 
 
 // POST /api/remote-servers/:id/tags - Update tags only

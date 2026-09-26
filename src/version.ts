@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.186.0';
+export const APP_VERSION = '1.187.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.187.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۶ مدیریت PostgreSQL: نمایشگر داده‌های جدول (Table Data Viewer)، صفحه‌بندی سمت سرور، فیلترهای پیشرفته، مرتب‌سازی، مدیریت ستون‌ها و خروجی داده',
+    title_en: 'PostgreSQL Management Phase 6: Production-Safe Table Data Viewer, Server-Side Pagination, Filtering, Sorting, Column Visibility & Export',
+    changes: [
+      'پیاده‌سازی کامل فاز ۶ نقشه راه مدیریت PostgreSQL برای مرور و کاوش ایمن داده‌های جداول سرورهای ریموت لینوکس.',
+      'صفحه‌بندی قدرتمند سمت سرور (Server-Side Pagination): پشتیبانی از انتخاب اندازه صفحه (۲۵، ۵۰، ۱۰۰، ۲۵۰ سطر)، پرش سریع به صفحات و ناوبری کامل بین صفحات بدون اسکن بی‌مورد کل جدول.',
+      'سیستم فیلتر پیشرفته و پارامتریک (Parameterized Filter Builder): فیلتر بر اساس ستون با عملگرهای مساوی، نامساوی، شامل، شامل نشود، شروع با، پایان با، بزرگتر، کوچکتر و بررسی مقادیر NULL به همراه کوئری‌های امن و ضد تزریق SQL.',
+      'جستجوی متنی لحظه‌ای (Instant Search): جستجوی سریع عبارات متنی در میان ستون‌های جدول با رعایت امنیت و عدم افت کارایی دیتابیس.',
+      'مرتب‌سازی چندحالته (Column Sorting): مرتب‌سازی صعودی (ASC) و نزولی (DESC) با کلیک روی سرستون‌ها و پشتیبانی از NULLS LAST.',
+      'مدیریت و رویت‌پذیری ستون‌ها (Column Visibility): امکان انتخاب و مخفی‌سازی ستون‌ها و تنظیم دلخواه جدول جهت ارگونومی کاری بهتر.',
+      'شمارش هوشمند سطرها: استفاده از کاتالوگ reltuples برای جداول میلیونی جهت بارگذاری در کسری از ثانیه و دکمه محاسبه شمارش دقیق در صورت درخواست کاربر.',
+      'نمایشگر مدال جزئیات سطر (Row Detail Modal): بررسی ساختار کامل سطر، مقادیر فیلدها و کپی مستقیم ساختار JSON یا مقادیر ستون‌ها.',
+      'خروجی استاندارد: امکان دریافت خروجی از سطرهای جاری به دو فرمت CSV و JSON با یک کلیک.',
+      'رعایت کامل قانون عدم نشت زبان (Strict Bilingual i18n)، عدم استفاده از داده‌های ساختگی و انطباق کامل با تم تیره و روشن.'
+    ],
+    changes_en: [
+      'Full implementation of PostgreSQL Management Phase 6: Production-safe Table Data Viewer for remote Linux database servers.',
+      'Server-Side Pagination: support for configurable page sizes (25, 50, 100, 250 rows), direct page jumping, and boundary-checked page navigation without unconstrained table loading.',
+      'Parameterized Filter Builder: column-specific filtering with operators (equals, not equals, contains, not contains, starts with, ends with, greater than, less than, is null, is not null) using prepared parameterized queries preventing SQL injection.',
+      'Instant Search: cross-column textual search with safe query parameterization and instant results.',
+      'Multi-state Column Sorting: interactive ascending (ASC) and descending (DESC) sorting with visual direction indicators and NULLS LAST ordering.',
+      'Column Visibility Manager: customizable column display with toggle checkboxes and select all options.',
+      'Smart Row Counting: reltuples catalog-assisted estimation for instantaneous response on multi-million row tables with on-demand exact count calculation.',
+      'Row Detail Inspector Modal: deep inspection of row attributes, JSON serialization preview, and one-click value copying.',
+      'Export Utility: quick client-side export of visible paginated dataset to CSV and JSON formats.',
+      'Strict adherence to bilingual English/Persian localization rules, authentic live system catalog telemetry without mock data, and full dark/light theme adaptability.'
+    ]
+  },
   {
     version: '1.186.0',
     releaseDate: '2026-09-26',
