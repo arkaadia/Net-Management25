@@ -69,6 +69,7 @@ import {
   insertPostgresTableRow,
   updatePostgresTableRow,
   deletePostgresTableRow,
+  executePostgresQuery,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1821,6 +1822,60 @@ const handlePostgresTableRowDelete = async (req: Request, res: Response) => {
   }
 };
 apiRouter.post('/remote-servers/:id/postgres/table-row/delete', handlePostgresTableRowDelete);
+
+// POST /api/remote-servers/:id/postgres/query - Phase 8: Execute SQL query
+const handlePostgresQuery = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { database, schema, query, maxRows, explain, port, user, password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Remote server not found.' },
+        errorFa: 'سرور ریموت مورد نظر یافت نشد.',
+      });
+    }
+
+    if (!database || !database.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Database name is required.' },
+        errorFa: 'انتخاب پایگاه داده اجباری است.',
+      });
+    }
+
+    if (!query || !query.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Query cannot be empty.' },
+        errorFa: 'متن کوئری نمی‌تواند خالی باشد.',
+      });
+    }
+
+    const result = await executePostgresQuery(server, {
+      database,
+      schema,
+      query,
+      maxRows: maxRows ? Number(maxRows) : 1000,
+      explain: Boolean(explain),
+      port: port ? Number(port) : undefined,
+      user,
+      password,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: { message: err.message || 'Internal server error executing SQL query' },
+      errorFa: 'خطای داخلی هنگام اجرای کوئری SQL',
+    });
+  }
+};
+apiRouter.post('/remote-servers/:id/postgres/query', handlePostgresQuery);
+
 
 
 // POST /api/remote-servers/:id/tags - Update tags only

@@ -43,6 +43,7 @@ import {
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
+import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'overview' | 'databases' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'overview' | 'databases' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -69,6 +70,11 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
 }) => {
   const [activeTab, setActiveTab] = useState<PostgresTab>('browser');
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // Phase 8: SQL Query Editor Initial States
+  const [sqlEditorInitialQuery, setSqlEditorInitialQuery] = useState<string | undefined>(undefined);
+  const [sqlEditorTargetDb, setSqlEditorTargetDb] = useState<string | undefined>(undefined);
+  const [sqlEditorTargetSchema, setSqlEditorTargetSchema] = useState<string | undefined>(undefined);
 
   // Connection Test State
   const [testing, setTesting] = useState(false);
@@ -383,6 +389,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               <span>{isEn ? 'Database Browser' : 'کاوشگر پایگاه داده'}</span>
             </button>
 
+            {/* TAB: SQL QUERY EDITOR & WORKSPACE (Phase 8) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('sql')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'sql'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>{isEn ? 'SQL Editor' : 'ادیتور SQL'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('overview')}
@@ -449,10 +471,34 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               overviewData={overviewData}
               onRefreshDatabases={() => handleFetchDatabases(includeTemplates)}
               onRefreshOverview={handleFetchOverview}
+              onOpenSqlEditor={(query, db, schema) => {
+                setSqlEditorInitialQuery(query);
+                if (db) setSqlEditorTargetDb(db);
+                if (schema) setSqlEditorTargetSchema(schema);
+                setActiveTab('sql');
+              }}
             />
           )}
 
-          {/* TAB 1: OVERVIEW & HEALTH */}
+          {/* TAB 1: SQL QUERY EDITOR & WORKSPACE (Phase 8) */}
+          {activeTab === 'sql' && (
+            <PostgresSqlEditorTab
+              server={server}
+              databases={databases}
+              defaultDatabase={
+                sqlEditorTargetDb ||
+                databases.find((d) => d.name === 'postgres')?.name ||
+                databases[0]?.name ||
+                'postgres'
+              }
+              defaultSchema={sqlEditorTargetSchema || 'public'}
+              initialQuery={sqlEditorInitialQuery}
+              isLightMode={isLightMode}
+              isEn={isEn}
+            />
+          )}
+
+          {/* TAB 2: OVERVIEW & HEALTH */}
           {activeTab === 'overview' && (
 
             <div className="space-y-5">

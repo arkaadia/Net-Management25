@@ -49,6 +49,7 @@ import {
   Maximize2,
   X,
   Pencil,
+  Terminal,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -95,6 +96,7 @@ export interface PostgresDatabaseBrowserTabProps {
   overviewData: PostgresEngineOverview | null;
   onRefreshDatabases: () => Promise<void>;
   onRefreshOverview: () => Promise<void>;
+  onOpenSqlEditor?: (query: string, database?: string, schema?: string) => void;
 }
 
 export type SelectedNodeType =
@@ -140,6 +142,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
   overviewData,
   onRefreshDatabases,
   onRefreshOverview,
+  onOpenSqlEditor,
 }) => {
   // Tree expansion state
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
@@ -4363,6 +4366,32 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       {/* SUB-TAB 5: QUICK SQL */}
                       {tableSubTab === 'sql' && (
                         <div className="space-y-3 font-mono text-xs">
+                          {/* Workspace Action Shortcut */}
+                          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 font-sans">
+                            <div className="flex items-center gap-2">
+                              <Code className="w-4 h-4 text-cyan-400 shrink-0" />
+                              <span className="text-xs font-semibold text-slate-200">
+                                {isEn
+                                  ? 'Open queries in SQL Query Workspace for execution & syntax highlighting'
+                                  : 'باز کردن این کوئری‌ها در ادیتور پیشرفته SQL برای اجرا و ویرایش'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenSqlEditor?.(
+                                  `SELECT * FROM "${selectedNode.schemaName}"."${selectedNode.name}" LIMIT 50;`,
+                                  selectedNode.dbName,
+                                  selectedNode.schemaName
+                                )
+                              }
+                              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-xs shrink-0 cursor-pointer"
+                            >
+                              <Terminal className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Open in SQL Editor' : 'اجرا در ادیتور SQL'}</span>
+                            </button>
+                          </div>
+
                           {/* Query 1: SELECT 50 */}
                           <div
                             className={`p-3.5 rounded-xl border space-y-1.5 ${

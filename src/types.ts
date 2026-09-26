@@ -1857,6 +1857,87 @@ export interface PostgresRowMutationResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 8: SQL Query Editor & Workspace Types
+// ==========================================
+
+export interface PostgresQueryExecutionRequest {
+  database: string;
+  schema?: string;
+  query: string;
+  maxRows?: number;
+  explain?: boolean;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface PostgresQueryColumnField {
+  name: string;
+  dataTypeId?: number;
+  dataTypeName?: string;
+  tableId?: number;
+  columnId?: number;
+}
+
+export interface PostgresQueryStatementResult {
+  command: string;
+  rowCount: number;
+  fields: PostgresQueryColumnField[];
+  rows: Record<string, any>[];
+  durationMs: number;
+  isTruncated?: boolean;
+  totalRowsReturned?: number;
+}
+
+export interface PostgresQueryExecutionError {
+  message: string;
+  code?: string;
+  position?: number;
+  line?: number;
+  column?: number;
+  detail?: string;
+  hint?: string;
+  where?: string;
+  schema?: string;
+  table?: string;
+  internalQuery?: string;
+}
+
+export interface PostgresQueryExecutionResponse {
+  success: boolean;
+  results?: PostgresQueryStatementResult[];
+  totalDurationMs?: number;
+  executedAt?: string;
+  error?: PostgresQueryExecutionError;
+  errorFa?: string;
+}
+
+export interface PostgresQueryTab {
+  id: string;
+  title: string;
+  query: string;
+  database: string;
+  schema?: string;
+  isExecuting?: boolean;
+  lastResult?: PostgresQueryExecutionResponse | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PostgresQueryHistoryItem {
+  id: string;
+  query: string;
+  database: string;
+  schema?: string;
+  timestamp: string;
+  success: boolean;
+  durationMs: number;
+  rowCount: number;
+  command?: string;
+  errorMessage?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.188.0';
+export const APP_VERSION = '1.189.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.189.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۸ مدیریت PostgreSQL: محیط پیشرفته کار با کوئری‌های SQL (SQL Query Editor & Workspace)، تب‌های چندگانه، هایلایت نحوی، تاریخچه و تحلیل نتایج',
+    title_en: 'PostgreSQL Management Phase 8: Advanced SQL Query Editor & Workspace, Multi-Tab Sessions, Syntax Highlighting, Query History & Results Telemetry',
+    changes: [
+      'پیاده‌سازی کامل فاز ۸ نقشه راه مدیریت PostgreSQL برای اجرای مستقیم، منعطف و حرفه‌ای انواع کوئری‌های SQL بر روی پایگاه‌های داده سرور ریموت لینوکس.',
+      'محیط کاری تب‌بندی‌شده چندگانه (Multi-Tab Workspace): امکان باز کردن، بستن و تغییر نام چندین تب کوئری مستقل به طور همزمان با حفظ استیت، دیتابیس و اسکیمای اختصاصی هر تب.',
+      'انتخاب دیتابیس و اسکیما: انتخاب‌گر دراپ‌داون دیتابیس و اسکیما با تنظیم خودکار مسیر جستجو (search_path) در نشست اتصال جهت ارگونومی کاری سریع.',
+      'ویرایشگر حرفه‌ای SQL: شماره‌گذاری سطرها، تورفتگی هوشمند با کلید Tab، دکمه‌های فرمت کلیدواژه‌های SQL، پاک‌سازی سریع و میانبرهای کیبورد (Ctrl+Enter / Cmd+Enter برای اجرا).',
+      'اجرای کوئری و تله‌متری عملکرد: نمایش دقیق مدت زمان اجرای کوئری به میلی‌ثانیه، تعداد سطرهای تحت تاثیر یا بازگردانده شده، پشتیبانی از کوئری‌های چنددستوری (Multi-statement) و دکمه تحلیل با EXPLAIN.',
+      'جدول نتایج پویا و باکیفیت: نمایش جدول داده با قابلیت مرتب‌سازی ستون‌ها، فیلتر متنی لحظه‌ای، صفحه‌بندی هوشمند، بازرسی جزئیات سطر به فرمت JSON و خروجی مستقیم با فرمت‌های CSV و JSON.',
+      'سیستم جامع عیب‌یابی و گزارش خطا: تشخیص خطاهای نحوی PostgreSQL، استخراج کد خطای سرور، نمایش شماره دقیق سطر و ستون وقوع خطا به همراه دکمه پرش مستقیم به سطر خطا و نمایش Hint و Detail.',
+      'تاریخچه اجرای کوئری‌ها (Query History): ذخیره تاریخچه کوئری‌های اجرا شده با وضعیت موفقیت/شکست، زمان اجرا، تعداد سطرها و امکان بارگذاری مجدد کوئری در ادیتور با یک کلیک.',
+      'الگوهای کوئری پرکاربرد (Templates): لیست کوئری‌های آماده مدیریتی (حجم جداول، نشست‌های فعال، نسبت اصابت کش و سلامت سرور).',
+      'رعایت کامل قانون عدم نشت زبان (Strict Bilingual i18n)، عدم استفاده از داده‌های ساختگی، انطباق با تم تیره و روشن و حفظ محرمانگی کامل اطلاعات اتصال.'
+    ],
+    changes_en: [
+      'Full implementation of PostgreSQL Management Phase 8: Advanced, production-grade SQL Query Workspace for remote Linux database instances.',
+      'Multi-Tab Query Sessions: tabbed workspace supporting simultaneous independent query tabs with custom titles, per-tab database/schema context, and isolated result states.',
+      'Contextual Database & Schema Selectors: integrated dropdowns with automatic search_path configuration for immediate contextual query execution without repetitive qualification.',
+      'Interactive SQL Editor: line gutter numbers, smart Tab indentation, SQL keyword auto-formatting, instant clear, and keyboard shortcuts (Ctrl+Enter / Cmd+Enter execution).',
+      'Execution Engine & Performance Telemetry: millisecond-accurate runtime duration, row counts returned or affected, multi-statement batch execution support, and integrated EXPLAIN ANALYZE button.',
+      'Dynamic Results Grid: sortable column headers, instant client-side text filtering, pagination, JSON modal inspection, and one-click export to CSV and JSON formats.',
+      'Comprehensive Error Diagnostics: deep PostgreSQL syntax error parsing, error codes, precise line and column location reporting with a "Jump to Line" shortcut, plus server Detail and Hint messages.',
+      'Query Execution History: persistent query history tracking execution status, runtime duration, affected row counts, and timestamp, with one-click reload into editor.',
+      'Built-in Management Templates: pre-configured administrative diagnostic queries (table storage sizes, active sessions, cache hit ratio, server uptime).',
+      'Strict adherence to bilingual English/Persian localization rules, authentic live system execution without mock data, zero-credential client leakage, and full dark/light theme contrast.'
+    ]
+  },
   {
     version: '1.188.0',
     releaseDate: '2026-09-26',

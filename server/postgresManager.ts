@@ -2793,4 +2793,190 @@ export async function deletePostgresTableRow(
   }
 }
 
+/**
+ * ============================================================================
+ * PHASE 8: SQL QUERY EDITOR & WORKSPACE
+ * Safe, flexible SQL query execution engine supporting single/multiple statements,
+ * runtime telemetry (duration, row count), error position diagnosis, and
+ * safe result-set serialization.
+ * ============================================================================
+ */
+
+export interface PostgresQueryExecutionParams {
+  database: string;
+  schema?: string;
+  query: string;
+  maxRows?: number;
+  explain?: boolean;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export async function executePostgresQuery(
+  server: RemoteServer,
+  params: PostgresQueryExecutionParams
+): Promise<{
+  success: boolean;
+  results?: Array<{
+    command: string;
+    rowCount: number;
+    fields: Array<{ name: string; dataTypeId?: number }>;
+    rows: Record<string, any>[];
+    durationMs: number;
+    isTruncated?: boolean;
+    totalRowsReturned?: number;
+  }>;
+  totalDurationMs?: number;
+  executedAt?: string;
+  error?: {
+    message: string;
+    code?: string;
+    position?: number;
+    line?: number;
+    column?: number;
+    detail?: string;
+    hint?: string;
+    where?: string;
+    schema?: string;
+    table?: string;
+  };
+  errorFa?: string;
+}> {
+  const { database, schema, query, maxRows = 1000, explain = false } = params;
+
+  if (!database || !database.trim()) {
+    return {
+      success: false,
+      error: { message: 'Database name is required for executing queries.' },
+      errorFa: 'انتخاب پایگاه داده برای اجرای کوئری الزامی است.',
+    };
+  }
+
+  if (!query || !query.trim()) {
+    return {
+      success: false,
+      error: { message: 'Query string cannot be empty.' },
+      errorFa: 'متن کوئری نمی‌تواند خالی باشد.',
+    };
+  }
+
+  const { client, targetHost, targetPort } = createPostgresClient(server, {
+    database: database.trim(),
+    port: params.port,
+    user: params.user,
+    password: params.password,
+  });
+
+  const overallStartTime = Date.now();
+
+  try {
+    await client.connect();
+
+    // Optionally set search_path if schema is provided
+    if (schema && schema.trim()) {
+      const safeSchemaIdent = `"${schema.trim().replace(/"/g, '""')}"`;
+      await client.query(`SET search_path TO ${safeSchemaIdent}, public;`);
+    }
+
+    const trimmedQuery = query.trim();
+    const queryToExecute = explain
+      ? `EXPLAIN (ANALYZE, BUFFERS, COSTS, VERBOSE, FORMAT TEXT) ${trimmedQuery}`
+      : trimmedQuery;
+
+    const queryStartTime = Date.now();
+    // node-postgres client.query can return a single QueryResult or QueryResult[] for multi-statement
+    const rawRes = await client.query(queryToExecute);
+    const queryDuration = Date.now() - queryStartTime;
+
+    const rawResults = Array.isArray(rawRes) ? rawRes : [rawRes];
+    const results = rawResults.map((r) => {
+      const allRows = r.rows || [];
+      const totalRowsReturned = allRows.length;
+      const isTruncated = totalRowsReturned > maxRows;
+      const cappedRows = isTruncated ? allRows.slice(0, maxRows) : allRows;
+
+      // Sanitize rows for JSON transport (Dates, Buffers, BigInts, etc.)
+      const sanitizedRows = cappedRows.map((row) => {
+        const cleanRow: Record<string, any> = {};
+        for (const [key, val] of Object.entries(row)) {
+          if (val === null || val === undefined) {
+            cleanRow[key] = null;
+          } else if (typeof val === 'bigint') {
+            cleanRow[key] = val.toString();
+          } else if (Buffer.isBuffer(val)) {
+            cleanRow[key] = `\\x${val.toString('hex')}`;
+          } else if (val instanceof Date) {
+            cleanRow[key] = val.toISOString();
+          } else {
+            cleanRow[key] = val;
+          }
+        }
+        return cleanRow;
+      });
+
+      const fields = (r.fields || []).map((f) => ({
+        name: f.name,
+        dataTypeId: f.dataTypeID,
+      }));
+
+      return {
+        command: r.command || 'SELECT',
+        rowCount: r.rowCount !== null && r.rowCount !== undefined ? r.rowCount : totalRowsReturned,
+        fields,
+        rows: sanitizedRows,
+        durationMs: queryDuration,
+        isTruncated,
+        totalRowsReturned,
+      };
+    });
+
+    const totalDurationMs = Date.now() - overallStartTime;
+
+    return {
+      success: true,
+      results,
+      totalDurationMs,
+      executedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    const totalDurationMs = Date.now() - overallStartTime;
+
+    // Calculate error line and column if position is present
+    let line: number | undefined;
+    let column: number | undefined;
+    if (err.position && !isNaN(Number(err.position))) {
+      const pos = Number(err.position);
+      const upToPos = query.slice(0, Math.max(0, pos - 1));
+      const lines = upToPos.split('\n');
+      line = lines.length;
+      column = lines[lines.length - 1].length + 1;
+    }
+
+    return {
+      success: false,
+      totalDurationMs,
+      executedAt: new Date().toISOString(),
+      error: {
+        message: err.message || 'PostgreSQL query execution failed.',
+        code: err.code ? String(err.code) : undefined,
+        position: err.position ? Number(err.position) : undefined,
+        line,
+        column,
+        detail: err.detail,
+        hint: err.hint,
+        where: err.where,
+        schema: err.schema,
+        table: err.table,
+      },
+      errorFa: `خطا در اجرای کوئری SQL: ${err.message || 'خطای سرور دیتابیس'}`,
+    };
+  } finally {
+    try {
+      await client.end();
+    } catch {}
+  }
+}
+
+
 

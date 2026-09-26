@@ -25,6 +25,8 @@ import {
   PostgresRowUpdateRequest,
   PostgresRowDeleteRequest,
   PostgresRowMutationResult,
+  PostgresQueryExecutionRequest,
+  PostgresQueryExecutionResponse,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1382,6 +1384,18 @@ export async function deleteRemoteServerPostgresTableRow(
   params: PostgresRowDeleteRequest
 ): Promise<PostgresRowMutationResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/table-row/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function executeRemoteServerPostgresQuery(
+  id: string,
+  params: PostgresQueryExecutionRequest
+): Promise<PostgresQueryExecutionResponse> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
