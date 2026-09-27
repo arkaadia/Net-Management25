@@ -76,6 +76,8 @@ import {
   changePostgresRolePassword,
   managePostgresRoleMembership,
   dropPostgresRole,
+  getPostgresObjectPermissions,
+  applyPostgresPermissions,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1759,6 +1761,121 @@ apiRouter.post('/remote-servers/:id/postgres/roles/drop', async (req: Request, r
       success: false,
       error: err.message || 'Failed to drop role',
       errorFa: 'خطا در حذف نقش پایگاه داده',
+    });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/postgres/permissions - Retrieve Object Permissions
+const handlePostgresPermissions = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const scope = (req.body?.scope ?? req.query?.scope) as any;
+    const database = (req.body?.database ?? req.query?.database) as string;
+    const schema = (req.body?.schema ?? req.query?.schema) as string;
+    const objectName = (req.body?.objectName ?? req.query?.objectName) as string;
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const password = req.body?.password ?? req.query?.password;
+
+    if (!scope || !database || !objectName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters (scope, database, objectName).',
+        errorFa: 'پارامترهای الزامی (scope، database، objectName) مشخص نشده‌اند.',
+      });
+    }
+
+    const result = await getPostgresObjectPermissions(server, {
+      scope,
+      database,
+      schema,
+      objectName,
+      port: port ? Number(port) : undefined,
+      user,
+      password,
+    });
+
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch object permissions',
+      errorFa: 'خطا در استعلام دسترسی‌های شیء در پایگاه داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/permissions', handlePostgresPermissions);
+apiRouter.post('/remote-servers/:id/postgres/permissions', handlePostgresPermissions);
+
+// POST /api/remote-servers/:id/postgres/permissions/apply - Apply Permissions Deltas
+apiRouter.post('/remote-servers/:id/postgres/permissions/apply', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { scope, database, schema, objectName, deltas, cascade, port, user, sessionPassword } = req.body || {};
+
+    if (!scope || !database || !objectName || !Array.isArray(deltas)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request body (scope, database, objectName, deltas required).',
+        errorFa: 'پارامترهای درخواست نامعتبر هستند.',
+      });
+    }
+
+    const result = await applyPostgresPermissions(server, {
+      scope,
+      database,
+      schema,
+      objectName,
+      deltas,
+      cascade: Boolean(cascade),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Apply Permissions',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Updated permissions on ${scope} "${objectName}" in database "${database}" (${result.executedQueries.length} statements)`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to apply permissions',
+      errorFa: 'خطا در ثبت و اعمال دسترسی‌ها',
     });
   }
 });

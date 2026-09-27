@@ -3526,5 +3526,389 @@ export async function dropPostgresRole(
   }
 }
 
+// ==========================================
+// Phase 11: Permissions & Access Management
+// ==========================================
+
+export const SCOPE_PRIVILEGES: Record<string, string[]> = {
+  database: ['CONNECT', 'CREATE', 'TEMPORARY'],
+  schema: ['USAGE', 'CREATE'],
+  table: ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'],
+  sequence: ['USAGE', 'SELECT', 'UPDATE'],
+  function: ['EXECUTE'],
+};
+
+/**
+ * Retrieves the ownership and granted privileges matrix for a given PostgreSQL object.
+ */
+export async function getPostgresObjectPermissions(
+  server: RemoteServer,
+  options: {
+    scope: 'database' | 'schema' | 'table' | 'sequence' | 'function';
+    database: string;
+    schema?: string;
+    objectName: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; data?: any; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: options.database,
+    port: options.port,
+    user: options.user,
+    password: options.password,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  const { scope, database, schema = 'public', objectName } = options;
+
+  try {
+    await client.connect();
+
+    // 1. Fetch all available roles in the cluster
+    const rolesRes = await client.query(`
+      SELECT rolname, rolsuper as is_superuser
+      FROM pg_catalog.pg_roles
+      ORDER BY rolsuper DESC, rolname ASC;
+    `);
+
+    const allRoles: string[] = (rolesRes.rows || []).map((r: any) => String(r.rolname));
+    const superusers = new Set((rolesRes.rows || []).filter((r: any) => Boolean(r.is_superuser)).map((r: any) => String(r.rolname)));
+
+    let owner = 'postgres';
+    const roleGrantsMap: Record<string, { privilege: string; isGrantable: boolean }[]> = {};
+
+    // Helper to add grant
+    const addGrant = (grantee: string, privilege: string, isGrantable: boolean) => {
+      const g = grantee === 'PUBLIC' ? 'public' : grantee;
+      if (!roleGrantsMap[g]) roleGrantsMap[g] = [];
+      if (!roleGrantsMap[g].some((item) => item.privilege === privilege)) {
+        roleGrantsMap[g].push({ privilege, isGrantable });
+      }
+    };
+
+    if (scope === 'database') {
+      // Database owner and privileges
+      const dbRes = await client.query(
+        `SELECT pg_catalog.pg_get_userbyid(d.datdba) as owner, d.datacl
+         FROM pg_catalog.pg_database d
+         WHERE d.datname = $1`,
+        [objectName || database]
+      );
+      if (dbRes.rows?.length) {
+        owner = String(dbRes.rows[0].owner || 'postgres');
+      }
+
+      // Check has_database_privilege for roles
+      const privilegesToCheck = SCOPE_PRIVILEGES.database;
+      for (const r of allRoles) {
+        for (const priv of privilegesToCheck) {
+          try {
+            const checkRes = await client.query(
+              `SELECT has_database_privilege($1, $2, $3) as has_priv`,
+              [r, objectName || database, priv]
+            );
+            if (checkRes.rows?.[0]?.has_priv) {
+              addGrant(r, priv, false);
+            }
+          } catch {}
+        }
+      }
+    } else if (scope === 'schema') {
+      // Schema owner
+      const schemaRes = await client.query(
+        `SELECT pg_catalog.pg_get_userbyid(n.nspowner) as owner
+         FROM pg_catalog.pg_namespace n
+         WHERE n.nspname = $1`,
+        [objectName]
+      );
+      if (schemaRes.rows?.length) {
+        owner = String(schemaRes.rows[0].owner || 'postgres');
+      }
+
+      const privilegesToCheck = SCOPE_PRIVILEGES.schema;
+      for (const r of allRoles) {
+        for (const priv of privilegesToCheck) {
+          try {
+            const checkRes = await client.query(
+              `SELECT has_schema_privilege($1, $2, $3) as has_priv`,
+              [r, objectName, priv]
+            );
+            if (checkRes.rows?.[0]?.has_priv) {
+              addGrant(r, priv, false);
+            }
+          } catch {}
+        }
+      }
+    } else if (scope === 'table') {
+      // Table owner
+      const tableRes = await client.query(
+        `SELECT pg_catalog.pg_get_userbyid(c.relowner) as owner
+         FROM pg_catalog.pg_class c
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND c.relname = $2`,
+        [schema, objectName]
+      );
+      if (tableRes.rows?.length) {
+        owner = String(tableRes.rows[0].owner || 'postgres');
+      }
+
+      // Query information_schema.table_privileges
+      const privRes = await client.query(
+        `SELECT grantee, privilege_type, is_grantable
+         FROM information_schema.table_privileges
+         WHERE table_schema = $1 AND table_name = $2`,
+        [schema, objectName]
+      );
+
+      for (const row of privRes.rows || []) {
+        addGrant(String(row.grantee), String(row.privilege_type).toUpperCase(), row.is_grantable === 'YES');
+      }
+    } else if (scope === 'sequence') {
+      // Sequence owner
+      const seqRes = await client.query(
+        `SELECT pg_catalog.pg_get_userbyid(c.relowner) as owner
+         FROM pg_catalog.pg_class c
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND c.relname = $2`,
+        [schema, objectName]
+      );
+      if (seqRes.rows?.length) {
+        owner = String(seqRes.rows[0].owner || 'postgres');
+      }
+
+      const privilegesToCheck = SCOPE_PRIVILEGES.sequence;
+      for (const r of allRoles) {
+        for (const priv of privilegesToCheck) {
+          try {
+            const checkRes = await client.query(
+              `SELECT has_sequence_privilege($1, quote_ident($2) || '.' || quote_ident($3), $4) as has_priv`,
+              [r, schema, objectName, priv]
+            );
+            if (checkRes.rows?.[0]?.has_priv) {
+              addGrant(r, priv, false);
+            }
+          } catch {}
+        }
+      }
+    } else if (scope === 'function') {
+      // Routine privileges
+      const funcRes = await client.query(
+        `SELECT pg_catalog.pg_get_userbyid(p.proowner) as owner
+         FROM pg_catalog.pg_proc p
+         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = $1 AND p.proname = $2
+         LIMIT 1`,
+        [schema, objectName]
+      );
+      if (funcRes.rows?.length) {
+        owner = String(funcRes.rows[0].owner || 'postgres');
+      }
+
+      const privRes = await client.query(
+        `SELECT grantee, privilege_type, is_grantable
+         FROM information_schema.routine_privileges
+         WHERE routine_schema = $1 AND routine_name = $2`,
+        [schema, objectName]
+      );
+
+      for (const row of privRes.rows || []) {
+        addGrant(String(row.grantee), String(row.privilege_type).toUpperCase(), row.is_grantable === 'YES');
+      }
+    }
+
+    await client.end();
+
+    // Build complete roleGrants array
+    const roleGrants = allRoles.map((r) => ({
+      roleName: r,
+      isSuperuser: superusers.has(r),
+      isOwner: r === owner,
+      privileges: roleGrantsMap[r] || [],
+    }));
+
+    // Add public pseudo-role
+    if (roleGrantsMap['public'] && roleGrantsMap['public'].length > 0) {
+      roleGrants.unshift({
+        roleName: 'PUBLIC',
+        isSuperuser: false,
+        isOwner: false,
+        privileges: roleGrantsMap['public'],
+      });
+    }
+
+    const applicablePrivileges = SCOPE_PRIVILEGES[scope] || [];
+
+    return {
+      success: true,
+      data: {
+        scope,
+        database,
+        schema,
+        objectName,
+        owner,
+        allRoles,
+        roleGrants,
+        applicablePrivileges,
+        fetchedAt: new Date().toISOString(),
+      },
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || 'Failed to inspect object permissions',
+      errorFa: `خطا در بازیابی سطوح دسترسی شیء: ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+/**
+ * Applies a batch of GRANT / REVOKE permission deltas inside a transaction.
+ */
+export async function applyPostgresPermissions(
+  server: RemoteServer,
+  req: {
+    scope: 'database' | 'schema' | 'table' | 'sequence' | 'function';
+    database: string;
+    schema?: string;
+    objectName: string;
+    deltas: {
+      roleName: string;
+      privilege: string;
+      action: 'grant' | 'revoke';
+      withGrantOption?: boolean;
+    }[];
+    cascade?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  executedQueries: string[];
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: req.database,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      executedQueries: [],
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const { scope, schema = 'public', objectName, deltas = [] } = req;
+
+  if (deltas.length === 0) {
+    return {
+      success: true,
+      executedQueries: [],
+      message: 'No permission changes to apply.',
+      messageFa: 'هیچ تغییری در سطوح دسترسی جهت اعمال وجود ندارد.',
+    };
+  }
+
+  // Construct target object SQL identifier
+  let targetSql = '';
+  if (scope === 'database') {
+    targetSql = `DATABASE ${sanitizeIdentifier(objectName || req.database)}`;
+  } else if (scope === 'schema') {
+    targetSql = `SCHEMA ${sanitizeIdentifier(objectName)}`;
+  } else if (scope === 'table') {
+    targetSql = `TABLE ${sanitizeIdentifier(schema)}.${sanitizeIdentifier(objectName)}`;
+  } else if (scope === 'sequence') {
+    targetSql = `SEQUENCE ${sanitizeIdentifier(schema)}.${sanitizeIdentifier(objectName)}`;
+  } else if (scope === 'function') {
+    targetSql = `ROUTINE ${sanitizeIdentifier(schema)}.${sanitizeIdentifier(objectName)}`;
+  }
+
+  const generatedQueries: string[] = [];
+
+  for (const delta of deltas) {
+    const roleTarget = delta.roleName.toUpperCase() === 'PUBLIC' ? 'PUBLIC' : sanitizeIdentifier(delta.roleName);
+    const validPrivs = SCOPE_PRIVILEGES[scope] || [];
+    const privUpper = delta.privilege.toUpperCase();
+
+    if (!validPrivs.includes(privUpper) && privUpper !== 'ALL') {
+      continue;
+    }
+
+    if (delta.action === 'grant') {
+      const grantOptionSql = delta.withGrantOption ? ' WITH GRANT OPTION' : '';
+      generatedQueries.push(`GRANT ${privUpper} ON ${targetSql} TO ${roleTarget}${grantOptionSql};`);
+    } else {
+      const cascadeSql = req.cascade ? ' CASCADE' : ' RESTRICT';
+      generatedQueries.push(`REVOKE ${privUpper} ON ${targetSql} FROM ${roleTarget}${cascadeSql};`);
+    }
+  }
+
+  if (generatedQueries.length === 0) {
+    return {
+      success: true,
+      executedQueries: [],
+      message: 'No valid permission SQL statements generated.',
+      messageFa: 'دستور معتبری برای تغییر دسترسی‌ها تولید نشد.',
+    };
+  }
+
+  try {
+    await client.connect();
+    await client.query('BEGIN;');
+
+    for (const sql of generatedQueries) {
+      await client.query(sql);
+    }
+
+    await client.query('COMMIT;');
+    await client.end();
+
+    return {
+      success: true,
+      executedQueries: generatedQueries,
+      message: `Successfully updated permissions on ${scope} "${objectName}".`,
+      messageFa: `سطوح دسترسی ${scope} "${objectName}" با موفقیت به‌روزرسانی شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      executedQueries: generatedQueries,
+      message: `Failed to update permissions: ${err.message || 'Unknown error'}`,
+      messageFa: `خطا در اعمال تغییرات دسترسی: ${err.message || 'خطای ناشناخته'}`,
+      error: err.message,
+      errorFa: `خطای پایگاه داده: ${err.message}`,
+    };
+  }
+}
+
 
 

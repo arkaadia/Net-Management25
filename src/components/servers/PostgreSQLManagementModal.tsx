@@ -46,6 +46,7 @@ import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
 import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
 import { PostgresRolesManagerTab } from './PostgresRolesManagerTab';
+import { PostgresPermissionsManagerTab } from './PostgresPermissionsManagerTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -58,7 +59,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'overview' | 'databases' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'overview' | 'databases' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -423,6 +424,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               <span>{isEn ? 'Users & Roles' : 'کاربران و نقش‌ها'}</span>
             </button>
 
+            {/* TAB: PERMISSIONS & ACCESS MANAGEMENT (Phase 11) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('permissions')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'permissions'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isEn ? 'Permissions (GRANT/REVOKE)' : 'سطوح دسترسی و مجوزها'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('overview')}
@@ -523,6 +540,16 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               isLightMode={isLightMode}
               isEn={isEn}
               onRefreshOverview={handleFetchOverview}
+            />
+          )}
+
+          {/* TAB 1.6: PERMISSIONS & ACCESS MANAGEMENT (Phase 11) */}
+          {activeTab === 'permissions' && (
+            <PostgresPermissionsManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={server.postgres_database || 'postgres'}
             />
           )}
 

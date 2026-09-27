@@ -1363,6 +1363,43 @@ export async function dropRemoteServerPostgresRole(
   return res.json();
 }
 
+export async function fetchRemoteServerPostgresPermissions(
+  id: string,
+  params: {
+    scope: import('../types').PostgresObjectScope;
+    database: string;
+    schema?: string;
+    objectName: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresObjectPermissionsInfo;
+  error?: string;
+  errorFa?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/permissions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function applyRemoteServerPostgresPermissions(
+  id: string,
+  data: import('../types').PostgresApplyPermissionsRequest
+): Promise<import('../types').PostgresApplyPermissionsResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/permissions/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

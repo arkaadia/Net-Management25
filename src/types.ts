@@ -2062,6 +2062,78 @@ export interface PostgresRoleOperationResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 11: Permissions & Access Management
+// ==========================================
+
+export type PostgresObjectScope = 'database' | 'schema' | 'table' | 'sequence' | 'function';
+
+export type PostgresPrivilegeType =
+  | 'SELECT'
+  | 'INSERT'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'TRUNCATE'
+  | 'REFERENCES'
+  | 'TRIGGER'
+  | 'USAGE'
+  | 'CREATE'
+  | 'CONNECT'
+  | 'TEMPORARY'
+  | 'EXECUTE';
+
+export interface PostgresRoleGrantPrivilege {
+  privilege: PostgresPrivilegeType;
+  isGrantable: boolean;
+}
+
+export interface PostgresRolePermissionsEntry {
+  roleName: string;
+  isSuperuser?: boolean;
+  isOwner?: boolean;
+  privileges: PostgresRoleGrantPrivilege[];
+}
+
+export interface PostgresObjectPermissionsInfo {
+  scope: PostgresObjectScope;
+  database: string;
+  schema?: string;
+  objectName: string;
+  owner: string;
+  allRoles: string[];
+  roleGrants: PostgresRolePermissionsEntry[];
+  applicablePrivileges: PostgresPrivilegeType[];
+  fetchedAt: string;
+}
+
+export interface PostgresPermissionDelta {
+  roleName: string;
+  privilege: PostgresPrivilegeType;
+  action: 'grant' | 'revoke';
+  withGrantOption?: boolean;
+}
+
+export interface PostgresApplyPermissionsRequest {
+  scope: PostgresObjectScope;
+  database: string;
+  schema?: string;
+  objectName: string;
+  deltas: PostgresPermissionDelta[];
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresApplyPermissionsResult {
+  success: boolean;
+  executedQueries: string[];
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

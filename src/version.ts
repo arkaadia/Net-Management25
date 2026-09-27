@@ -10,9 +10,42 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.191.0';
+export const APP_VERSION = '1.192.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.192.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱۱ مدیریت PostgreSQL: مدیریت بصری و پیشرفته سطوح دسترسی و مجوزها (Permissions & Access Management)',
+    title_en: 'PostgreSQL Management Phase 11: Advanced Visual Permissions & Access Management (GRANT/REVOKE, ACL Matrix & Safety Controls)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۱ نقشه راه مدیریت PostgreSQL برای مدیریت بصری و دقیق سطوح دسترسی و مجوزهای پایگاه داده بدون نیاز به کدنویسی دستی SQL.',
+      'افزودن تب مستقل و تخصصی "سطوح دسترسی و مجوزها" (Permissions) در مودال مدیریت PostgreSQL.',
+      'پشتیبانی کامل از تمامی دامنه‌های اشیا (Object Scopes): دیتابیس (Database)، اسکیما (Schema)، جدول (Table)، توالی (Sequence)، و توابع/روال‌ها (Functions/Routines).',
+      'نمایش بصری مالک شیء (Object Owner)، نقش‌های سوپریوزر و نقش عمومی PUBLIC به همراه ماتریس هوشمند اختیارات.',
+      'ماتریس تعاملی چک‌باکس دسترسی‌ها: نمایش و تغییر سریع مجوزهای استاندارد (SELECT، INSERT، UPDATE، DELETE، TRUNCATE، REFERENCES، TRIGGER، USAGE، CREATE، CONNECT، TEMPORARY، EXECUTE).',
+      'قالب‌های سریع مجوزدهی (Quick Templates): دکمه‌های سریع اعمال قالب‌های آماده مانند فقط خواندنی (Read-Only)، خواندن و نوشتن (Read-Write)، توسعه‌دهنده کامل (Full Developer) و ادمین جدول.',
+      'دکمه‌های انتخاب سریع کل/هیچ‌کدام (ALL / NONE) به ازای هر کاربر یا نقش.',
+      'پیش‌نمایش پیش از اجرا (Pre-Execution SQL Preview & Diff): مودال نمایش دقیق کوئری‌های تراکنشی GRANT و REVOKE قبل از اعمال نهایی بر روی سرور.',
+      'پشتیبانی از گزینه سلب زنجیره‌ای (CASCADE / RESTRICT) جهت ایمنی کامل وابستگی‌ها.',
+      'ثبت خودکار کلیه تغییرات دسترسی‌ها در سیستم لاگ امنیتی (Structured Audit Log).',
+      'انطباق کامل با تم‌های تیره و روشن، زبان‌های انگلیسی و فارسی و راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 11: Advanced visual Permissions & Access Management with interactive ACL matrix and safety controls.',
+      'Dedicated "Permissions (GRANT/REVOKE)" management tab in the PostgreSQL management modal.',
+      'Full support for all PostgreSQL object scopes: Database, Schema, Table, Sequence, and Function/Routine.',
+      'Clear visualization of Object Owner, Superuser accounts, and the PUBLIC pseudo-role alongside the dynamic permissions grid.',
+      'Interactive ACL Checkbox Matrix: inspect and toggle standard privileges (SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, USAGE, CREATE, CONNECT, TEMPORARY, EXECUTE) per role.',
+      'Quick Permission Templates: instant one-click presets for Read-Only, Read-Write, Full Developer, and Table Admin.',
+      'Role-level ALL / NONE convenience toggles for rapid bulk assignment.',
+      'Pre-Execution SQL Preview & Diff: review generated transactional GRANT and REVOKE statements before executing on the target PostgreSQL server.',
+      'Cascade option support (CASCADE / RESTRICT) for safe handling of dependent objects during privilege revocations.',
+      'Structured security audit logging of all privilege adjustments in the central audit system.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.191.0',
     releaseDate: '2026-09-26',
