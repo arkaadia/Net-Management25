@@ -1534,6 +1534,70 @@ export async function deleteRemoteServerPostgresBackup(
   return res.json();
 }
 
+// ==========================================
+// Phase 14: Extensions Management API
+// ==========================================
+
+export async function fetchRemoteServerPostgresExtensions(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  database?: string;
+  extensions: import('../types').PostgresExtensionItem[];
+  totalCount: number;
+  installedCount: number;
+  updatableCount: number;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/extensions${queryStr}`);
+  return res.json();
+}
+
+export async function installRemoteServerPostgresExtension(
+  id: string,
+  data: import('../types').PostgresInstallExtensionRequest
+): Promise<import('../types').PostgresExtensionOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/extensions/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresExtension(
+  id: string,
+  data: import('../types').PostgresUpdateExtensionRequest
+): Promise<import('../types').PostgresExtensionOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/extensions/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerPostgresExtension(
+  id: string,
+  data: import('../types').PostgresDropExtensionRequest
+): Promise<import('../types').PostgresExtensionOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/extensions/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

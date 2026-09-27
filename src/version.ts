@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.194.0';
+export const APP_VERSION = '1.195.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.195.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۴ مدیریت PostgreSQL: مدیریت افزونه‌ها و اکستنشن‌های پایگاه داده (PostgreSQL Extensions Management)',
+    title_en: 'PostgreSQL Management Phase 14: PostgreSQL Extensions Management (Catalog Explorer, One-Click Install, In-Place Updates & Safe Drop)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۴ نقشه راه مدیریت PostgreSQL جهت کاوش، نصب، ارتقا و مدیریت افزونه‌های سرور (PostgreSQL Extensions Management).',
+      'افزودن تب مستقل و قدرتمند "افزونه‌ها" (Extensions) در مودال مدیریت PostgreSQL با کارت‌های شاخص کلیدی (KPIs): تعداد کل ماژول‌های موجود در سرور، تعداد اکستنشن‌های نصب‌شده در دیتابیس، و تعداد نسخه‌های دارای به‌روزرسانی در دسترس.',
+      'کاوشگر و کاتالوگ زنده ماژول‌های سرور: استخراج مستقیم از جداول سیستمی pg_available_extensions، pg_extension و pg_namespace بدون استفاده از داده‌های ساختگی یا شبیه‌سازی‌شده.',
+      'دسته‌بندی و فیلترهای هوشمند: فیلتر بر اساس وضعیت (همه، نصب‌شده، در دسترس، دارای به‌روزرسانی)، جستجوی بلادرنگ در نام و توضیحات، و دسته‌بندی ماژول‌ها (امنیت و رمزنگاری، پایش و کارایی، انواع داده و UUID، سیستم‌های مکانی GIS و ابزارهای عمومی).',
+      'مدال تعاملی نصب افزونه (Install Extension Dialog): انتخاب اسکیمای مقصد (مانند public یا اسکیماهای اختصاصی)، تعیین نگارش مشخص (Version Specification)، گزینه نصب زنجیره‌ای پیش‌نیازها (CASCADE)، و پیش‌نمایش زنده دستور SQL اجرایی (CREATE EXTENSION).',
+      'قابلیت ارتقای نگارش افزونه با یک کلیک (One-Click In-Place Update): ارتقای مستقیم به آخرین نسخه سرور با دستور خودکار ALTER EXTENSION UPDATE.',
+      'مدال حذف ایمن افزونه (Safe Drop Dialog): با الزام تایپ دقیق نام افزونه، چک‌باکس هشداردهنده حذف اشیاء وابسته (CASCADE)، و پیش‌نمایش زنده دستور DROP EXTENSION.',
+      'ثبت خودکار کلیه عملیات نصب، به‌روزرسانی و حذف افزونه‌ها در سامانه ممیزی امنیتی (Audit Logs).',
+      'انطباق ۱۰۰ درصدی با تم‌های تیره و روشن، زبان‌های انگلیسی و فارسی، و راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 14: PostgreSQL Extensions Management (Catalog Explorer, One-Click Install, In-Place Updates & Safe Drop).',
+      'Added dedicated "Extensions" management tab in the PostgreSQL management modal featuring real-time KPI indicators (Total Available Server Modules, Installed Count, and Upgrades Available).',
+      'Authentic live server catalog extraction querying PostgreSQL system catalogs pg_available_extensions, pg_extension, and pg_namespace with zero mock or synthesized telemetry.',
+      'Intelligent Filtering & Tagging: status filters (All, Installed, Available, Updates Available), instant keyword search across names and comments, and domain categorization (Security & Crypto, Monitoring & Performance, Data Types & UUID, Spatial GIS, and Utilities).',
+      'Interactive Install Extension Dialog: target schema selector (e.g. public, extensions), optional specific version pin, automatic prerequisite resolution (CASCADE), and real-time pre-execution SQL preview (CREATE EXTENSION IF NOT EXISTS).',
+      'One-click in-place extension upgrades: seamlessly upgrade installed extensions to latest engine versions via ALTER EXTENSION UPDATE.',
+      'Safe Drop Extension Workflow: mandatory exact extension name typing verification, dependent objects warning toggle (CASCADE), and real-time DROP EXTENSION SQL preview.',
+      'Structured audit logging of all extension install, upgrade, and removal events.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.194.0',
     releaseDate: '2026-09-27',

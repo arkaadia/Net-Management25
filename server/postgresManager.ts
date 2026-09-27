@@ -5437,6 +5437,312 @@ export function getPostgresBackupFilePath(server: RemoteServer, filename: string
   return null;
 }
 
+// ==========================================
+// Phase 14: PostgreSQL Extensions Management
+// ==========================================
+
+export interface PostgresExtensionItem {
+  name: string;
+  defaultVersion: string;
+  installedVersion: string | null;
+  comment: string;
+  schemaName: string | null;
+  isInstalled: boolean;
+  isUpdatable: boolean;
+  relocatable: boolean;
+}
+
+export interface PostgresInstallExtensionRequest {
+  database: string;
+  extensionName: string;
+  schemaName?: string;
+  version?: string;
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresUpdateExtensionRequest {
+  database: string;
+  extensionName: string;
+  targetVersion?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresDropExtensionRequest {
+  database: string;
+  extensionName: string;
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresExtensionOperationResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+  executedSql?: string;
+}
+
+/**
+ * List all available and installed extensions for a target database
+ */
+export async function listPostgresExtensions(
+  server: RemoteServer,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<PostgresExtensionItem[]> {
+  const client = createPostgresClient(server, {
+    database: options?.database || server.postgres_database || 'postgres',
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
+
+  await client.connect();
+
+  try {
+    const res = await client.query<{
+      name: string;
+      default_version: string;
+      installed_version: string | null;
+      comment: string | null;
+      relocatable: boolean | null;
+      schema_name: string | null;
+    }>(`
+      SELECT 
+        a.name,
+        COALESCE(a.default_version, '') AS default_version,
+        a.installed_version,
+        COALESCE(a.comment, '') AS comment,
+        COALESCE(e.extrelocatable, false) AS relocatable,
+        n.nspname AS schema_name
+      FROM pg_available_extensions a
+      LEFT JOIN pg_extension e ON e.extname = a.name
+      LEFT JOIN pg_namespace n ON n.oid = e.extnamespace
+      ORDER BY 
+        CASE WHEN a.installed_version IS NOT NULL THEN 0 ELSE 1 END,
+        a.name;
+    `);
+
+    return res.rows.map((r) => ({
+      name: r.name,
+      defaultVersion: r.default_version,
+      installedVersion: r.installed_version || null,
+      comment: r.comment || '',
+      schemaName: r.schema_name || null,
+      isInstalled: Boolean(r.installed_version),
+      isUpdatable: Boolean(
+        r.installed_version &&
+        r.default_version &&
+        r.installed_version !== r.default_version
+      ),
+      relocatable: Boolean(r.relocatable),
+    }));
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Install an extension into the database
+ */
+export async function installPostgresExtension(
+  server: RemoteServer,
+  req: PostgresInstallExtensionRequest
+): Promise<PostgresExtensionOperationResult> {
+  const cleanExtName = req.extensionName.trim();
+  if (!cleanExtName || !/^[a-zA-Z0-9_\-]+$/.test(cleanExtName)) {
+    return {
+      success: false,
+      message: 'Invalid extension identifier.',
+      messageFa: 'نام شناسه افزونه نامعتبر است.',
+      error: 'Invalid extension name',
+    };
+  }
+
+  let sql = `CREATE EXTENSION IF NOT EXISTS "${cleanExtName}"`;
+
+  const clauses: string[] = [];
+  if (req.schemaName && req.schemaName.trim()) {
+    const cleanSchema = req.schemaName.trim();
+    if (!/^[a-zA-Z0-9_\-]+$/.test(cleanSchema)) {
+      return {
+        success: false,
+        message: 'Invalid schema identifier.',
+        messageFa: 'نام شناسه اسکیما نامعتبر است.',
+        error: 'Invalid schema name',
+      };
+    }
+    clauses.push(`SCHEMA "${cleanSchema}"`);
+  }
+
+  if (req.version && req.version.trim()) {
+    const cleanVer = req.version.trim().replace(/'/g, "''");
+    clauses.push(`VERSION '${cleanVer}'`);
+  }
+
+  if (req.cascade) {
+    clauses.push(`CASCADE`);
+  }
+
+  if (clauses.length > 0) {
+    sql += ` WITH ${clauses.join(' ')}`;
+  }
+
+  sql += ';';
+
+  const client = createPostgresClient(server, {
+    database: req.database || server.postgres_database || 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Extension "${cleanExtName}" installed successfully in database "${req.database}".`,
+      messageFa: `افزونه "${cleanExtName}" با موفقیت در پایگاه داده "${req.database}" نصب و فعال گردید.`,
+      executedSql: sql,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to install extension "${cleanExtName}": ${err.message || 'Unknown error'}`,
+      messageFa: `خطا در نصب افزونه "${cleanExtName}": ${err.message || 'خطای ناشناخته'}`,
+      error: err.message,
+      executedSql: sql,
+    };
+  }
+}
+
+/**
+ * Update an extension to the latest or specified version
+ */
+export async function updatePostgresExtension(
+  server: RemoteServer,
+  req: PostgresUpdateExtensionRequest
+): Promise<PostgresExtensionOperationResult> {
+  const cleanExtName = req.extensionName.trim();
+  if (!cleanExtName || !/^[a-zA-Z0-9_\-]+$/.test(cleanExtName)) {
+    return {
+      success: false,
+      message: 'Invalid extension identifier.',
+      messageFa: 'نام شناسه افزونه نامعتبر است.',
+      error: 'Invalid extension name',
+    };
+  }
+
+  let sql = `ALTER EXTENSION "${cleanExtName}" UPDATE`;
+  if (req.targetVersion && req.targetVersion.trim()) {
+    const cleanVer = req.targetVersion.trim().replace(/'/g, "''");
+    sql += ` TO '${cleanVer}'`;
+  }
+  sql += ';';
+
+  const client = createPostgresClient(server, {
+    database: req.database || server.postgres_database || 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Extension "${cleanExtName}" updated successfully in database "${req.database}".`,
+      messageFa: `افزونه "${cleanExtName}" با موفقیت در پایگاه داده "${req.database}" به نگارش جدید ارتقا یافت.`,
+      executedSql: sql,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to update extension "${cleanExtName}": ${err.message || 'Unknown error'}`,
+      messageFa: `خطا در ارتقای افزونه "${cleanExtName}": ${err.message || 'خطای ناشناخته'}`,
+      error: err.message,
+      executedSql: sql,
+    };
+  }
+}
+
+/**
+ * Drop an extension from the database
+ */
+export async function dropPostgresExtension(
+  server: RemoteServer,
+  req: PostgresDropExtensionRequest
+): Promise<PostgresExtensionOperationResult> {
+  const cleanExtName = req.extensionName.trim();
+  if (!cleanExtName || !/^[a-zA-Z0-9_\-]+$/.test(cleanExtName)) {
+    return {
+      success: false,
+      message: 'Invalid extension identifier.',
+      messageFa: 'نام شناسه افزونه نامعتبر است.',
+      error: 'Invalid extension name',
+    };
+  }
+
+  let sql = `DROP EXTENSION IF EXISTS "${cleanExtName}"`;
+  if (req.cascade) {
+    sql += ` CASCADE`;
+  }
+  sql += ';';
+
+  const client = createPostgresClient(server, {
+    database: req.database || server.postgres_database || 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Extension "${cleanExtName}" dropped successfully from database "${req.database}".`,
+      messageFa: `افزونه "${cleanExtName}" با موفقیت از پایگاه داده "${req.database}" حذف گردید.`,
+      executedSql: sql,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to drop extension "${cleanExtName}": ${err.message || 'Unknown error'}`,
+      messageFa: `خطا در حذف افزونه "${cleanExtName}": ${err.message || 'خطای ناشناخته'}`,
+      error: err.message,
+      executedSql: sql,
+    };
+  }
+}
+
 
 
 

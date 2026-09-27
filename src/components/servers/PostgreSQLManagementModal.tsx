@@ -30,6 +30,7 @@ import {
   ChevronRight,
   Users,
   Archive,
+  Puzzle,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -50,6 +51,7 @@ import { PostgresRolesManagerTab } from './PostgresRolesManagerTab';
 import { PostgresPermissionsManagerTab } from './PostgresPermissionsManagerTab';
 import { PostgresDatabaseLifecycleTab } from './PostgresDatabaseLifecycleTab';
 import { PostgresBackupManagerTab } from './PostgresBackupManagerTab';
+import { PostgresExtensionsManagerTab } from './PostgresExtensionsManagerTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -62,7 +64,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'overview' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'overview' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -492,6 +494,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             >
               <Archive className="w-3.5 h-3.5 text-amber-400" />
               <span>{isEn ? 'Backup & Restore' : 'بکاپ و بازیابی'}</span>
+            </button>
+
+            {/* TAB: EXTENSIONS MANAGEMENT (Phase 14) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('extensions')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'extensions'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Puzzle className="w-3.5 h-3.5 text-purple-400" />
+              <span>{isEn ? 'Extensions' : 'افزونه‌ها'}</span>
             </button>
 
             <button
@@ -1047,6 +1065,16 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
           {/* TAB: BACKUP & RESTORE MANAGEMENT (Phase 13) */}
           {activeTab === 'backups' && (
             <PostgresBackupManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={server.postgres_database || 'postgres'}
+            />
+          )}
+
+          {/* TAB: EXTENSIONS MANAGEMENT (Phase 14) */}
+          {activeTab === 'extensions' && (
+            <PostgresExtensionsManagerTab
               server={server}
               isLightMode={isLightMode}
               isEn={isEn}

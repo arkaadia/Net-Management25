@@ -2299,6 +2299,59 @@ export interface PostgresRestoreBackupResult {
   outputLog?: string;
 }
 
+// ==========================================
+// Phase 14: PostgreSQL Extensions Management
+// ==========================================
+
+export interface PostgresExtensionItem {
+  name: string;
+  defaultVersion: string;
+  installedVersion: string | null;
+  comment: string;
+  schemaName: string | null;
+  isInstalled: boolean;
+  isUpdatable: boolean;
+  relocatable: boolean;
+}
+
+export interface PostgresInstallExtensionRequest {
+  database: string;
+  extensionName: string;
+  schemaName?: string;
+  version?: string;
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresUpdateExtensionRequest {
+  database: string;
+  extensionName: string;
+  targetVersion?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresDropExtensionRequest {
+  database: string;
+  extensionName: string;
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresExtensionOperationResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+  executedSql?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

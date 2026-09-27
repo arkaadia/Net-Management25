@@ -90,6 +90,10 @@ import {
   restorePostgresBackup,
   deletePostgresBackup,
   getPostgresBackupFilePath,
+  listPostgresExtensions,
+  installPostgresExtension,
+  updatePostgresExtension,
+  dropPostgresExtension,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2041,6 +2045,251 @@ apiRouter.get('/remote-servers/:id/postgres/backups/:filename/download', async (
       success: false,
       error: err.message || 'Failed to download backup',
       errorFa: 'خطا در دانلود فایل نسخه پشتیبان',
+    });
+  }
+});
+
+// ==========================================
+// Phase 14: PostgreSQL Extensions Endpoints
+// ==========================================
+
+// GET /api/remote-servers/:id/postgres/extensions - List available & installed extensions
+apiRouter.get('/remote-servers/:id/postgres/extensions', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const extensions = await listPostgresExtensions(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      database,
+      extensions,
+      totalCount: extensions.length,
+      installedCount: extensions.filter((e) => e.isInstalled).length,
+      updatableCount: extensions.filter((e) => e.isUpdatable).length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to list extensions',
+      errorFa: 'خطا در بارگذاری افزونه‌های پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/extensions/install - Install extension
+apiRouter.post('/remote-servers/:id/postgres/extensions/install', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      database,
+      extensionName,
+      schemaName,
+      version,
+      cascade = false,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    if (!extensionName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Extension name is required.',
+        errorFa: 'نام افزونه الزامی است.',
+      });
+    }
+
+    const targetDb = database || server.postgres_database || 'postgres';
+
+    const result = await installPostgresExtension(server, {
+      database: targetDb,
+      extensionName,
+      schemaName,
+      version,
+      cascade: Boolean(cascade),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Install Extension',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Installed extension "${extensionName}" in database "${targetDb}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to install extension',
+      errorFa: 'خطا در فرآیند نصب افزونه',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/extensions/update - Update extension
+apiRouter.post('/remote-servers/:id/postgres/extensions/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      database,
+      extensionName,
+      targetVersion,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    if (!extensionName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Extension name is required.',
+        errorFa: 'نام افزونه الزامی است.',
+      });
+    }
+
+    const targetDb = database || server.postgres_database || 'postgres';
+
+    const result = await updatePostgresExtension(server, {
+      database: targetDb,
+      extensionName,
+      targetVersion,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Update Extension',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Updated extension "${extensionName}" in database "${targetDb}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update extension',
+      errorFa: 'خطا در ارتقای افزونه',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/extensions/drop - Drop extension
+apiRouter.post('/remote-servers/:id/postgres/extensions/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      database,
+      extensionName,
+      cascade = false,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    if (!extensionName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Extension name is required.',
+        errorFa: 'نام افزونه الزامی است.',
+      });
+    }
+
+    const targetDb = database || server.postgres_database || 'postgres';
+
+    const result = await dropPostgresExtension(server, {
+      database: targetDb,
+      extensionName,
+      cascade: Boolean(cascade),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Drop Extension',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Dropped extension "${extensionName}" from database "${targetDb}" (CASCADE=${cascade})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to drop extension',
+      errorFa: 'خطا در حذف افزونه',
     });
   }
 });
