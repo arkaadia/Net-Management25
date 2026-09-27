@@ -1598,6 +1598,30 @@ export async function dropRemoteServerPostgresExtension(
   return res.json();
 }
 
+// ==========================================
+// Phase 15: Health Check & Security Audit API
+// ==========================================
+
+export async function fetchRemoteServerPostgresHealthAudit(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  report?: import('../types').PostgresHealthAuditReport;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/health-audit${queryStr}`);
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

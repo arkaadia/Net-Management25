@@ -2352,6 +2352,54 @@ export interface PostgresExtensionOperationResult {
   executedSql?: string;
 }
 
+// ==========================================
+// Phase 15: PostgreSQL Health Check & Security Audit
+// ==========================================
+
+export type PostgresAuditSeverity = 'critical' | 'warning' | 'good' | 'info';
+export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration';
+
+export interface PostgresHealthCheckItem {
+  id: string;
+  title: string;
+  titleFa: string;
+  category: PostgresAuditCategory;
+  severity: PostgresAuditSeverity;
+  description: string;
+  descriptionFa: string;
+  metricValue: string;
+  recommendation: string;
+  recommendationFa: string;
+  remediationSql?: string;
+}
+
+export interface PostgresHealthAuditSummary {
+  cacheHitRatio: number;
+  indexHitRatio: number;
+  activeConnections: number;
+  maxConnections: number;
+  connectionUsagePercent: number;
+  superusersCount: number;
+  sslEnabled: boolean;
+  bloatedTablesCount: number;
+  unusedIndexesCount: number;
+  idleInTxCount: number;
+}
+
+export interface PostgresHealthAuditReport {
+  overallScore: number;
+  generatedAt: string;
+  database: string;
+  serverVersion: string;
+  uptime: string;
+  totalChecks: number;
+  passedCount: number;
+  warningCount: number;
+  criticalCount: number;
+  summary: PostgresHealthAuditSummary;
+  items: PostgresHealthCheckItem[];
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

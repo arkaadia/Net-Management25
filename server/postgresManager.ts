@@ -5438,6 +5438,557 @@ export function getPostgresBackupFilePath(server: RemoteServer, filename: string
 }
 
 // ==========================================
+// Phase 15: PostgreSQL Health Check & Security Audit
+// ==========================================
+
+export type PostgresAuditSeverity = 'critical' | 'warning' | 'good' | 'info';
+export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration';
+
+export interface PostgresHealthCheckItem {
+  id: string;
+  title: string;
+  titleFa: string;
+  category: PostgresAuditCategory;
+  severity: PostgresAuditSeverity;
+  description: string;
+  descriptionFa: string;
+  metricValue: string;
+  recommendation: string;
+  recommendationFa: string;
+  remediationSql?: string;
+}
+
+export interface PostgresHealthAuditSummary {
+  cacheHitRatio: number;
+  indexHitRatio: number;
+  activeConnections: number;
+  maxConnections: number;
+  connectionUsagePercent: number;
+  superusersCount: number;
+  sslEnabled: boolean;
+  bloatedTablesCount: number;
+  unusedIndexesCount: number;
+  idleInTxCount: number;
+}
+
+export interface PostgresHealthAuditReport {
+  overallScore: number;
+  generatedAt: string;
+  database: string;
+  serverVersion: string;
+  uptime: string;
+  totalChecks: number;
+  passedCount: number;
+  warningCount: number;
+  criticalCount: number;
+  summary: PostgresHealthAuditSummary;
+  items: PostgresHealthCheckItem[];
+}
+
+export async function runPostgresHealthAudit(
+  server: RemoteServer,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<PostgresHealthAuditReport> {
+  const targetDb = options?.database || server.postgres_database || 'postgres';
+  const client = createPostgresClient(server, {
+    database: targetDb,
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
+
+  await client.connect();
+
+  try {
+    const items: PostgresHealthCheckItem[] = [];
+
+    // 1. Version & Uptime
+    const verRes = await client.query<{ version: string }>(`SELECT version();`);
+    const serverVersion = verRes.rows[0]?.version || 'Unknown';
+
+    let uptime = 'Unknown';
+    try {
+      const upRes = await client.query<{ uptime_str: string }>(`
+        SELECT (now() - pg_postmaster_start_time())::text as uptime_str;
+      `);
+      uptime = upRes.rows[0]?.uptime_str || 'Unknown';
+    } catch {}
+
+    // Check version currency
+    const verMatch = serverVersion.match(/PostgreSQL (\d+)/i);
+    const majorVer = verMatch ? parseInt(verMatch[1], 10) : null;
+    if (majorVer !== null) {
+      if (majorVer < 13) {
+        items.push({
+          id: 'engine_eol',
+          title: 'PostgreSQL Version End-of-Life',
+          titleFa: 'پایان چرخه پشتیبانی نسخه PostgreSQL',
+          category: 'security',
+          severity: 'critical',
+          description: `PostgreSQL ${majorVer} has reached official End-of-Life (EOL) and no longer receives security patches.`,
+          descriptionFa: `نسخه PostgreSQL ${majorVer} به پایان چرخه پشتیبانی رسمی رسیده و دیگر بسته‌های امنیتی دریافت نمی‌کند.`,
+          metricValue: `v${majorVer}`,
+          recommendation: 'Upgrade PostgreSQL engine to a supported release (v14, v15, v16, or newer).',
+          recommendationFa: 'موتور PostgreSQL را به نسخه‌های تحت پشتیبانی (نگارش ۱۴، ۱۵ یا ۱۶ به بالا) ارتقا دهید.',
+        });
+      } else {
+        items.push({
+          id: 'engine_version',
+          title: 'Engine Version Supported',
+          titleFa: 'پشتیبانی فعال نسخه PostgreSQL',
+          category: 'security',
+          severity: 'good',
+          description: `PostgreSQL ${majorVer} is an actively maintained release with security updates.`,
+          descriptionFa: `نسخه PostgreSQL ${majorVer} فعال بوده و بسته‌های امنیتی را دریافت می‌نماید.`,
+          metricValue: `v${majorVer}`,
+          recommendation: 'Keep engine updated with minor point releases.',
+          recommendationFa: 'سرور را همواره به آخرین نسخه‌های جزئی ارتقا دهید.',
+        });
+      }
+    }
+
+    // 2. Settings check
+    const settingsRes = await client.query<{ name: string; setting: string }>(`
+      SELECT name, setting FROM pg_settings 
+      WHERE name IN ('ssl', 'listen_addresses', 'port', 'max_connections', 'autovacuum', 'shared_buffers', 'work_mem', 'checkpoint_completion_target');
+    `);
+    const settingsMap = new Map<string, string>();
+    for (const r of settingsRes.rows) {
+      settingsMap.set(r.name, r.setting);
+    }
+
+    const sslOn = settingsMap.get('ssl') === 'on';
+    if (!sslOn) {
+      items.push({
+        id: 'ssl_enforcement',
+        title: 'SSL/TLS Encryption Disabled',
+        titleFa: 'غیرفعال بودن رمزنگاری امن SSL/TLS',
+        category: 'security',
+        severity: 'warning',
+        description: 'PostgreSQL server is configured without mandatory SSL encryption. Network traffic can be snooped in transit.',
+        descriptionFa: 'سرور PostgreSQL بدون الزام رمزنگاری SSL پیکربندی شده است. امکان شنود ترافیک در شبکه وجود دارد.',
+        metricValue: 'ssl = off',
+        recommendation: 'Enable SSL encryption in postgresql.conf and deploy verified TLS certificates.',
+        recommendationFa: 'مقدار ssl = on را در فایل postgresql.conf فعال کرده و سرتیفیکیت معتبر بارگذاری کنید.',
+        remediationSql: `ALTER SYSTEM SET ssl = 'on';`,
+      });
+    } else {
+      items.push({
+        id: 'ssl_enforcement',
+        title: 'SSL/TLS Encryption Active',
+        titleFa: 'رمزنگاری ارتباطات با SSL/TLS فعال است',
+        category: 'security',
+        severity: 'good',
+        description: 'PostgreSQL enforces SSL encryption for client connections.',
+        descriptionFa: 'ارتباطات کلاینت با پایگاه داده از طریق لایه امن SSL رمزنگاری می‌شوند.',
+        metricValue: 'ssl = on',
+        recommendation: 'Ensure client applications verify server certificates properly.',
+        recommendationFa: 'اطمینان حاصل کنید کلاینت‌ها صحت سرتیفیکیت سرور را اعتبارسنجی کنند.',
+      });
+    }
+
+    const currentPort = settingsMap.get('port') || '5432';
+    if (currentPort === '5432') {
+      items.push({
+        id: 'default_port',
+        title: 'Default Port 5432 In Use',
+        titleFa: 'استفاده از پورت پیش‌فرض ۵۴۳۲',
+        category: 'security',
+        severity: 'info',
+        description: 'Using standard port 5432 makes the server more susceptible to automated brute-force scans.',
+        descriptionFa: 'استفاده از پورت استاندارد ۵۴۳۲ سرور را در معرض اسکن‌های خودکار بروت‌فورس قرار می‌دهد.',
+        metricValue: `Port ${currentPort}`,
+        recommendation: 'Consider changing PostgreSQL to a non-standard port or restricting access with firewall/VPN.',
+        recommendationFa: 'پورت را به یک شماره غیراستاندارد تغییر دهید یا دسترسی را به فایروال و VPN محدود کنید.',
+        remediationSql: `ALTER SYSTEM SET port = 5433;`,
+      });
+    }
+
+    const autovacuumOn = settingsMap.get('autovacuum') === 'on';
+    if (!autovacuumOn) {
+      items.push({
+        id: 'autovacuum_disabled',
+        title: 'Autovacuum Daemon Disabled',
+        titleFa: 'غیرفعال بودن دیمون پاکسازی خودکار (Autovacuum)',
+        category: 'maintenance',
+        severity: 'critical',
+        description: 'Autovacuum is turned off. Tables will suffer severe bloat, disk exhaustion, and transaction wraparound outage.',
+        descriptionFa: 'سرویس Autovacuum خاموش است. جداول دچار انباشتگی وحشتناک داده‌های مرده، اشغال دیسک و خطای Wraparound می‌شوند.',
+        metricValue: 'autovacuum = off',
+        recommendation: 'Enable autovacuum immediately in postgresql.conf.',
+        recommendationFa: 'بلافاصله سرویس autovacuum را فعال نمایید.',
+        remediationSql: `ALTER SYSTEM SET autovacuum = 'on';`,
+      });
+    } else {
+      items.push({
+        id: 'autovacuum_status',
+        title: 'Autovacuum Daemon Enabled',
+        titleFa: 'دیمون پاکسازی خودکار (Autovacuum) فعال است',
+        category: 'maintenance',
+        severity: 'good',
+        description: 'Background autovacuum worker is actively reclaiming dead tuples and updating table statistics.',
+        descriptionFa: 'سرویس پس‌زمینه پاکسازی خودکار در حال بازیافت رکوردهای مرده و به‌روزرسانی آمار است.',
+        metricValue: 'autovacuum = on',
+        recommendation: 'Keep autovacuum enabled with recommended scale-factor thresholds.',
+        recommendationFa: 'تنظیمات آستانه مقیاس‌پذیری autovacuum را بهینه نگه دارید.',
+      });
+    }
+
+    // 3. Superusers audit
+    const rolesRes = await client.query<{ rolname: string }>(`
+      SELECT rolname FROM pg_roles WHERE rolsuper = true ORDER BY rolname;
+    `);
+    const superusers = rolesRes.rows.map((r) => r.rolname);
+    if (superusers.length > 3) {
+      items.push({
+        id: 'excessive_superusers',
+        title: 'High Number of Superuser Roles',
+        titleFa: 'تعداد زیاد کاربران با سطح دسترسی Superuser',
+        category: 'security',
+        severity: 'warning',
+        description: `Found ${superusers.length} superuser accounts (${superusers.join(', ')}). Principle of least privilege is violated.`,
+        descriptionFa: `تعداد ${superusers.length} کاربر سوپریوزر یافت شد (${superusers.join(', ')}). اصل حداقل دسترسی نقض شده است.`,
+        metricValue: `${superusers.length} Superusers`,
+        recommendation: 'Demote non-administrative users to standard application roles with explicit grants.',
+        recommendationFa: 'کاربران غیرضروری را به نقش‌های استاندارد با دسترسی‌های تفکیک‌شده تبدیل نمایید.',
+      });
+    } else {
+      items.push({
+        id: 'superusers_count',
+        title: 'Superuser Role Count Restricted',
+        titleFa: 'محدود بودن تعداد کاربران Superuser',
+        category: 'security',
+        severity: 'good',
+        description: `Superuser privileges are strictly limited to ${superusers.length} account(s) (${superusers.join(', ')}).`,
+        descriptionFa: `دسترسی‌های سوپریوزر تنها به ${superusers.length} حساب کاربری محدود است (${superusers.join(', ')}).`,
+        metricValue: `${superusers.length} Superuser(s)`,
+        recommendation: 'Continue enforcing role-based access control (RBAC).',
+        recommendationFa: 'به تفکیک نقش‌ها و استفاده از دسترسی‌های محدود ادامه دهید.',
+      });
+    }
+
+    // 4. Public schema permission check
+    try {
+      const pubPrivRes = await client.query<{ has_create: boolean }>(`
+        SELECT has_schema_privilege('public', 'public', 'CREATE') as has_create;
+      `);
+      if (pubPrivRes.rows[0]?.has_create) {
+        items.push({
+          id: 'public_schema_create',
+          title: 'Public Schema Grants CREATE to Everyone',
+          titleFa: 'دسترسی همگانی ایجاد شیء در اسکیمای Public',
+          category: 'security',
+          severity: 'warning',
+          description: 'Any authenticated database user can create tables, types, or functions in schema "public".',
+          descriptionFa: 'تمام کاربران احراز هویت شده می‌توانند در اسکیمای public جدول، تابع یا شیء جدید بسازند.',
+          metricValue: 'CREATE ON SCHEMA public = PUBLIC',
+          recommendation: 'Revoke CREATE privilege on schema public from PUBLIC to prevent unauthorized object injections.',
+          recommendationFa: 'دسترسی CREATE در اسکیمای public را از نقش همگانی PUBLIC لغو کنید.',
+          remediationSql: `REVOKE CREATE ON SCHEMA public FROM PUBLIC;`,
+        });
+      } else {
+        items.push({
+          id: 'public_schema_create',
+          title: 'Public Schema Hardened',
+          titleFa: 'امن‌سازی اسکیمای Public اعمال شده است',
+          category: 'security',
+          severity: 'good',
+          description: 'Unprivileged users cannot create objects inside schema public.',
+          descriptionFa: 'کاربران عادی مجاز به ایجاد اشیاء در اسکیمای public نیستند.',
+          metricValue: 'Secured',
+          recommendation: 'Grant schema creation rights only to dedicated database migration users.',
+          recommendationFa: 'حق ساخت شیء را صرفاً به کاربران مایگریشن اختصاص دهید.',
+        });
+      }
+    } catch {}
+
+    // 5. Cache Hit Ratio (Buffer Cache)
+    let cacheHitRatio = 100;
+    try {
+      const cacheRes = await client.query<{ ratio: string }>(`
+        SELECT 
+          CASE WHEN sum(heap_blks_hit) + sum(heap_blks_read) = 0 THEN 100 
+          ELSE round(sum(heap_blks_hit)::numeric / (sum(heap_blks_hit) + sum(heap_blks_read)) * 100, 2) 
+          END as ratio 
+        FROM pg_statio_user_tables;
+      `);
+      cacheHitRatio = parseFloat(cacheRes.rows[0]?.ratio || '100');
+      if (cacheHitRatio < 95) {
+        items.push({
+          id: 'low_cache_hit_ratio',
+          title: 'Low Buffer Cache Hit Ratio',
+          titleFa: 'نرخ پایین کش بافر حافظه (Cache Hit Ratio)',
+          category: 'performance',
+          severity: cacheHitRatio < 85 ? 'critical' : 'warning',
+          description: `Buffer cache hit ratio is currently ${cacheHitRatio}%. Queries are frequently reading directly from slow disk storage.`,
+          descriptionFa: `نرخ کش بافر ${cacheHitRatio}٪ است. کوئری‌ها مکرراً داده‌ها را از روی دیسک با سرعت پایین می‌خوانند.`,
+          metricValue: `${cacheHitRatio}% (Target: >99%)`,
+          recommendation: 'Increase shared_buffers in postgresql.conf to allow PostgreSQL to cache more data pages in RAM.',
+          recommendationFa: 'پارامتر shared_buffers را افزایش دهید تا صفحات داده بیشتری در حافظه رم نگهداری شوند.',
+        });
+      } else {
+        items.push({
+          id: 'cache_hit_ratio',
+          title: 'Optimal Buffer Cache Hit Ratio',
+          titleFa: 'نرخ کش بافر حافظه مطلوب است',
+          category: 'performance',
+          severity: 'good',
+          description: `Buffer cache hit ratio is ${cacheHitRatio}%. Nearly all read operations are served directly from RAM.`,
+          descriptionFa: `نرخ بهره‌وری کش بافر ${cacheHitRatio}٪ است و اکثر خواندن‌ها مستقیماً از حافظه رم تامین می‌شود.`,
+          metricValue: `${cacheHitRatio}%`,
+          recommendation: 'Maintain current shared_buffers allocation.',
+          recommendationFa: 'تخصیص فعلی shared_buffers را حفظ نمایید.',
+        });
+      }
+    } catch {}
+
+    // 6. Index Hit Ratio
+    let indexHitRatio = 100;
+    try {
+      const idxHitRes = await client.query<{ ratio: string }>(`
+        SELECT 
+          CASE WHEN sum(idx_blks_hit) + sum(idx_blks_read) = 0 THEN 100 
+          ELSE round(sum(idx_blks_hit)::numeric / (sum(idx_blks_hit) + sum(idx_blks_read)) * 100, 2) 
+          END as ratio 
+        FROM pg_statio_user_indexes;
+      `);
+      indexHitRatio = parseFloat(idxHitRes.rows[0]?.ratio || '100');
+      if (indexHitRatio < 90) {
+        items.push({
+          id: 'low_index_hit_ratio',
+          title: 'Low Index Cache Hit Ratio',
+          titleFa: 'نرخ پایین کش ایندکس‌ها',
+          category: 'performance',
+          severity: 'warning',
+          description: `Index cache hit ratio is ${indexHitRatio}%. Index pages are not fitting into shared memory.`,
+          descriptionFa: `نرخ کش صفحات ایندکس ${indexHitRatio}٪ است. ایندکس‌ها به اندازه کافی در حافظه رم قرار نمی‌گیرند.`,
+          metricValue: `${indexHitRatio}%`,
+          recommendation: 'Check working set size and evaluate whether RAM or shared_buffers should be increased.',
+          recommendationFa: 'میزان رم و shared_buffers را جهت کش بهتر صفحات ایندکس افزایش دهید.',
+        });
+      } else {
+        items.push({
+          id: 'index_hit_ratio',
+          title: 'Excellent Index Cache Hit Ratio',
+          titleFa: 'نرخ کش صفحات ایندکس عالی است',
+          category: 'performance',
+          severity: 'good',
+          description: `Index cache hit ratio is ${indexHitRatio}%. Index lookups execute with sub-millisecond RAM response.`,
+          descriptionFa: `نرخ کش ایندکس‌ها ${indexHitRatio}٪ است و ایندکس‌ها از رم بدون وقفه خوانده می‌شوند.`,
+          metricValue: `${indexHitRatio}%`,
+          recommendation: 'Regularly monitor index usage on growing tables.',
+          recommendationFa: 'کارایی ایندکس‌ها را در جداول در حال رشد مانیتور کنید.',
+        });
+      }
+    } catch {}
+
+    // 7. Connection Saturation
+    let activeConn = 0;
+    let idleInTx = 0;
+    const maxConn = parseInt(settingsMap.get('max_connections') || '100', 10);
+    try {
+      const connRes = await client.query<{
+        total: string;
+        active: string;
+        idle_in_tx: string;
+      }>(`
+        SELECT 
+          count(*) as total,
+          count(*) FILTER (WHERE state = 'active') as active,
+          count(*) FILTER (WHERE state = 'idle in transaction') as idle_in_tx
+        FROM pg_stat_activity;
+      `);
+      const totalConn = parseInt(connRes.rows[0]?.total || '0', 10);
+      activeConn = parseInt(connRes.rows[0]?.active || '0', 10);
+      idleInTx = parseInt(connRes.rows[0]?.idle_in_tx || '0', 10);
+
+      const usagePct = Math.round((totalConn / Math.max(maxConn, 1)) * 100);
+      if (usagePct >= 80) {
+        items.push({
+          id: 'connection_saturation',
+          title: 'Connection Pool Saturation Near Limit',
+          titleFa: 'اشباع ظرفیت اتصالات نزدیک به سقف مجاز',
+          category: 'performance',
+          severity: usagePct >= 90 ? 'critical' : 'warning',
+          description: `${totalConn} of ${maxConn} allowable connections (${usagePct}%) are currently consumed. Risk of connection rejection.`,
+          descriptionFa: `تعداد ${totalConn} از ${maxConn} اتصال مجاز (${usagePct}٪) اشغال شده است. خطر پس زدن اتصالات جدید کلاینت‌ها بالاست.`,
+          metricValue: `${totalConn} / ${maxConn} (${usagePct}%)`,
+          recommendation: 'Deploy a connection pooler like PgBouncer or raise max_connections if memory permits.',
+          recommendationFa: 'از سیستم اتصال اشتراکی (مانند PgBouncer) استفاده کرده یا سقف اتصالات را افزایش دهید.',
+          remediationSql: `ALTER SYSTEM SET max_connections = ${maxConn + 50};`,
+        });
+      } else {
+        items.push({
+          id: 'connection_saturation',
+          title: 'Connection Capacity Healthy',
+          titleFa: 'ظرفیت اتصالات در وضعیت پایدار',
+          category: 'performance',
+          severity: 'good',
+          description: `${totalConn} of ${maxConn} connection slots used (${usagePct}%). Ample headroom available.`,
+          descriptionFa: `تعداد ${totalConn} از ${maxConn} اتصال مجاز استفاده شده (${usagePct}٪). ظرفیت کافی موجود است.`,
+          metricValue: `${totalConn} / ${maxConn} (${usagePct}%)`,
+          recommendation: 'Maintain connection pooling on application clients.',
+          recommendationFa: 'الگوی استفاده بهینه از کانکشن‌ها در کلاینت‌ها را حفظ کنید.',
+        });
+      }
+
+      if (idleInTx > 0) {
+        items.push({
+          id: 'idle_in_transaction',
+          title: 'Idle in Transaction Sessions Detected',
+          titleFa: 'نشست‌های رهاشده در وضعیت Idle in Transaction',
+          category: 'performance',
+          severity: idleInTx > 3 ? 'critical' : 'warning',
+          description: `Found ${idleInTx} connection(s) stuck in "idle in transaction". They hold locks and prevent VACUUM from cleaning dead rows.`,
+          descriptionFa: `تعداد ${idleInTx} کانکشن در وضعیت idle in transaction قفل مانده‌اند که مانع پاکسازی رکوردهای مرده توسط VACUUM می‌شوند.`,
+          metricValue: `${idleInTx} idle in tx`,
+          recommendation: 'Configure idle_in_transaction_session_timeout to automatically terminate orphaned transactions.',
+          recommendationFa: 'پارامتر idle_in_transaction_session_timeout را تنظیم کنید تا تراکنش‌های رهاشده به صورت خودکار بسته شوند.',
+          remediationSql: `ALTER SYSTEM SET idle_in_transaction_session_timeout = '60000';`,
+        });
+      }
+    } catch {}
+
+    // 8. Bloated Tables Check
+    let bloatedCount = 0;
+    try {
+      const bloatRes = await client.query<{
+        schemaname: string;
+        relname: string;
+        n_dead_tup: string;
+        dead_pct: string;
+      }>(`
+        SELECT 
+          schemaname,
+          relname,
+          n_dead_tup,
+          round(n_dead_tup::numeric / GREATEST(n_live_tup + n_dead_tup, 1) * 100, 1) as dead_pct
+        FROM pg_stat_user_tables
+        WHERE n_dead_tup > 1000 AND (n_dead_tup::numeric / GREATEST(n_live_tup + n_dead_tup, 1)) > 0.20
+        ORDER BY n_dead_tup DESC
+        LIMIT 5;
+      `);
+      bloatedCount = bloatRes.rows.length;
+      if (bloatedCount > 0) {
+        const topTable = bloatRes.rows[0];
+        items.push({
+          id: 'table_bloat',
+          title: 'High Table Dead Tuples (Bloat) Detected',
+          titleFa: 'انباشتگی شدید رکوردهای مرده (Table Bloat)',
+          category: 'maintenance',
+          severity: 'warning',
+          description: `Found ${bloatedCount} table(s) with over 20% dead tuples. Table "${topTable.schemaname}.${topTable.relname}" has ${topTable.dead_pct}% dead rows (${topTable.n_dead_tup} dead tuples).`,
+          descriptionFa: `تعداد ${bloatedCount} جدول با بیش از ۲۰٪ رکورد مرده شناسایی شد. جدول "${topTable.schemaname}.${topTable.relname}" دارای ${topTable.dead_pct}٪ رکورد مرده است.`,
+          metricValue: `${bloatedCount} bloated tables`,
+          recommendation: 'Run VACUUM ANALYZE on affected tables or tune autovacuum_vacuum_scale_factor.',
+          recommendationFa: 'دستور VACUUM ANALYZE را اجرا کنید یا ضریب autovacuum_vacuum_scale_factor را کاهش دهید.',
+          remediationSql: `VACUUM (VERBOSE, ANALYZE) "${topTable.schemaname}"."${topTable.relname}";`,
+        });
+      } else {
+        items.push({
+          id: 'table_bloat_clean',
+          title: 'Table Tuples & Bloat Under Control',
+          titleFa: 'وضعیت رکوردهای مرده و انباشتگی جداول مطلوب است',
+          category: 'maintenance',
+          severity: 'good',
+          description: 'No tables have excessive dead tuples (>20%). Autovacuum is keeping pace with modifications.',
+          descriptionFa: 'هیچ جدولی دارای انباشتگی رکوردهای مرده نیست و دیمون پاکسازی همگام با تغییرات پیش می‌رود.',
+          metricValue: 'Clean',
+          recommendation: 'Keep autovacuum running continuously.',
+          recommendationFa: 'اجازه دهید فرایند autovacuum به صورت پیوسته اجرا شود.',
+        });
+      }
+    } catch {}
+
+    // 9. Unused Indexes
+    let unusedIdxCount = 0;
+    try {
+      const unusedIdxRes = await client.query<{
+        schemaname: string;
+        relname: string;
+        indexrelname: string;
+        idx_size: string;
+      }>(`
+        SELECT 
+          schemaname,
+          relname,
+          indexrelname,
+          pg_size_pretty(pg_relation_size(indexrelid)) as idx_size
+        FROM pg_stat_user_indexes
+        JOIN pg_index USING (indexrelid)
+        WHERE idx_scan = 0 AND indisunique = false AND indisprimary = false
+        LIMIT 5;
+      `);
+      unusedIdxCount = unusedIdxRes.rows.length;
+      if (unusedIdxCount > 0) {
+        const topIdx = unusedIdxRes.rows[0];
+        items.push({
+          id: 'unused_indexes',
+          title: 'Redundant / Unused Indexes Detected',
+          titleFa: 'ایندکس‌های بلااستفاده و زائد در جداول',
+          category: 'performance',
+          severity: 'info',
+          description: `Found ${unusedIdxCount} index(es) with 0 scans. Index "${topIdx.schemaname}.${topIdx.indexrelname}" on "${topIdx.relname}" (${topIdx.idx_size}) is never used by planner.`,
+          descriptionFa: `تعداد ${unusedIdxCount} ایندکس با صفر اسکن یافت شد. ایندکس "${topIdx.schemaname}.${topIdx.indexrelname}" (${topIdx.idx_size}) استفاده نمی‌شود و بار نوشتن اضافه تحمیل می‌کند.`,
+          metricValue: `${unusedIdxCount} unused indexes`,
+          recommendation: 'Drop unused indexes to speed up write operations (INSERT/UPDATE/DELETE) and save disk space.',
+          recommendationFa: 'ایندکس‌های غیرضروری را حذف کنید تا سرعت تراکنش‌های درج و به‌روزرسانی افزایش یابد.',
+          remediationSql: `DROP INDEX CONCURRENTLY IF EXISTS "${topIdx.schemaname}"."${topIdx.indexrelname}";`,
+        });
+      }
+    } catch {}
+
+    // Calculate score
+    let score = 100;
+    let criticalCount = 0;
+    let warningCount = 0;
+    let passedCount = 0;
+
+    for (const item of items) {
+      if (item.severity === 'critical') {
+        score -= 18;
+        criticalCount++;
+      } else if (item.severity === 'warning') {
+        score -= 7;
+        warningCount++;
+      } else if (item.severity === 'good') {
+        passedCount++;
+      }
+    }
+    const overallScore = Math.max(0, Math.min(100, Math.round(score)));
+
+    const summary: PostgresHealthAuditSummary = {
+      cacheHitRatio,
+      indexHitRatio,
+      activeConnections: activeConn,
+      maxConnections: maxConn,
+      connectionUsagePercent: Math.round((activeConn / Math.max(maxConn, 1)) * 100),
+      superusersCount: superusers.length,
+      sslEnabled: sslOn,
+      bloatedTablesCount: bloatedCount,
+      unusedIndexesCount: unusedIdxCount,
+      idleInTxCount: idleInTx,
+    };
+
+    return {
+      overallScore,
+      generatedAt: new Date().toISOString(),
+      database: targetDb,
+      serverVersion,
+      uptime,
+      totalChecks: items.length,
+      passedCount,
+      warningCount,
+      criticalCount,
+      summary,
+      items,
+    };
+  } finally {
+    await client.end();
+  }
+}
+
+// ==========================================
 // Phase 14: PostgreSQL Extensions Management
 // ==========================================
 

@@ -94,6 +94,7 @@ import {
   installPostgresExtension,
   updatePostgresExtension,
   dropPostgresExtension,
+  runPostgresHealthAudit,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2290,6 +2291,48 @@ apiRouter.post('/remote-servers/:id/postgres/extensions/drop', async (req: Reque
       success: false,
       error: err.message || 'Failed to drop extension',
       errorFa: 'خطا در حذف افزونه',
+    });
+  }
+});
+
+// ==========================================
+// Phase 15: PostgreSQL Health Check & Audit Endpoint
+// ==========================================
+
+// GET /api/remote-servers/:id/postgres/health-audit - Run health check and security audit
+apiRouter.get('/remote-servers/:id/postgres/health-audit', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const report = await runPostgresHealthAudit(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      report,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to perform PostgreSQL health audit',
+      errorFa: 'خطا در اجرای ممیزی و ارزیابی سلامت پایگاه داده',
     });
   }
 });

@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.195.0';
+export const APP_VERSION = '1.196.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.196.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۵ مدیریت PostgreSQL: پایش سلامت، ممیزی امنیتی و تحلیل هوشمند (Health Check, Security Audit & Diagnostic Advisor)',
+    title_en: 'PostgreSQL Management Phase 15: PostgreSQL Health Check, Security Audit & Diagnostic Advisor (Automated Posture Check, Cache Ratios, Bloat Diagnostics & SQL Remediation)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۵ نقشه راه مدیریت PostgreSQL: داشبورد سلامت، گزارش‌گیری، ممیزی امنیتی و توصیه‌گر عیب‌یابی هوشمند (Health Check, Security Audit & Diagnostic Advisor).',
+      'افزودن تب تخصصی "سلامت و ممیزی" (Health & Audit) در مودال مدیریت PostgreSQL با کارت شاخص کلیدی امتیاز سلامت کلی (Health Score 0-100%) و تفکیک یافته‌ها (Passed, Warnings, Critical).',
+      'محاسبه بلادرنگ شاخص‌های حیاتی کارایی و امنیت: نرخ کش بافر حافظه (Buffer Cache Hit Ratio)، نرخ کش ایندکس‌ها (Index Hit Ratio)، اشباع ظرفیت اتصالات (Connection Saturation)، وضعیت فعال‌بودن رمزنگاری SSL/TLS، تعداد کاربران Superuser، جداول دارای انباشتگی رکوردهای مرده (Bloated Tables)، و نشست‌های قفل‌شده (Idle in Transaction).',
+      'ممیزی امنیتی جامع (Automated Security Audit): ارزیابی چرخه پشتیبانی نسخه PostgreSQL (EOL Check)، الزام رمزنگاری SSL/TLS، شناسایی استفاده از پورت پیش‌فرض ۵۴۳۲، بررسی دسترسی همگانی ایجاد شیء در اسکیمای public، و تعداد حساب‌های دارای دسترسی Superuser.',
+      'توصیه‌گر هوشمند عملکردی و نگهداری (Diagnostic & Tuning Advisor): شناسایی جداول نیازمند VACUUM ANALYZE، ایندکس‌های بلااستفاده و زائد (Zero Scans)، و تنظیم پارامترهای autovacuum و shared_buffers.',
+      'تولید اسکریپت‌های اصلاحی مستقیم (Remediation SQL): ارائه کدهای آماده اصلاحی با امکان کپی مستقیم با یک کلیک یا انتقال فوری به ویرایشگر SQL Studio.',
+      'امکان خروجی گرفتن و اشتراک‌گذاری گزارش: کپی خلاصه گزارش ممیزی در قالب فرمت استاندارد Markdown و دریافت فایل جامع ساختاریافته JSON.',
+      'انطباق صددرصدی با تم‌های تیره و روشن، زبان‌های انگلیسی و فارسی (عدم نمایش متن فارسی در حالت انگلیسی)، و راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 15: PostgreSQL Health Check, Security Audit & Diagnostic Advisor (Automated Posture Check, Cache Ratios, Bloat Diagnostics & SQL Remediation).',
+      'Added dedicated "Health & Audit" tab in the PostgreSQL management modal featuring dynamic 0-100% Health Score rating and breakdown counters (Passed, Warnings, Critical).',
+      'Live engine telemetry metrics: Buffer Cache Hit Ratio, Index Hit Ratio, Connection Pool Saturation, SSL/TLS Encryption Enforcement status, Superuser account count, Bloated Tables, and Idle-in-Transaction sessions.',
+      'Automated Security Posture Audit: engine End-of-Life lifecycle checks, SSL/TLS enforcement, default port 5432 scan exposure warning, public schema CREATE privilege exposure audit, and role least-privilege analysis.',
+      'Diagnostic & Tuning Advisor: autovacuum status and high-bloat table detection (>20% dead tuples), redundant unused indexes detection, and buffer cache sizing guidance.',
+      'One-Click Remediation SQL: actionable SQL scripts for resolving findings, with one-click clipboard copying or direct handoff to SQL Studio.',
+      'Comprehensive Report Exporting: copy complete formatted Markdown audit summary to clipboard or download detailed JSON reports for compliance archival.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.195.0',
     releaseDate: '2026-09-27',
