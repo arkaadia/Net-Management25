@@ -122,6 +122,7 @@ export interface RemoteServer {
   ssh_username?: string;
   ssh_password?: string;
   ssh_key_path?: string;
+  ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
   win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
   win_port?: number;
