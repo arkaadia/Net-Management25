@@ -6058,7 +6058,7 @@ export async function listPostgresExtensions(
   server: RemoteServer,
   options?: { database?: string; port?: number; user?: string; password?: string }
 ): Promise<PostgresExtensionItem[]> {
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: options?.database || server.postgres_database || 'postgres',
     port: options?.port,
     user: options?.user,
@@ -6158,7 +6158,7 @@ export async function installPostgresExtension(
 
   sql += ';';
 
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: req.database || server.postgres_database || 'postgres',
     port: req.port,
     user: req.user,
@@ -6215,7 +6215,7 @@ export async function updatePostgresExtension(
   }
   sql += ';';
 
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: req.database || server.postgres_database || 'postgres',
     port: req.port,
     user: req.user,
@@ -6271,7 +6271,7 @@ export async function dropPostgresExtension(
   }
   sql += ';';
 
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: req.database || server.postgres_database || 'postgres',
     port: req.port,
     user: req.user,
@@ -6488,7 +6488,7 @@ export async function getPostgresHbaConfig(
   server: RemoteServer,
   opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
 ): Promise<PostgresHbaConfigData> {
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: opts?.database || server.postgres_database || 'postgres',
     port: opts?.port,
     user: opts?.user,
@@ -6624,7 +6624,7 @@ export async function savePostgresHbaConfig(
   req: PostgresHbaSaveRequest,
   opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
 ): Promise<PostgresHbaSaveResult> {
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: req.database || opts?.database || server.postgres_database || 'postgres',
     port: req.port || opts?.port,
     user: req.user || opts?.user,
@@ -6843,7 +6843,7 @@ export async function restorePostgresHbaBackup(
   req: PostgresHbaRestoreRequest,
   opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
 ): Promise<PostgresHbaSaveResult> {
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: req.database || opts?.database || server.postgres_database || 'postgres',
     port: req.port || opts?.port,
     user: req.user || opts?.user,
@@ -6947,7 +6947,7 @@ export async function reloadPostgresHba(
   server: RemoteServer,
   opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
 ): Promise<{ success: boolean; message: string; messageFa?: string; errors?: string[] }> {
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: opts?.database || server.postgres_database || 'postgres',
     port: opts?.port,
     user: opts?.user,

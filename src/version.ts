@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.197.0';
+export const APP_VERSION = '1.197.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.197.1',
+    releaseDate: '2026-09-27',
+    type: 'patch',
+    title: 'رفع باگ: تصحیح ساختار کلاینت PostgreSQL در ماژول‌های مدیریت افزونه‌ها و احراز هویت کلاینت‌ها (pg_hba)',
+    title_en: 'Bugfix: Fix PostgreSQL Client Object Destructuring across Extensions & pg_hba Modules',
+    changes: [
+      'تصحیح فراخوانی و تخریب شیء createPostgresClient در توابع مربوط به مدیریت افزونه‌ها و فایل پیکربندی pg_hba.conf.',
+      'رفع خطای تایپ‌اسکریپت و اعتبارسنجی کامل بیلد و کامپایل اپلیکیشن.'
+    ],
+    changes_en: [
+      'Fixed createPostgresClient return object destructuring across PostgreSQL extension management and pg_hba.conf functions.',
+      'Resolved TypeScript compilation errors and verified full applet compilation.'
+    ]
+  },
   {
     version: '1.197.0',
     releaseDate: '2026-09-27',
