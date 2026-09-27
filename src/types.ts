@@ -1392,6 +1392,7 @@ export interface RemoteServer {
   ssh_port?: number;
   ssh_username?: string;
   ssh_password?: string;
+  ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
   win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
   win_port?: number;
@@ -1586,7 +1587,7 @@ export interface PostgresTypeItem {
   description?: string;
 }
 
-export interface PostgresExtensionItem {
+export interface PostgresSchemaExtensionItem {
   name: string;
   version: string;
   schema: string;
@@ -1611,7 +1612,7 @@ export interface PostgresSchemaObjects {
 export interface PostgresDatabaseTree {
   databaseName: string;
   schemas: PostgresSchemaObjects[];
-  extensions: PostgresExtensionItem[];
+  extensions: PostgresSchemaExtensionItem[];
   totalTables: number;
   totalViews: number;
   totalMaterializedViews: number;

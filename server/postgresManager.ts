@@ -180,7 +180,7 @@ export interface PostgresTypeItem {
   description?: string;
 }
 
-export interface PostgresExtensionItem {
+export interface PostgresSchemaExtensionItem {
   name: string;
   version: string;
   schema: string;
@@ -388,7 +388,7 @@ export interface PostgresSchemaObjects {
 export interface PostgresDatabaseTree {
   databaseName: string;
   schemas: PostgresSchemaObjects[];
-  extensions: PostgresExtensionItem[];
+  extensions: PostgresSchemaExtensionItem[];
   totalTables: number;
   totalViews: number;
   totalMaterializedViews: number;
@@ -1476,7 +1476,7 @@ export async function getPostgresDatabaseTree(
       totalTypes++;
     }
 
-    const extensions: PostgresExtensionItem[] = (extensionsRes.rows || []).map((row: any) => ({
+    const extensions: PostgresSchemaExtensionItem[] = (extensionsRes.rows || []).map((row: any) => ({
       name: String(row.name),
       version: String(row.version || ''),
       schema: String(row.schema || 'public'),

@@ -61,7 +61,7 @@ import {
   PostgresRoutineItem,
   PostgresSequenceItem,
   PostgresTypeItem,
-  PostgresExtensionItem,
+  PostgresSchemaExtensionItem,
   PostgresSchemaObjects,
   PostgresDatabaseTree,
   PostgresTableStructure,
@@ -4980,7 +4980,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/40 font-mono">
-                      {(((selectedNode.data as PostgresExtensionItem[]) || [])
+                      {(((selectedNode.data as PostgresSchemaExtensionItem[]) || [])
                         .filter(
                           (ext) =>
                             !detailFilter ||
