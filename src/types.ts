@@ -2226,6 +2226,79 @@ export interface PostgresDbLifecycleResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 13: Backup & Restore / Dump & Export
+// ==========================================
+
+export type PostgresBackupMode = 'full' | 'schema_only' | 'data_only';
+export type PostgresBackupFormat = 'plain' | 'custom' | 'tar';
+
+export interface PostgresBackupItem {
+  id: string;
+  filename: string;
+  database: string;
+  sizeBytes: number;
+  sizePretty: string;
+  mode: PostgresBackupMode;
+  format: PostgresBackupFormat;
+  createdAt: string;
+  tablesCount?: number;
+  schemasCount?: number;
+  schemas?: string[];
+  tables?: string[];
+  compressionLevel?: number;
+  downloadUrl?: string;
+  engineUsed: 'native_pg_dump' | 'logical_sql_dumper';
+}
+
+export interface PostgresCreateBackupRequest {
+  database: string;
+  mode: PostgresBackupMode;
+  format: PostgresBackupFormat;
+  schemas?: string[];
+  tables?: string[];
+  includeDrop?: boolean;
+  useInserts?: boolean;
+  compressionLevel?: number;
+  customFilename?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresCreateBackupResult {
+  success: boolean;
+  backup?: PostgresBackupItem;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+  durationMs?: number;
+  sqlDumpPreview?: string;
+}
+
+export interface PostgresRestoreBackupRequest {
+  database: string;
+  filename: string;
+  cleanFirst?: boolean;
+  singleTransaction?: boolean;
+  exitOnError?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRestoreBackupResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedStatementsCount?: number;
+  durationMs?: number;
+  error?: string;
+  errorFa?: string;
+  outputLog?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

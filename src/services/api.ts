@@ -1489,6 +1489,51 @@ export async function dropRemoteServerPostgresSchema(
   return res.json();
 }
 
+// ==========================================
+// Phase 13: Backup & Restore Management API
+// ==========================================
+
+export async function fetchRemoteServerPostgresBackups(
+  id: string
+): Promise<{ success: boolean; backups: import('../types').PostgresBackupItem[]; count: number; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups`);
+  return res.json();
+}
+
+export async function createRemoteServerPostgresBackup(
+  id: string,
+  data: import('../types').PostgresCreateBackupRequest
+): Promise<import('../types').PostgresCreateBackupResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function restoreRemoteServerPostgresBackup(
+  id: string,
+  data: import('../types').PostgresRestoreBackupRequest
+): Promise<import('../types').PostgresRestoreBackupResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deleteRemoteServerPostgresBackup(
+  id: string,
+  filename: string
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups/${encodeURIComponent(filename)}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

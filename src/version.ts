@@ -10,9 +10,44 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.193.0';
+export const APP_VERSION = '1.194.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.194.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۳ مدیریت PostgreSQL: مدیریت نسخه‌های پشتیبان، دانپ و بازیابی پایگاه داده (PostgreSQL Backup & Restore / Dump & Export)',
+    title_en: 'PostgreSQL Management Phase 13: PostgreSQL Backup & Restore / Dump & Export Management (Native pg_dump & Logical SQL Dumper, Custom/Tar/Plain, Compression & Safe Restore)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۳ نقشه راه مدیریت PostgreSQL برای ایجاد، مدیریت، دانلود و بازیابی نسخه‌های پشتیبان و دانپ پایگاه داده (PostgreSQL Backup & Restore Management).',
+      'معماری دوگانه هوشمند (Adaptive Dual Engine): اجرای بومی ابزار پرسرعت pg_dump از طریق ارتباط امن SSH در صورت در دسترس بودن، و موتور دانپ منطقی اختصاصی (Logical SQL Dumper) مبتنی بر پروتکل مستقیم PostgreSQL جهت استخراج کامل ساختار و داده‌ها حتی بدون نیاز به دسترسی SSH.',
+      'افزودن تب مستقل و تخصصی "بکاپ و بازیابی" (Backup & Restore) در مودال مدیریت PostgreSQL به همراه شاخص‌های کلیدی وضعیت (KPIs): تعداد کل فایل‌های بکاپ، حجم کل ذخیره‌سازی، و زمان آخرین بکاپ.',
+      'مدال ایجاد بکاپ تعاملی (Create Backup Dialog): انتخاب دیتابیس هدف، گزینه‌های تفکیک‌شده دامنه دانپ (Full DDL+Data، Schema Only، Data Only)، انتخاب فرمت فایل (Plain SQL، Custom Binary Archive .dump، Tar Archive)، و سطح فشرده‌سازی Gzip از ۰ تا ۹.',
+      'فیلتر انتخابی اسکیماها: امکان استخراج پایگاه داده فقط برای اسکیماهای دلخواه با نمایش تعداد جداول و حجم هر اسکیما.',
+      'گزینه‌های پیشرفته پاکسازی و سازگاری: امکان درج خودکار دستورات DROP ... IF EXISTS و استفاده از دستورات استاندارد و خوانای INSERT INTO به جای COPY.',
+      'پیش‌نمایش زنده خطوط اولیه SQL تولیدشده و دکمه کپی سریع در کلیپ‌بورد.',
+      'جدول ماتریسی پیشرفته مدیریت فایل‌های بکاپ: نمایش نام فایل، دیتابیس، حجم فیزیکی، فرمت، موتور تولیدکننده، تاریخ و زمان ایجاد، دکمه دانلود مستقیم از سرور، دکمه بازیابی و دکمه حذف دائمی.',
+      'سامانه ایمن بازیابی و ایمپورت (Restore / Import Engine): پشتیبانی از بازیابی اسکریپت‌های SQL با کنترل تراکنش (Single Transaction BEGIN/COMMIT)، گزینه پاکسازی اولیه (--clean)، توقف در صورت بروز خطا (Exit on Error)، و الزام تایپ نام دیتابیس جهت جلوگیری از بازنویسی تصادفی داده‌ها.',
+      'لاگ تفصیلی نتایج بازیابی شامل تعداد دستورات موفق اجرا شده، هشدارهای غیربحرانی و زمان سپری شده.',
+      'ثبت خودکار تمامی فعالیت‌های ایجاد، بازیابی و حذف بکاپ در سیستم ممیزی امنیتی (Structured Audit Log).',
+      'انطباق کامل با تم‌های تیره و روشن، زبان‌های انگلیسی و فارسی (بدون تداخل متنی)، و راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 13: PostgreSQL Backup & Restore / Dump & Export Management (Native pg_dump & Logical SQL Dumper, Custom/Tar/Plain, Compression & Safe Restore).',
+      'Adaptive Dual Engine Architecture: Native high-performance pg_dump execution over secure SSH when available, seamlessly backed by an in-house pure TCP Logical SQL Dumper over pg.Client to extract DDL and data rows without requiring SSH shell access.',
+      'Dedicated "Backup & Restore" management tab in the PostgreSQL management modal with real-time KPI overview (Total Backup Count, Total Disk Storage, and Last Backup Timestamp).',
+      'Interactive Create Backup Dialog: target database picker, dump scope modes (Full DDL+Data, Schema Only, Data Only), multi-format support (Plain SQL, Custom Binary Archive .dump, Tar Archive), and Gzip compression levels (0-9).',
+      'Selective Schema Filtering: option to export specific schemas with real-time table count and size indicators.',
+      'Advanced Tuning & Safety: DROP ... IF EXISTS recreation toggles, portable INSERT INTO statement generation instead of COPY, and custom filename support.',
+      'Real-time SQL dump preview scratchpad with instant clipboard copying.',
+      'Advanced Backup File Inventory: filename, target database badge, size on disk, mode/format badges, engine attribution, creation timestamp, direct file download, one-click restore, and permanent deletion.',
+      'Safe Restore & Import Engine: single transaction execution (BEGIN/COMMIT rollback safety), clean objects first (--clean), halt-on-error option, and mandatory database name confirmation to prevent accidental overwrites.',
+      'Detailed restore execution telemetry: statement execution counters, non-fatal warnings summary, and duration reporting.',
+      'Structured audit logging of all backup creations, restores, and deletions.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.193.0',
     releaseDate: '2026-09-27',

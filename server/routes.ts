@@ -85,6 +85,11 @@ import {
   createPostgresSchema,
   updatePostgresSchema,
   dropPostgresSchema,
+  listPostgresBackups,
+  createPostgresBackup,
+  restorePostgresBackup,
+  deletePostgresBackup,
+  getPostgresBackupFilePath,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1804,7 +1809,241 @@ apiRouter.post('/remote-servers/:id/postgres/schemas/drop', async (req: Request,
   }
 });
 
-// GET & POST /api/remote-servers/:id/postgres/roles - Enumerate PostgreSQL roles & users
+// ==========================================
+// Phase 13: PostgreSQL Backup & Restore Endpoints
+// ==========================================
+
+// GET /api/remote-servers/:id/postgres/backups - List backups
+apiRouter.get('/remote-servers/:id/postgres/backups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const backups = await listPostgresBackups(server);
+    return res.json({
+      success: true,
+      backups,
+      count: backups.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to list backups',
+      errorFa: 'خطا در دریافت فهرست نسخه‌های پشتیبان',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/backups/create - Create backup
+apiRouter.post('/remote-servers/:id/postgres/backups/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      database,
+      mode = 'full',
+      format = 'plain',
+      schemas,
+      tables,
+      includeDrop = false,
+      useInserts = true,
+      compressionLevel = 0,
+      customFilename,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    const result = await createPostgresBackup(server, {
+      database: database || server.postgres_database || 'postgres',
+      mode,
+      format,
+      schemas,
+      tables,
+      includeDrop: Boolean(includeDrop),
+      useInserts: Boolean(useInserts),
+      compressionLevel: Number(compressionLevel) || 0,
+      customFilename,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Create Backup',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Created PostgreSQL backup "${result.backup?.filename}" for database "${database || 'postgres'}" (${mode}, ${format})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create backup',
+      errorFa: 'خطا در ایجاد نسخه پشتیبان پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/backups/restore - Restore backup
+apiRouter.post('/remote-servers/:id/postgres/backups/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      database,
+      filename,
+      cleanFirst = false,
+      singleTransaction = true,
+      exitOnError = false,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    if (!filename) {
+      return res.status(400).json({
+        success: false,
+        error: 'Filename is required for restore.',
+        errorFa: 'نام فایل نسخه پشتیبان الزامی است.',
+      });
+    }
+
+    const result = await restorePostgresBackup(server, {
+      database: database || server.postgres_database || 'postgres',
+      filename,
+      cleanFirst: Boolean(cleanFirst),
+      singleTransaction: Boolean(singleTransaction),
+      exitOnError: Boolean(exitOnError),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Restore Backup',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Restored PostgreSQL backup "${filename}" into database "${database || 'postgres'}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restore backup',
+      errorFa: 'خطا در بازیابی نسخه پشتیبان پایگاه داده',
+    });
+  }
+});
+
+// DELETE /api/remote-servers/:id/postgres/backups/:filename - Delete backup
+apiRouter.delete('/remote-servers/:id/postgres/backups/:filename', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const result = await deletePostgresBackup(server, decodeURIComponent(filename));
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Delete Backup',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Deleted PostgreSQL backup "${filename}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete backup',
+      errorFa: 'خطا در حذف نسخه پشتیبان',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/backups/:filename/download - Download backup
+apiRouter.get('/remote-servers/:id/postgres/backups/:filename/download', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const filePath = getPostgresBackupFilePath(server, decodeURIComponent(filename));
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        error: 'Backup file not found on disk.',
+        errorFa: 'فایل نسخه پشتیبان بر روی دیسک یافت نشد.',
+      });
+    }
+
+    res.download(filePath, decodeURIComponent(filename));
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to download backup',
+      errorFa: 'خطا در دانلود فایل نسخه پشتیبان',
+    });
+  }
+});
 const handlePostgresRoles = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

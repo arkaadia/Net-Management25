@@ -29,6 +29,7 @@ import {
   Sliders,
   ChevronRight,
   Users,
+  Archive,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -48,6 +49,7 @@ import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
 import { PostgresRolesManagerTab } from './PostgresRolesManagerTab';
 import { PostgresPermissionsManagerTab } from './PostgresPermissionsManagerTab';
 import { PostgresDatabaseLifecycleTab } from './PostgresDatabaseLifecycleTab';
+import { PostgresBackupManagerTab } from './PostgresBackupManagerTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -60,7 +62,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'overview' | 'databases' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'overview' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -474,6 +476,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                   {databases.length}
                 </span>
               )}
+            </button>
+
+            {/* TAB: BACKUP & RESTORE MANAGEMENT (Phase 13) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('backups')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'backups'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Archive className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Backup & Restore' : 'بکاپ و بازیابی'}</span>
             </button>
 
             <button
@@ -1023,6 +1041,16 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               onOpenBrowserWithContext={(db, schema) => {
                 setActiveTab('browser');
               }}
+            />
+          )}
+
+          {/* TAB: BACKUP & RESTORE MANAGEMENT (Phase 13) */}
+          {activeTab === 'backups' && (
+            <PostgresBackupManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={server.postgres_database || 'postgres'}
             />
           )}
 

@@ -1,7 +1,11 @@
 import { Client } from 'pg';
+import fs from 'fs';
+import path from 'path';
+import zlib from 'zlib';
 import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { analyzePostgresSqlSafety, PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
+import { runAdaptiveSshCommand } from './linuxServerMonitor';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
 export type { PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
@@ -4569,6 +4573,870 @@ export async function dropPostgresSchema(
     };
   }
 }
+
+// ==========================================
+// Phase 13: PostgreSQL Backup & Restore
+// ==========================================
+
+export type PostgresBackupMode = 'full' | 'schema_only' | 'data_only';
+export type PostgresBackupFormat = 'plain' | 'custom' | 'tar';
+
+export interface PostgresBackupItem {
+  id: string;
+  filename: string;
+  database: string;
+  sizeBytes: number;
+  sizePretty: string;
+  mode: PostgresBackupMode;
+  format: PostgresBackupFormat;
+  createdAt: string;
+  tablesCount?: number;
+  schemasCount?: number;
+  schemas?: string[];
+  tables?: string[];
+  compressionLevel?: number;
+  downloadUrl?: string;
+  engineUsed: 'native_pg_dump' | 'logical_sql_dumper';
+}
+
+export interface PostgresCreateBackupRequest {
+  database: string;
+  mode: PostgresBackupMode;
+  format: PostgresBackupFormat;
+  schemas?: string[];
+  tables?: string[];
+  includeDrop?: boolean;
+  useInserts?: boolean;
+  compressionLevel?: number;
+  customFilename?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresCreateBackupResult {
+  success: boolean;
+  backup?: PostgresBackupItem;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+  durationMs?: number;
+  sqlDumpPreview?: string;
+}
+
+export interface PostgresRestoreBackupRequest {
+  database: string;
+  filename: string;
+  cleanFirst?: boolean;
+  singleTransaction?: boolean;
+  exitOnError?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRestoreBackupResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedStatementsCount?: number;
+  durationMs?: number;
+  error?: string;
+  errorFa?: string;
+  outputLog?: string;
+}
+
+function formatBytesPretty(bytes: number): string {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
+}
+
+export function getPostgresBackupsDir(serverId: string): string {
+  const dir = path.join(process.cwd(), 'data', 'postgres_backups', serverId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+function getPostgresBackupsMetaPath(serverId: string): string {
+  return path.join(getPostgresBackupsDir(serverId), 'backups_meta.json');
+}
+
+function loadPostgresBackupsMeta(serverId: string): Record<string, PostgresBackupItem> {
+  const metaPath = getPostgresBackupsMetaPath(serverId);
+  try {
+    if (fs.existsSync(metaPath)) {
+      const content = fs.readFileSync(metaPath, 'utf8');
+      return JSON.parse(content);
+    }
+  } catch {}
+  return {};
+}
+
+function savePostgresBackupsMeta(serverId: string, meta: Record<string, PostgresBackupItem>): void {
+  const metaPath = getPostgresBackupsMetaPath(serverId);
+  try {
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+  } catch (err: any) {
+    console.error('Failed to save postgres backup metadata:', err.message);
+  }
+}
+
+/**
+ * Returns the list of all backups stored for the given server
+ */
+export async function listPostgresBackups(server: RemoteServer): Promise<PostgresBackupItem[]> {
+  const backupDir = getPostgresBackupsDir(server.id);
+  const meta = loadPostgresBackupsMeta(server.id);
+
+  if (!fs.existsSync(backupDir)) {
+    return [];
+  }
+
+  const files = fs.readdirSync(backupDir).filter((f) => f !== 'backups_meta.json');
+  const items: PostgresBackupItem[] = [];
+
+  for (const filename of files) {
+    const filePath = path.join(backupDir, filename);
+    try {
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) continue;
+
+      if (meta[filename]) {
+        meta[filename].sizeBytes = stats.size;
+        meta[filename].sizePretty = formatBytesPretty(stats.size);
+        items.push(meta[filename]);
+      } else {
+        const isGz = filename.endsWith('.gz');
+        const isDump = filename.endsWith('.dump');
+        const isTar = filename.endsWith('.tar');
+        const baseName = filename.replace(/\.(sql(\.gz)?|dump|tar)$/, '');
+        const parts = baseName.split('_');
+        const dbName = parts[0] || server.postgres_database || 'postgres';
+
+        const item: PostgresBackupItem = {
+          id: filename,
+          filename,
+          database: dbName,
+          sizeBytes: stats.size,
+          sizePretty: formatBytesPretty(stats.size),
+          mode: 'full',
+          format: isDump ? 'custom' : isTar ? 'tar' : 'plain',
+          createdAt: stats.mtime.toISOString(),
+          downloadUrl: `/api/remote-servers/${server.id}/postgres/backups/${encodeURIComponent(filename)}/download`,
+          engineUsed: 'logical_sql_dumper',
+        };
+        meta[filename] = item;
+        items.push(item);
+      }
+    } catch {}
+  }
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  savePostgresBackupsMeta(server.id, meta);
+  return items;
+}
+
+function escapeSqlValue(val: any): string {
+  if (val === null || val === undefined) return 'NULL';
+  if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+  if (typeof val === 'number') {
+    if (isNaN(val) || !isFinite(val)) return 'NULL';
+    return val.toString();
+  }
+  if (val instanceof Date) {
+    return `'${val.toISOString()}'`;
+  }
+  if (typeof val === 'object') {
+    const str = JSON.stringify(val).replace(/'/g, "''");
+    return `'${str}'::jsonb`;
+  }
+  const str = String(val).replace(/'/g, "''");
+  return `'${str}'`;
+}
+
+async function performLogicalSqlDump(
+  server: RemoteServer,
+  req: PostgresCreateBackupRequest
+): Promise<{ sqlContent: string; tablesCount: number; schemasCount: number; schemas: string[]; tables: string[] }> {
+  const targetDb = req.database.trim();
+  const client = createPostgresClient(server, {
+    database: targetDb,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  await client.connect();
+
+  const lines: string[] = [];
+  const timestamp = new Date().toISOString();
+
+  lines.push(`-- ==============================================================`);
+  lines.push(`-- NetTopology PostgreSQL Database Dump`);
+  lines.push(`-- Server: ${server.ip || server.hostname || 'localhost'}:${server.postgres_port || 5432}`);
+  lines.push(`-- Database: "${targetDb}"`);
+  lines.push(`-- Generated At: ${timestamp}`);
+  lines.push(`-- Mode: ${req.mode.toUpperCase()}`);
+  lines.push(`-- ==============================================================`);
+  lines.push(``);
+  lines.push(`SET statement_timeout = 0;`);
+  lines.push(`SET lock_timeout = 0;`);
+  lines.push(`SET client_encoding = 'UTF8';`);
+  lines.push(`SET standard_conforming_strings = on;`);
+  lines.push(`SET check_function_bodies = false;`);
+  lines.push(`SET client_min_messages = warning;`);
+  lines.push(`SET row_security = off;`);
+  lines.push(``);
+
+  let schemaFilterSql = `nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND nspname NOT LIKE 'pg_temp%' AND nspname NOT LIKE 'pg_toast_temp%'`;
+  if (req.schemas && req.schemas.length > 0) {
+    const escapedSchemas = req.schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ');
+    schemaFilterSql += ` AND nspname IN (${escapedSchemas})`;
+  }
+
+  const schemasRes = await client.query<{ schema_name: string; owner: string }>(`
+    SELECT nspname AS schema_name, pg_get_userbyid(nspowner) AS owner
+    FROM pg_namespace
+    WHERE ${schemaFilterSql}
+    ORDER BY nspname;
+  `);
+
+  const schemas = schemasRes.rows.map((r) => r.schema_name);
+
+  if (req.mode !== 'data_only') {
+    lines.push(`-- --------------------------------------------------------------`);
+    lines.push(`-- Schemas`);
+    lines.push(`-- --------------------------------------------------------------`);
+    for (const row of schemasRes.rows) {
+      if (req.includeDrop) {
+        lines.push(`DROP SCHEMA IF EXISTS "${row.schema_name}" CASCADE;`);
+      }
+      lines.push(`CREATE SCHEMA IF NOT EXISTS "${row.schema_name}";`);
+      lines.push(`ALTER SCHEMA "${row.schema_name}" OWNER TO "${row.owner}";`);
+    }
+    lines.push(``);
+
+    const typesRes = await client.query<{
+      schema_name: string;
+      type_name: string;
+      type_kind: string;
+      enum_labels?: string;
+    }>(`
+      SELECT 
+        n.nspname AS schema_name,
+        t.typname AS type_name,
+        t.typtype AS type_kind,
+        CASE 
+          WHEN t.typtype = 'e' THEN (
+            SELECT string_agg(quote_literal(enumlabel), ', ' ORDER BY enumsortorder)
+            FROM pg_enum
+            WHERE enumtypid = t.oid
+          )
+          ELSE NULL
+        END AS enum_labels
+      FROM pg_type t
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE ${schemaFilterSql.replace(/nspname/g, 'n.nspname')}
+        AND t.typtype = 'e'
+      ORDER BY n.nspname, t.typname;
+    `);
+
+    if (typesRes.rows.length > 0) {
+      lines.push(`-- --------------------------------------------------------------`);
+      lines.push(`-- Custom Types`);
+      lines.push(`-- --------------------------------------------------------------`);
+      for (const t of typesRes.rows) {
+        if (req.includeDrop) {
+          lines.push(`DROP TYPE IF EXISTS "${t.schema_name}"."${t.type_name}" CASCADE;`);
+        }
+        if (t.type_kind === 'e' && t.enum_labels) {
+          lines.push(`CREATE TYPE "${t.schema_name}"."${t.type_name}" AS ENUM (${t.enum_labels});`);
+        }
+      }
+      lines.push(``);
+    }
+  }
+
+  const seqRes = await client.query<{
+    sequence_schema: string;
+    sequence_name: string;
+    data_type: string;
+  }>(`
+    SELECT 
+      sequence_schema,
+      sequence_name,
+      data_type
+    FROM information_schema.sequences
+    WHERE sequence_schema IN (${schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ') || "''"})
+    ORDER BY sequence_schema, sequence_name;
+  `);
+
+  if (req.mode !== 'data_only' && seqRes.rows.length > 0) {
+    lines.push(`-- --------------------------------------------------------------`);
+    lines.push(`-- Sequences`);
+    lines.push(`-- --------------------------------------------------------------`);
+    for (const seq of seqRes.rows) {
+      if (req.includeDrop) {
+        lines.push(`DROP SEQUENCE IF EXISTS "${seq.sequence_schema}"."${seq.sequence_name}" CASCADE;`);
+      }
+      lines.push(`CREATE SEQUENCE IF NOT EXISTS "${seq.sequence_schema}"."${seq.sequence_name}" AS ${seq.data_type};`);
+    }
+    lines.push(``);
+  }
+
+  let tableFilterSql = `c.relkind = 'r' AND n.nspname IN (${schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ') || "''"})`;
+  if (req.tables && req.tables.length > 0) {
+    const escapedTables = req.tables.map((t) => `'${t.replace(/'/g, "''")}'`).join(', ');
+    tableFilterSql += ` AND (c.relname IN (${escapedTables}) OR (n.nspname || '.' || c.relname) IN (${escapedTables}))`;
+  }
+
+  const tablesRes = await client.query<{
+    schema_name: string;
+    table_name: string;
+    owner: string;
+  }>(`
+    SELECT 
+      n.nspname AS schema_name,
+      c.relname AS table_name,
+      pg_get_userbyid(c.relowner) AS owner
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE ${tableFilterSql}
+    ORDER BY n.nspname, c.relname;
+  `);
+
+  const tables: string[] = [];
+
+  for (const table of tablesRes.rows) {
+    const fullTableName = `"${table.schema_name}"."${table.table_name}"`;
+    tables.push(`${table.schema_name}.${table.table_name}`);
+
+    if (req.mode !== 'data_only') {
+      lines.push(`-- --------------------------------------------------------------`);
+      lines.push(`-- Table: ${fullTableName}`);
+      lines.push(`-- --------------------------------------------------------------`);
+      if (req.includeDrop) {
+        lines.push(`DROP TABLE IF EXISTS ${fullTableName} CASCADE;`);
+      }
+
+      const colsRes = await client.query<{
+        column_name: string;
+        data_type: string;
+        udt_name: string;
+        is_nullable: string;
+        column_default: string | null;
+        character_maximum_length: number | null;
+      }>(`
+        SELECT 
+          column_name,
+          data_type,
+          udt_name,
+          is_nullable,
+          column_default,
+          character_maximum_length
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+        ORDER BY ordinal_position;
+      `, [table.schema_name, table.table_name]);
+
+      const colDefs: string[] = [];
+      for (const col of colsRes.rows) {
+        let typeStr = col.data_type.toUpperCase();
+        if (typeStr === 'USER-DEFINED') {
+          typeStr = `"${col.udt_name}"`;
+        } else if (col.character_maximum_length) {
+          typeStr += `(${col.character_maximum_length})`;
+        } else if (typeStr === 'ARRAY') {
+          typeStr = `${col.udt_name.replace(/^_/, '')}[]`;
+        }
+
+        let def = `  "${col.column_name}" ${typeStr}`;
+        if (col.column_default) {
+          def += ` DEFAULT ${col.column_default}`;
+        }
+        if (col.is_nullable === 'NO') {
+          def += ` NOT NULL`;
+        }
+        colDefs.push(def);
+      }
+
+      const pkRes = await client.query<{ constraint_name: string; columns: string }>(`
+        SELECT 
+          tc.constraint_name,
+          string_agg(quote_ident(kcu.column_name), ', ' ORDER BY kcu.ordinal_position) AS columns
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu 
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
+        GROUP BY tc.constraint_name;
+      `, [table.schema_name, table.table_name]);
+
+      for (const pk of pkRes.rows) {
+        colDefs.push(`  CONSTRAINT "${pk.constraint_name}" PRIMARY KEY (${pk.columns})`);
+      }
+
+      lines.push(`CREATE TABLE IF NOT EXISTS ${fullTableName} (`);
+      lines.push(colDefs.join(',\n'));
+      lines.push(`);`);
+      lines.push(`ALTER TABLE ${fullTableName} OWNER TO "${table.owner}";`);
+      lines.push(``);
+
+      const idxRes = await client.query<{ index_def: string }>(`
+        SELECT indexdef AS index_def
+        FROM pg_indexes
+        WHERE schemaname = $1 AND tablename = $2 AND indexname NOT IN (
+          SELECT constraint_name FROM information_schema.table_constraints 
+          WHERE table_schema = $1 AND table_name = $2 AND constraint_type = 'PRIMARY KEY'
+        );
+      `, [table.schema_name, table.table_name]);
+
+      for (const idx of idxRes.rows) {
+        lines.push(`${idx.index_def};`);
+      }
+      lines.push(``);
+    }
+
+    if (req.mode !== 'schema_only') {
+      lines.push(`-- --------------------------------------------------------------`);
+      lines.push(`-- Data for Table: ${fullTableName}`);
+      lines.push(`-- --------------------------------------------------------------`);
+
+      try {
+        const dataRes = await client.query(`SELECT * FROM ${fullTableName};`);
+        if (dataRes.rows.length > 0) {
+          const cols = Object.keys(dataRes.rows[0]);
+          const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+
+          lines.push(`-- Dumping ${dataRes.rows.length} records`);
+          for (const row of dataRes.rows) {
+            const vals = cols.map((c) => escapeSqlValue(row[c])).join(', ');
+            lines.push(`INSERT INTO ${fullTableName} (${quotedCols}) VALUES (${vals});`);
+          }
+        } else {
+          lines.push(`-- (No data)`);
+        }
+      } catch (err: any) {
+        lines.push(`-- Error dumping table data: ${err.message || 'Unknown error'}`);
+      }
+      lines.push(``);
+    }
+  }
+
+  if (req.mode !== 'schema_only' && seqRes.rows.length > 0) {
+    lines.push(`-- --------------------------------------------------------------`);
+    lines.push(`-- Synchronize Sequences`);
+    lines.push(`-- --------------------------------------------------------------`);
+    for (const seq of seqRes.rows) {
+      const fullSeqName = `"${seq.sequence_schema}"."${seq.sequence_name}"`;
+      try {
+        const valRes = await client.query<{ last_value: string; is_called: boolean }>(`
+          SELECT last_value, is_called FROM ${fullSeqName};
+        `);
+        if (valRes.rows.length > 0) {
+          const { last_value, is_called } = valRes.rows[0];
+          lines.push(`SELECT pg_catalog.setval('${fullSeqName}', ${last_value}, ${is_called ? 'true' : 'false'});`);
+        }
+      } catch {}
+    }
+    lines.push(``);
+  }
+
+  if (req.mode !== 'data_only') {
+    const viewsRes = await client.query<{
+      schema_name: string;
+      view_name: string;
+      view_definition: string;
+      owner: string;
+    }>(`
+      SELECT 
+        n.nspname AS schema_name,
+        c.relname AS view_name,
+        pg_get_viewdef(c.oid, true) AS view_definition,
+        pg_get_userbyid(c.relowner) AS owner
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'v' AND n.nspname IN (${schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ') || "''"})
+      ORDER BY n.nspname, c.relname;
+    `);
+
+    if (viewsRes.rows.length > 0) {
+      lines.push(`-- --------------------------------------------------------------`);
+      lines.push(`-- Views`);
+      lines.push(`-- --------------------------------------------------------------`);
+      for (const view of viewsRes.rows) {
+        const fullViewName = `"${view.schema_name}"."${view.view_name}"`;
+        if (req.includeDrop) {
+          lines.push(`DROP VIEW IF EXISTS ${fullViewName} CASCADE;`);
+        }
+        lines.push(`CREATE OR REPLACE VIEW ${fullViewName} AS`);
+        lines.push(`${view.view_definition.trim().replace(/;$/, '')};`);
+        lines.push(`ALTER VIEW ${fullViewName} OWNER TO "${view.owner}";`);
+        lines.push(``);
+      }
+    }
+  }
+
+  lines.push(`-- ==============================================================`);
+  lines.push(`-- End of NetTopology PostgreSQL Dump`);
+  lines.push(`-- ==============================================================`);
+
+  await client.end();
+
+  return {
+    sqlContent: lines.join('\n'),
+    tablesCount: tables.length,
+    schemasCount: schemas.length,
+    schemas,
+    tables,
+  };
+}
+
+export async function createPostgresBackup(
+  server: RemoteServer,
+  req: PostgresCreateBackupRequest
+): Promise<PostgresCreateBackupResult> {
+  const targetDb = (req.database || server.postgres_database || 'postgres').trim();
+  const startTime = Date.now();
+
+  if (!targetDb) {
+    return {
+      success: false,
+      message: 'Database name is required for backup.',
+      messageFa: 'نام پایگاه داده جهت ایجاد نسخه پشتیبان الزامی است.',
+      error: 'Missing database name',
+    };
+  }
+
+  const backupDir = getPostgresBackupsDir(server.id);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const timestampStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  let ext = 'sql';
+  if (req.format === 'custom') {
+    ext = 'dump';
+  } else if (req.format === 'tar') {
+    ext = 'tar';
+  } else if (req.compressionLevel && req.compressionLevel > 0) {
+    ext = 'sql.gz';
+  }
+
+  let finalFilename = req.customFilename?.trim()
+    ? req.customFilename.trim().replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+    : `${targetDb}_backup_${timestampStr}.${ext}`;
+
+  if (!finalFilename.endsWith(`.${ext}`)) {
+    finalFilename += `.${ext}`;
+  }
+
+  const targetFilePath = path.join(backupDir, finalFilename);
+
+  const hasSsh = Boolean(server.ssh_password || server.ssh_key);
+  let engineUsed: 'native_pg_dump' | 'logical_sql_dumper' = 'logical_sql_dumper';
+  let sqlPreview = '';
+  let tablesCount = 0;
+  let schemasCount = 0;
+  let schemasList: string[] = [];
+  let tablesList: string[] = [];
+
+  if (hasSsh && req.format !== 'plain') {
+    try {
+      const checkPgDump = await runAdaptiveSshCommand(server, 'which pg_dump 2>/dev/null || echo "NOT_FOUND"', undefined, 8000);
+      if (checkPgDump && !checkPgDump.includes('NOT_FOUND') && checkPgDump.trim().length > 0) {
+        const dumpPort = req.port || server.postgres_port || 5432;
+        const dumpUser = req.user || server.postgres_user || 'postgres';
+        let plainPass = '';
+        if (req.sessionPassword) {
+          plainPass = req.sessionPassword;
+        } else if (server.postgres_password) {
+          plainPass = decryptServerSecret(server.postgres_password);
+        }
+
+        const formatFlag = req.format === 'custom' ? '-Fc' : req.format === 'tar' ? '-Ft' : '-Fp';
+        const modeFlag = req.mode === 'schema_only' ? '-s' : req.mode === 'data_only' ? '-a' : '';
+        const cleanFlag = req.includeDrop ? '--clean --if-exists' : '';
+        const insertFlag = req.useInserts ? '--inserts' : '';
+        const compFlag = req.compressionLevel && req.compressionLevel > 0 ? `-Z ${req.compressionLevel}` : '';
+
+        const remoteTempFile = `/tmp/pgdump_${timestampStr}_${Math.floor(Math.random() * 10000)}.${ext}`;
+
+        const dumpCmd = `export PGPASSWORD='${plainPass.replace(/'/g, "'\\''")}'
+pg_dump -h localhost -p ${dumpPort} -U "${dumpUser}" -d "${targetDb}" ${formatFlag} ${modeFlag} ${cleanFlag} ${insertFlag} ${compFlag} -f "${remoteTempFile}"
+cat "${remoteTempFile}" | base64
+rm -f "${remoteTempFile}"`;
+
+        const b64Output = await runAdaptiveSshCommand(server, dumpCmd, undefined, 45000);
+        const cleanB64 = b64Output.replace(/[\r\n\s]/g, '');
+        if (cleanB64.length > 50) {
+          const buffer = Buffer.from(cleanB64, 'base64');
+          fs.writeFileSync(targetFilePath, buffer);
+          engineUsed = 'native_pg_dump';
+        }
+      }
+    } catch (sshErr: any) {
+      console.warn('Native pg_dump over SSH failed, falling back to logical SQL dumper:', sshErr.message);
+    }
+  }
+
+  if (engineUsed !== 'native_pg_dump') {
+    try {
+      const dumpRes = await performLogicalSqlDump(server, req);
+      tablesCount = dumpRes.tablesCount;
+      schemasCount = dumpRes.schemasCount;
+      schemasList = dumpRes.schemas;
+      tablesList = dumpRes.tables;
+
+      let fileBuffer: Buffer;
+      if (req.compressionLevel && req.compressionLevel > 0) {
+        fileBuffer = zlib.gzipSync(Buffer.from(dumpRes.sqlContent, 'utf8'), {
+          level: Math.min(9, Math.max(1, req.compressionLevel)),
+        });
+      } else {
+        fileBuffer = Buffer.from(dumpRes.sqlContent, 'utf8');
+      }
+
+      fs.writeFileSync(targetFilePath, fileBuffer);
+      sqlPreview = dumpRes.sqlContent.split('\n').slice(0, 40).join('\n');
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to create PostgreSQL backup: ${err.message || 'Unknown error'}`,
+        messageFa: `خطا در ایجاد نسخه پشتیبان از پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+        error: err.message,
+        errorFa: `خطای فرآیند دانپ: ${err.message || 'خطای ناشناخته'}`,
+        durationMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  const stats = fs.statSync(targetFilePath);
+  const backupItem: PostgresBackupItem = {
+    id: finalFilename,
+    filename: finalFilename,
+    database: targetDb,
+    sizeBytes: stats.size,
+    sizePretty: formatBytesPretty(stats.size),
+    mode: req.mode,
+    format: req.format,
+    createdAt: new Date().toISOString(),
+    tablesCount,
+    schemasCount,
+    schemas: schemasList,
+    tables: tablesList,
+    compressionLevel: req.compressionLevel,
+    downloadUrl: `/api/remote-servers/${server.id}/postgres/backups/${encodeURIComponent(finalFilename)}/download`,
+    engineUsed,
+  };
+
+  const meta = loadPostgresBackupsMeta(server.id);
+  meta[finalFilename] = backupItem;
+  savePostgresBackupsMeta(server.id, meta);
+
+  const durationMs = Date.now() - startTime;
+  return {
+    success: true,
+    backup: backupItem,
+    message: `Backup "${finalFilename}" created successfully (${formatBytesPretty(stats.size)}) in ${(durationMs / 1000).toFixed(1)}s using ${engineUsed}.`,
+    messageFa: `نسخه پشتیبان "${finalFilename}" با موفقیت ایجاد شد (${formatBytesPretty(stats.size)}) در زمان ${(durationMs / 1000).toFixed(1)} ثانیه با موتور ${engineUsed === 'native_pg_dump' ? 'Native pg_dump' : 'Logical SQL Dumper'}.`,
+    durationMs,
+    sqlDumpPreview: sqlPreview,
+  };
+}
+
+export async function restorePostgresBackup(
+  server: RemoteServer,
+  req: PostgresRestoreBackupRequest
+): Promise<PostgresRestoreBackupResult> {
+  const startTime = Date.now();
+  const backupDir = getPostgresBackupsDir(server.id);
+  const targetFilePath = path.join(backupDir, path.basename(req.filename));
+
+  if (!fs.existsSync(targetFilePath)) {
+    return {
+      success: false,
+      message: `Backup file "${req.filename}" does not exist.`,
+      messageFa: `فایل نسخه پشتیبان "${req.filename}" یافت نشد.`,
+      error: 'File not found',
+    };
+  }
+
+  const targetDb = (req.database || server.postgres_database || 'postgres').trim();
+  const isGz = req.filename.endsWith('.gz');
+  const isDump = req.filename.endsWith('.dump');
+  const isTar = req.filename.endsWith('.tar');
+
+  const hasSsh = Boolean(server.ssh_password || server.ssh_key);
+  if ((isDump || isTar) && hasSsh) {
+    try {
+      const dumpPort = req.port || server.postgres_port || 5432;
+      const dumpUser = req.user || server.postgres_user || 'postgres';
+      let plainPass = '';
+      if (req.sessionPassword) {
+        plainPass = req.sessionPassword;
+      } else if (server.postgres_password) {
+        plainPass = decryptServerSecret(server.postgres_password);
+      }
+
+      const fileBuffer = fs.readFileSync(targetFilePath);
+      const b64Data = fileBuffer.toString('base64');
+      const remoteTemp = `/tmp/pgrestore_${Date.now()}_${Math.floor(Math.random() * 10000)}.${isDump ? 'dump' : 'tar'}`;
+
+      const restoreCmd = `echo '${b64Data}' | base64 -d > "${remoteTemp}"
+export PGPASSWORD='${plainPass.replace(/'/g, "'\\''")}'
+${req.cleanFirst ? 'CLEAN_FLAG="--clean --if-exists"' : 'CLEAN_FLAG=""'}
+${req.singleTransaction ? 'TX_FLAG="--single-transaction"' : 'TX_FLAG=""'}
+${req.exitOnError ? 'ERR_FLAG="--exit-on-error"' : 'ERR_FLAG=""'}
+pg_restore -h localhost -p ${dumpPort} -U "${dumpUser}" -d "${targetDb}" $CLEAN_FLAG $TX_FLAG $ERR_FLAG "${remoteTemp}" 2>&1 || true
+rm -f "${remoteTemp}"`;
+
+      const output = await runAdaptiveSshCommand(server, restoreCmd, undefined, 60000);
+      const durationMs = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Backup "${req.filename}" restored into database "${targetDb}" via pg_restore in ${(durationMs / 1000).toFixed(1)}s.`,
+        messageFa: `نسخه پشتیبان "${req.filename}" با موفقیت بر روی دیتابیس "${targetDb}" با pg_restore در مدت زمان ${(durationMs / 1000).toFixed(1)} ثانیه بازیابی گردید.`,
+        durationMs,
+        outputLog: output,
+      };
+    } catch (err: any) {
+      console.warn('pg_restore over SSH failed:', err.message);
+    }
+  }
+
+  const client = createPostgresClient(server, {
+    database: targetDb,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  try {
+    let sqlContent: string;
+    const rawBuffer = fs.readFileSync(targetFilePath);
+    if (isGz) {
+      sqlContent = zlib.gunzipSync(rawBuffer).toString('utf8');
+    } else {
+      sqlContent = rawBuffer.toString('utf8');
+    }
+
+    await client.connect();
+
+    if (req.singleTransaction) {
+      await client.query('BEGIN;');
+    }
+
+    const statements = sqlContent
+      .split(/;\s*[\r\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !s.startsWith('--') && !s.startsWith('/*'));
+
+    let executedCount = 0;
+    const errors: string[] = [];
+
+    for (const stmt of statements) {
+      try {
+        await client.query(stmt + ';');
+        executedCount++;
+      } catch (stmtErr: any) {
+        errors.push(`Error executing statement (${stmt.slice(0, 60)}...): ${stmtErr.message}`);
+        if (req.exitOnError) {
+          if (req.singleTransaction) {
+            await client.query('ROLLBACK;');
+          }
+          await client.end();
+          return {
+            success: false,
+            message: `Restore failed on statement: ${stmtErr.message}`,
+            messageFa: `بازیابی با خطا متوقف گردید: ${stmtErr.message}`,
+            executedStatementsCount: executedCount,
+            durationMs: Date.now() - startTime,
+            error: stmtErr.message,
+            outputLog: errors.join('\n'),
+          };
+        }
+      }
+    }
+
+    if (req.singleTransaction) {
+      await client.query('COMMIT;');
+    }
+
+    await client.end();
+    const durationMs = Date.now() - startTime;
+
+    return {
+      success: true,
+      message: `Restored ${executedCount} statements into database "${targetDb}" in ${(durationMs / 1000).toFixed(1)}s.${errors.length > 0 ? ` (${errors.length} non-fatal warnings)` : ''}`,
+      messageFa: `تعداد ${executedCount} دستور با موفقیت بر روی پایگاه داده "${targetDb}" در زمان ${(durationMs / 1000).toFixed(1)} ثانیه اعمال شد.${errors.length > 0 ? ` (${errors.length} هشدار)` : ''}`,
+      executedStatementsCount: executedCount,
+      durationMs,
+      outputLog: errors.length > 0 ? errors.slice(0, 20).join('\n') : 'All statements executed successfully.',
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to restore database: ${err.message || 'Unknown error'}`,
+      messageFa: `خطا در بازیابی نسخه پشتیبان: ${err.message || 'خطای ناشناخته'}`,
+      durationMs: Date.now() - startTime,
+      error: err.message,
+    };
+  }
+}
+
+export async function deletePostgresBackup(
+  server: RemoteServer,
+  filename: string
+): Promise<{ success: boolean; message: string; messageFa: string }> {
+  const safeFilename = path.basename(filename);
+  const backupDir = getPostgresBackupsDir(server.id);
+  const filePath = path.join(backupDir, safeFilename);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to delete file: ${err.message}`,
+        messageFa: `خطا در حذف فایل: ${err.message}`,
+      };
+    }
+  }
+
+  const meta = loadPostgresBackupsMeta(server.id);
+  if (meta[safeFilename]) {
+    delete meta[safeFilename];
+    savePostgresBackupsMeta(server.id, meta);
+  }
+
+  return {
+    success: true,
+    message: `Backup "${safeFilename}" deleted successfully.`,
+    messageFa: `نسخه پشتیبان "${safeFilename}" با موفقیت حذف گردید.`,
+  };
+}
+
+export function getPostgresBackupFilePath(server: RemoteServer, filename: string): string | null {
+  const safeFilename = path.basename(filename);
+  const backupDir = getPostgresBackupsDir(server.id);
+  const filePath = path.join(backupDir, safeFilename);
+
+  if (fs.existsSync(filePath)) {
+    return filePath;
+  }
+  return null;
+}
+
 
 
 
