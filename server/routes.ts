@@ -78,6 +78,13 @@ import {
   dropPostgresRole,
   getPostgresObjectPermissions,
   applyPostgresPermissions,
+  createPostgresDatabase,
+  updatePostgresDatabase,
+  dropPostgresDatabase,
+  getPostgresSchemas,
+  createPostgresSchema,
+  updatePostgresSchema,
+  dropPostgresSchema,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1426,6 +1433,376 @@ const handlePostgresDatabases = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
 apiRouter.post('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
+
+// POST /api/remote-servers/:id/postgres/databases/create - Create new database
+apiRouter.post('/remote-servers/:id/postgres/databases/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      name,
+      owner,
+      template,
+      encoding,
+      lcCollate,
+      lcCtype,
+      tablespace,
+      connectionLimit,
+      isTemplate,
+      allowConnections,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    const result = await createPostgresDatabase(server, {
+      name,
+      owner,
+      template,
+      encoding,
+      lcCollate,
+      lcCtype,
+      tablespace,
+      connectionLimit: connectionLimit !== undefined ? Number(connectionLimit) : undefined,
+      isTemplate: isTemplate !== undefined ? Boolean(isTemplate) : undefined,
+      allowConnections: allowConnections !== undefined ? Boolean(allowConnections) : undefined,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Create Database',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Created PostgreSQL database "${name}" (owner: ${owner || 'default'}, encoding: ${encoding || 'default'})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create database',
+      errorFa: 'خطا در ایجاد پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/databases/update - Update database configuration
+apiRouter.post('/remote-servers/:id/postgres/databases/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      name,
+      newName,
+      owner,
+      connectionLimit,
+      allowConnections,
+      isTemplate,
+      tablespace,
+      comment,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    const result = await updatePostgresDatabase(server, {
+      name,
+      newName,
+      owner,
+      connectionLimit: connectionLimit !== undefined ? Number(connectionLimit) : undefined,
+      allowConnections: allowConnections !== undefined ? Boolean(allowConnections) : undefined,
+      isTemplate: isTemplate !== undefined ? Boolean(isTemplate) : undefined,
+      tablespace,
+      comment,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Update Database',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Updated PostgreSQL database "${name}" settings (newName: ${newName || 'unchanged'})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update database',
+      errorFa: 'خطا در ویرایش مشخصات پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/databases/drop - Drop database
+apiRouter.post('/remote-servers/:id/postgres/databases/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { name, forceWithDisconnect, port, user, sessionPassword } = req.body || {};
+
+    const result = await dropPostgresDatabase(server, {
+      name,
+      forceWithDisconnect: Boolean(forceWithDisconnect),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Drop Database',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Dropped PostgreSQL database "${name}" (forceWithDisconnect: ${Boolean(forceWithDisconnect)})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to drop database',
+      errorFa: 'خطا در حذف پایگاه داده',
+    });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/postgres/schemas - Enumerate schemas in database
+const handlePostgresSchemas = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.body?.database ?? req.query?.database ?? 'postgres') as string;
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const password = req.body?.password ?? req.query?.password;
+
+    const result = await getPostgresSchemas(server, {
+      database,
+      port: port ? Number(port) : undefined,
+      user,
+      password,
+    });
+
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to enumerate schemas',
+      errorFa: 'خطا در دریافت لیست اسکیمای پایگاه داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/schemas', handlePostgresSchemas);
+apiRouter.post('/remote-servers/:id/postgres/schemas', handlePostgresSchemas);
+
+// POST /api/remote-servers/:id/postgres/schemas/create - Create new schema
+apiRouter.post('/remote-servers/:id/postgres/schemas/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { database, name, owner, comment, port, user, sessionPassword } = req.body || {};
+
+    const result = await createPostgresSchema(server, {
+      database: database || 'postgres',
+      name,
+      owner,
+      comment,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Create Schema',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Created schema "${name}" in database "${database || 'postgres'}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create schema',
+      errorFa: 'خطا در ایجاد اسکیمای جدید',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/schemas/update - Update schema (rename, owner, comment)
+apiRouter.post('/remote-servers/:id/postgres/schemas/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { database, name, newName, owner, comment, port, user, sessionPassword } = req.body || {};
+
+    const result = await updatePostgresSchema(server, {
+      database: database || 'postgres',
+      name,
+      newName,
+      owner,
+      comment,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Update Schema',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Updated schema "${name}" in database "${database || 'postgres'}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update schema',
+      errorFa: 'خطا در ویرایش اسکیما',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/schemas/drop - Drop schema
+apiRouter.post('/remote-servers/:id/postgres/schemas/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { database, name, cascade, port, user, sessionPassword } = req.body || {};
+
+    const result = await dropPostgresSchema(server, {
+      database: database || 'postgres',
+      name,
+      cascade: Boolean(cascade),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Drop Schema',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Dropped schema "${name}" from database "${database || 'postgres'}" (cascade: ${Boolean(cascade)})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to drop schema',
+      errorFa: 'خطا در حذف اسکیما',
+    });
+  }
+});
 
 // GET & POST /api/remote-servers/:id/postgres/roles - Enumerate PostgreSQL roles & users
 const handlePostgresRoles = async (req: Request, res: Response) => {

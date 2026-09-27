@@ -47,6 +47,7 @@ import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
 import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
 import { PostgresRolesManagerTab } from './PostgresRolesManagerTab';
 import { PostgresPermissionsManagerTab } from './PostgresPermissionsManagerTab';
+import { PostgresDatabaseLifecycleTab } from './PostgresDatabaseLifecycleTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -466,8 +467,8 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
-              <Database className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Databases Catalog' : 'کاتالوگ پایگاه‌های داده'}</span>
+              <Database className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{isEn ? 'Databases & Schemas' : 'دیتابیس‌ها و اسکیماها'}</span>
               {databases.length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-black/20 text-white/90">
                   {databases.length}
@@ -1012,235 +1013,17 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             </div>
           )}
 
-          {/* TAB 2: DATABASES CATALOG */}
+          {/* TAB: DATABASES & SCHEMAS MANAGEMENT (Phase 12) */}
           {activeTab === 'databases' && (
-            <div className="space-y-4">
-              {/* Controls bar: search, template toggle, refresh */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                {/* Search Input */}
-                <div className="relative flex-1 max-w-md">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={dbSearchQuery}
-                    onChange={(e) => setDbSearchQuery(e.target.value)}
-                    placeholder={isEn ? 'Search databases by name or owner...' : 'جستجو در نام دیتابیس یا مالک...'}
-                    className={`w-full pl-9 pr-3 py-2 rounded-xl text-xs font-mono border focus:outline-hidden transition ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        : 'bg-slate-900 border-slate-700 text-slate-100 focus:border-blue-500'
-                    }`}
-                  />
-                  {dbSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setDbSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Right options: include templates toggle & refresh */}
-                <div className="flex items-center gap-3 flex-wrap">
-                  <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={includeTemplates}
-                      onChange={(e) => handleToggleTemplates(e.target.checked)}
-                      className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-0"
-                    />
-                    <span>{isEn ? 'Show Templates' : 'نمایش قالب‌ها (Templates)'}</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    disabled={loadingDatabases}
-                    onClick={() => handleFetchDatabases()}
-                    className="px-3 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loadingDatabases ? 'animate-spin' : ''}`} />
-                    <span>{loadingDatabases ? (isEn ? 'Loading...' : 'در حال بارگذاری...') : (isEn ? 'Refresh Catalog' : 'تازه‌سازی')}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Error banner if databases failed */}
-              {databasesError && (
-                <div
-                  className={`p-3.5 rounded-xl border text-xs flex items-center gap-2 ${
-                    isLightMode ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-950/30 border-amber-500/30 text-amber-200'
-                  }`}
-                >
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>{isEn ? databasesError.en : (databasesError.fa || databasesError.en)}</span>
-                </div>
-              )}
-
-              {/* Summary Stats Header */}
-              <div
-                className={`p-3 rounded-xl border text-xs flex items-center justify-between flex-wrap gap-2 ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Table className="w-4 h-4 text-cyan-400" />
-                  <span>
-                    {isEn ? 'Database Inventory: ' : 'فهرست دیتابیس‌ها: '}
-                    <strong className="font-mono text-cyan-400">{filteredDatabases.length}</strong>
-                    {filteredDatabases.length !== databases.length && (
-                      <span className="text-slate-400 font-mono text-[11px]">
-                        {' '}
-                        ({isEn ? 'filtered from ' : 'فیلتر شده از '} {databases.length})
-                      </span>
-                    )}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
-                  <span>{isEn ? 'Aggregated Disk Size:' : 'مجموع حجم اشغالی:'}</span>
-                  <span className="font-bold text-emerald-400 tabular-nums">{totalDatabasesSize}</span>
-                </div>
-              </div>
-
-              {/* Databases Table */}
-              <div
-                className={`rounded-xl border overflow-hidden ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
-                }`}
-              >
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left" dir="ltr">
-                    <thead
-                      className={`text-[11px] font-mono uppercase tracking-wider border-b select-none ${
-                        isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      <tr>
-                        <th className="py-2.5 px-3">{isEn ? 'Database Name' : 'نام دیتابیس'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Size on Disk' : 'حجم فیزیکی'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Encoding / Collation' : 'انکودینگ / کلاشن'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Connections' : 'اتصالات فعال'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Tablespace' : 'تیبل‌اسپیس'}</th>
-                        <th className="py-2.5 px-3 text-right">{isEn ? 'State' : 'وضعیت'}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/20">
-                      {loadingDatabases && databases.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-8 text-center text-slate-400">
-                            <div className="flex items-center justify-center gap-2">
-                              <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
-                              <span>{isEn ? 'Enumerating database catalog...' : 'در حال بارگذاری کاتالوگ دیتابیس...'}</span>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : filteredDatabases.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-8 text-center text-slate-400">
-                            {isEn ? 'No databases found matching your query.' : 'هیچ پایگاه داده‌ای با این مشخصات یافت نشد.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredDatabases.map((db) => {
-                          const isCurrentContext = (server.postgres_database || 'postgres') === db.name;
-                          return (
-                            <tr
-                              key={db.oid}
-                              className={`transition-colors ${
-                                isCurrentContext
-                                  ? isLightMode
-                                    ? 'bg-blue-50/80 font-medium'
-                                    : 'bg-blue-950/20 font-medium'
-                                  : isLightMode
-                                  ? 'hover:bg-slate-50'
-                                  : 'hover:bg-slate-800/40'
-                              }`}
-                            >
-                              {/* Name */}
-                              <td className="py-2.5 px-3">
-                                <div className="flex items-center gap-2">
-                                  <Database className={`w-3.5 h-3.5 shrink-0 ${isCurrentContext ? 'text-blue-400' : 'text-slate-400'}`} />
-                                  <span className="font-mono font-bold text-slate-200">
-                                    {db.name}
-                                  </span>
-                                  {isCurrentContext && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                                      {isEn ? 'Active Context' : 'پیش‌فرض'}
-                                    </span>
-                                  )}
-                                  {db.isTemplate && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-slate-500/20 text-slate-400 border border-slate-500/40">
-                                      Template
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-
-                              {/* Owner */}
-                              <td className="py-2.5 px-3 font-mono text-slate-300">
-                                {db.owner}
-                              </td>
-
-                              {/* Size */}
-                              <td className="py-2.5 px-3 font-mono font-bold text-emerald-400 tabular-nums">
-                                {db.sizePretty}
-                              </td>
-
-                              {/* Encoding / Collation */}
-                              <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                                <span>{db.encoding}</span>
-                                {db.collation && (
-                                  <span className="text-slate-500 ml-1">
-                                    ({db.collation})
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Active Connections */}
-                              <td className="py-2.5 px-3 font-mono tabular-nums">
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
-                                    db.activeConnections > 0
-                                      ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
-                                      : 'text-slate-500'
-                                  }`}
-                                >
-                                  {db.activeConnections > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
-                                  <span>{db.activeConnections}</span>
-                                </span>
-                              </td>
-
-                              {/* Tablespace */}
-                              <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                                {db.tablespace}
-                              </td>
-
-                              {/* State */}
-                              <td className="py-2.5 px-3 text-right">
-                                {db.allowConnections ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                    <span>{isEn ? 'Accepting' : 'مجاز'}</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[11px] text-rose-400 font-medium">
-                                    <X className="w-3 h-3 text-rose-400" />
-                                    <span>{isEn ? 'Locked' : 'مسدود'}</span>
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <PostgresDatabaseLifecycleTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onRefreshOverview={handleFetchOverview}
+              onOpenBrowserWithContext={(db, schema) => {
+                setActiveTab('browser');
+              }}
+            />
           )}
 
           {/* TAB 3: CONNECTION & SECURITY */}

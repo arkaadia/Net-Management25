@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.192.0';
+export const APP_VERSION = '1.193.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.193.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۲ مدیریت PostgreSQL: مدیریت چرخه حیات دیتابیس‌ها و اسکیماها (Database & Schema Management)',
+    title_en: 'PostgreSQL Management Phase 12: Complete Database & Schema Lifecycle Management (Create, Alter, Drop, Collation, Force Disconnect & Schema Explorer)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۲ نقشه راه مدیریت PostgreSQL برای مدیریت و پیکربندی کامل چرخه حیات پایگاه‌های داده و اسکیماها (Database & Schema Lifecycle Management).',
+      'بخش تعاملی ساخت دیتابیس جدید (Create Database): نام‌گذاری اعتبارسنجی‌شده، انتخاب مالک دیتابیس (Owner)، قالب پایه (Template مانند template0/template1)، نوع انکودینگ (UTF8، LATIN1، SQL_ASCII و غیره)، کلاشن (LC_COLLATE)، Ctype (LC_CTYPE)، سقف اتصالات همزمان (Connection Limit) و تیبل‌اسپیس اختصاصی.',
+      'مدیریت و ویرایش مشخصات دیتابیس (Alter / Update Database): تغییر نام دیتابیس (RENAME DATABASE)، تغییر مالکیت (OWNER TO)، تنظیم محدودیت اتصال، و پیش‌نمایش بلادرنگ کوئری‌های SQL تولیدی.',
+      'حذف ایمن و قطعی دیتابیس (Drop Database): مودال تایید دو مرحله‌ای با الزام تایپ نام دیتابیس، تشخیص دیتابیس پیش‌فرض جاری، و گزینه قطع اجباری تمامی اتصالات فعال (WITH FORCE) برای حذف بدون خطای قفل و اتصال باز.',
+      'کاوشگر و مدیریت کامل اسکیماها (PostgreSQL Schema Lifecycle): امکان انتخاب هر دیتابیس و مدیریت لیست اسکیماهای درون آن به همراه محاسبه اندازه فیزیکی، تعداد جداول، نماها و روال‌ها/توابع.',
+      'ایجاد اسکیمای جدید (Create Schema): فرم ایجاد اسکیما با تعریف مالک و مجوزهای اولیه.',
+      'ویرایش و حذف اسکیماها (Alter & Drop Schema): امکان تغییر نام اسکیما، تغییر مالکیت، و حذف با گزینه‌های RESTRICT یا CASCADE جهت مدیریت وابستگی‌های اشیاء.',
+      'پیش‌نمایش زنده SQL برای تمامی عملیات قبل از ارسال به موتور PostgreSQL جهت شفافیت و نظارت مهندسی کامل.',
+      'رعایت کامل الزامات دو زبانه (انگلیسی و فارسی بدون تداخل متنی)، تم تیره و روشن، و راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 12: Complete Database & Schema Lifecycle Management (Create, Alter, Drop, Collation & Schema Explorer).',
+      'Interactive Create Database Dialog: validated database naming, role owner selection, template inheritance (template0/template1), character encoding (UTF8, LATIN1, SQL_ASCII, etc.), LC_COLLATE and LC_CTYPE collation configuration, connection limits, and custom tablespaces.',
+      'Alter Database Management: rename databases safely, reassign ownership (OWNER TO), adjust concurrent connection limits, and review generated SQL statements before execution.',
+      'Safe Drop Database Workflow: two-step confirmation dialog requiring explicit database name input, active session detection, and FORCE disconnect option (WITH FORCE) to terminate active connections prior to dropping.',
+      'Integrated Schema Explorer & Management: inspect schemas per database with physical size breakdown, table counts, view counts, routine counts, and owner attributes.',
+      'Create Schema Workflow: visual creation dialog with authorization/owner assignment and safe schema identifier validation.',
+      'Alter & Drop Schema Operations: schema renaming, owner reassignment, and safe dropping with RESTRICT or CASCADE dependency controls.',
+      'Live SQL statement preview for all DDL operations before execution on the PostgreSQL server.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.192.0',
     releaseDate: '2026-09-26',

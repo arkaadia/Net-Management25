@@ -2134,6 +2134,98 @@ export interface PostgresApplyPermissionsResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 12: Database & Schema Lifecycle Management
+// ==========================================
+
+export interface PostgresCreateDatabaseRequest {
+  name: string;
+  owner?: string;
+  template?: string;
+  encoding?: string;
+  lcCollate?: string;
+  lcCtype?: string;
+  tablespace?: string;
+  connectionLimit?: number;
+  isTemplate?: boolean;
+  allowConnections?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresUpdateDatabaseRequest {
+  name: string;
+  newName?: string;
+  owner?: string;
+  connectionLimit?: number;
+  allowConnections?: boolean;
+  isTemplate?: boolean;
+  tablespace?: string;
+  comment?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresDropDatabaseRequest {
+  name: string;
+  forceWithDisconnect?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresCreateSchemaRequest {
+  database: string;
+  name: string;
+  owner?: string;
+  comment?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresUpdateSchemaRequest {
+  database: string;
+  name: string;
+  newName?: string;
+  owner?: string;
+  comment?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresDropSchemaRequest {
+  database: string;
+  name: string;
+  cascade?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresSchemaItem {
+  name: string;
+  owner: string;
+  tableCount: number;
+  viewCount: number;
+  routineCount: number;
+  sizePretty: string;
+  comment: string | null;
+}
+
+export interface PostgresDbLifecycleResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  databaseName?: string;
+  schemaName?: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

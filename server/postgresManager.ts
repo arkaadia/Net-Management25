@@ -3910,5 +3910,665 @@ export async function applyPostgresPermissions(
   }
 }
 
+// ==========================================
+// Phase 12: Database & Schema Lifecycle Operations
+// ==========================================
+
+/**
+ * Creates a new PostgreSQL Database with customized encoding, collation, owner, template, and tablespace.
+ * NOTE: CREATE DATABASE cannot run inside a transaction block in PostgreSQL.
+ */
+export async function createPostgresDatabase(
+  server: RemoteServer,
+  req: {
+    name: string;
+    owner?: string;
+    template?: string;
+    encoding?: string;
+    lcCollate?: string;
+    lcCtype?: string;
+    tablespace?: string;
+    connectionLimit?: number;
+    isTemplate?: boolean;
+    allowConnections?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const dbName = req.name?.trim();
+  if (!dbName) {
+    return {
+      success: false,
+      message: 'Database name is required.',
+      messageFa: 'نام پایگاه داده الزامی است.',
+      error: 'Missing database name',
+    };
+  }
+
+  try {
+    const quotedDb = sanitizeIdentifier(dbName);
+    const clauses: string[] = [];
+
+    if (req.owner && req.owner.trim()) {
+      clauses.push(`OWNER = ${sanitizeIdentifier(req.owner.trim())}`);
+    }
+    if (req.template && req.template.trim()) {
+      clauses.push(`TEMPLATE = ${sanitizeIdentifier(req.template.trim())}`);
+    }
+    if (req.encoding && req.encoding.trim()) {
+      const enc = req.encoding.trim().replace(/'/g, "''");
+      clauses.push(`ENCODING = '${enc}'`);
+    }
+    if (req.lcCollate && req.lcCollate.trim()) {
+      const col = req.lcCollate.trim().replace(/'/g, "''");
+      clauses.push(`LC_COLLATE = '${col}'`);
+    }
+    if (req.lcCtype && req.lcCtype.trim()) {
+      const ctype = req.lcCtype.trim().replace(/'/g, "''");
+      clauses.push(`LC_CTYPE = '${ctype}'`);
+    }
+    if (req.tablespace && req.tablespace.trim()) {
+      clauses.push(`TABLESPACE = ${sanitizeIdentifier(req.tablespace.trim())}`);
+    }
+    if (req.connectionLimit !== undefined && !isNaN(Number(req.connectionLimit))) {
+      clauses.push(`CONNECTION LIMIT = ${Number(req.connectionLimit)}`);
+    }
+    if (req.isTemplate !== undefined) {
+      clauses.push(`IS_TEMPLATE = ${req.isTemplate ? 'TRUE' : 'FALSE'}`);
+    }
+    if (req.allowConnections !== undefined) {
+      clauses.push(`ALLOW_CONNECTIONS = ${req.allowConnections ? 'TRUE' : 'FALSE'}`);
+    }
+
+    const sqlWith = clauses.length > 0 ? ` WITH ${clauses.join(' ')}` : '';
+    const sql = `CREATE DATABASE ${quotedDb}${sqlWith};`;
+
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Database "${dbName}" created successfully.`,
+      messageFa: `پایگاه داده "${dbName}" با موفقیت ایجاد گردید.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to create database "${dbName}".`,
+      messageFa: `خطا در ایجاد پایگاه داده "${dbName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Updates properties of an existing PostgreSQL Database (Rename, Owner, Connection Limit, Template status, Comment).
+ */
+export async function updatePostgresDatabase(
+  server: RemoteServer,
+  req: {
+    name: string;
+    newName?: string;
+    owner?: string;
+    connectionLimit?: number;
+    allowConnections?: boolean;
+    isTemplate?: boolean;
+    tablespace?: string;
+    comment?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const dbName = req.name?.trim();
+  if (!dbName) {
+    return {
+      success: false,
+      message: 'Database name is required.',
+      messageFa: 'نام پایگاه داده الزامی است.',
+      error: 'Missing database name',
+    };
+  }
+
+  try {
+    let currentQuoted = sanitizeIdentifier(dbName);
+    await client.connect();
+
+    // 1. Rename if requested
+    if (req.newName && req.newName.trim() && req.newName.trim() !== dbName) {
+      const newQuoted = sanitizeIdentifier(req.newName.trim());
+      await client.query(`ALTER DATABASE ${currentQuoted} RENAME TO ${newQuoted};`);
+      currentQuoted = newQuoted;
+    }
+
+    // 2. Change Owner
+    if (req.owner && req.owner.trim()) {
+      const ownerQuoted = sanitizeIdentifier(req.owner.trim());
+      await client.query(`ALTER DATABASE ${currentQuoted} OWNER TO ${ownerQuoted};`);
+    }
+
+    // 3. Connection Limit
+    if (req.connectionLimit !== undefined && !isNaN(Number(req.connectionLimit))) {
+      await client.query(`ALTER DATABASE ${currentQuoted} CONNECTION LIMIT ${Number(req.connectionLimit)};`);
+    }
+
+    // 4. Allow Connections
+    if (req.allowConnections !== undefined) {
+      await client.query(`ALTER DATABASE ${currentQuoted} ALLOW_CONNECTIONS ${req.allowConnections ? 'TRUE' : 'FALSE'};`);
+    }
+
+    // 5. Is Template
+    if (req.isTemplate !== undefined) {
+      await client.query(`ALTER DATABASE ${currentQuoted} IS_TEMPLATE ${req.isTemplate ? 'TRUE' : 'FALSE'};`);
+    }
+
+    // 6. Tablespace
+    if (req.tablespace && req.tablespace.trim()) {
+      const tsQuoted = sanitizeIdentifier(req.tablespace.trim());
+      await client.query(`ALTER DATABASE ${currentQuoted} SET TABLESPACE ${tsQuoted};`);
+    }
+
+    // 7. Comment
+    if (req.comment !== undefined) {
+      const escapedComment = req.comment.replace(/'/g, "''");
+      await client.query(`COMMENT ON DATABASE ${currentQuoted} IS '${escapedComment}';`);
+    }
+
+    await client.end();
+
+    const finalName = req.newName?.trim() || dbName;
+    return {
+      success: true,
+      message: `Database "${finalName}" configuration updated successfully.`,
+      messageFa: `پیکربندی پایگاه داده "${finalName}" با موفقیت به‌روزرسانی شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to update database "${dbName}".`,
+      messageFa: `خطا در ویرایش پایگاه داده "${dbName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Drops an existing database, optionally terminating all active client connections first.
+ */
+export async function dropPostgresDatabase(
+  server: RemoteServer,
+  req: {
+    name: string;
+    forceWithDisconnect?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const dbName = req.name?.trim();
+  if (!dbName) {
+    return {
+      success: false,
+      message: 'Database name is required.',
+      messageFa: 'نام پایگاه داده الزامی است.',
+      error: 'Missing database name',
+    };
+  }
+
+  if (['postgres', 'template0', 'template1'].includes(dbName.toLowerCase())) {
+    return {
+      success: false,
+      message: `System database "${dbName}" cannot be dropped.`,
+      messageFa: `حذف پایگاه داده سیستمی "${dbName}" مجاز نمی‌باشد.`,
+      error: 'Cannot drop system database',
+    };
+  }
+
+  try {
+    const quotedDb = sanitizeIdentifier(dbName);
+    await client.connect();
+
+    if (req.forceWithDisconnect) {
+      await client.query(
+        `SELECT pg_terminate_backend(pid)
+         FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid();`,
+        [dbName]
+      );
+    }
+
+    try {
+      await client.query(`DROP DATABASE ${quotedDb} WITH (FORCE);`);
+    } catch {
+      await client.query(`DROP DATABASE ${quotedDb};`);
+    }
+
+    await client.end();
+
+    return {
+      success: true,
+      message: `Database "${dbName}" has been dropped successfully.`,
+      messageFa: `پایگاه داده "${dbName}" با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to drop database "${dbName}".`,
+      messageFa: `خطا در حذف پایگاه داده "${dbName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Retrieves detailed schemas list inside a specific database with table/view/routine counts and comments.
+ */
+export async function getPostgresSchemas(
+  server: RemoteServer,
+  options: {
+    database: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; schemas?: any[]; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: options.database,
+    port: options.port,
+    user: options.user,
+    password: options.password,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  try {
+    await client.connect();
+
+    const sql = `
+      SELECT 
+        n.nspname as name,
+        pg_catalog.pg_get_userbyid(n.nspowner) as owner,
+        COALESCE(tc.table_count, 0) as table_count,
+        COALESCE(vc.view_count, 0) as view_count,
+        COALESCE(rc.routine_count, 0) as routine_count,
+        d.description as comment
+      FROM pg_catalog.pg_namespace n
+      LEFT JOIN (
+        SELECT schemaname, count(*)::int as table_count 
+        FROM pg_catalog.pg_tables 
+        GROUP BY schemaname
+      ) tc ON tc.schemaname = n.nspname
+      LEFT JOIN (
+        SELECT schemaname, count(*)::int as view_count 
+        FROM pg_catalog.pg_views 
+        GROUP BY schemaname
+      ) vc ON vc.schemaname = n.nspname
+      LEFT JOIN (
+        SELECT routine_schema, count(*)::int as routine_count
+        FROM information_schema.routines
+        GROUP BY routine_schema
+      ) rc ON rc.routine_schema = n.nspname
+      LEFT JOIN pg_catalog.pg_description d ON d.objoid = n.oid AND d.classoid = 'pg_namespace'::regclass
+      WHERE n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'
+      ORDER BY 
+        CASE 
+          WHEN n.nspname = 'public' THEN 0 
+          WHEN n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' THEN 1 
+          ELSE 2 
+        END,
+        n.nspname ASC;
+    `;
+
+    const res = await client.query(sql);
+    await client.end();
+
+    const schemas = (res.rows || []).map((row: any) => ({
+      name: String(row.name),
+      owner: String(row.owner || 'postgres'),
+      tableCount: Number(row.table_count) || 0,
+      viewCount: Number(row.view_count) || 0,
+      routineCount: Number(row.routine_count) || 0,
+      comment: row.comment ? String(row.comment) : null,
+    }));
+
+    return { success: true, schemas };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || 'Failed to list schemas',
+      errorFa: `خطا در دریافت لیست اسکیمای پایگاه داده: ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+/**
+ * Creates a new Schema within a specific database.
+ */
+export async function createPostgresSchema(
+  server: RemoteServer,
+  req: {
+    database: string;
+    name: string;
+    owner?: string;
+    comment?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: req.database,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const schemaName = req.name?.trim();
+  if (!schemaName) {
+    return {
+      success: false,
+      message: 'Schema name is required.',
+      messageFa: 'نام اسکیما الزامی است.',
+      error: 'Missing schema name',
+    };
+  }
+
+  try {
+    const quotedSchema = sanitizeIdentifier(schemaName);
+    let authClause = '';
+    if (req.owner && req.owner.trim()) {
+      authClause = ` AUTHORIZATION ${sanitizeIdentifier(req.owner.trim())}`;
+    }
+
+    const sql = `CREATE SCHEMA ${quotedSchema}${authClause};`;
+
+    await client.connect();
+    await client.query('BEGIN;');
+    await client.query(sql);
+
+    if (req.comment !== undefined) {
+      const escapedComment = req.comment.replace(/'/g, "''");
+      await client.query(`COMMENT ON SCHEMA ${quotedSchema} IS '${escapedComment}';`);
+    }
+
+    await client.query('COMMIT;');
+    await client.end();
+
+    return {
+      success: true,
+      message: `Schema "${schemaName}" created successfully in database "${req.database}".`,
+      messageFa: `اسکیمای "${schemaName}" با موفقیت در دیتابیس "${req.database}" ایجاد شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to create schema "${schemaName}".`,
+      messageFa: `خطا در ایجاد اسکیمای "${schemaName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Updates schema properties (Rename, Owner, Comment).
+ */
+export async function updatePostgresSchema(
+  server: RemoteServer,
+  req: {
+    database: string;
+    name: string;
+    newName?: string;
+    owner?: string;
+    comment?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: req.database,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const schemaName = req.name?.trim();
+  if (!schemaName) {
+    return {
+      success: false,
+      message: 'Schema name is required.',
+      messageFa: 'نام اسکیما الزامی است.',
+      error: 'Missing schema name',
+    };
+  }
+
+  try {
+    let currentQuoted = sanitizeIdentifier(schemaName);
+
+    await client.connect();
+    await client.query('BEGIN;');
+
+    if (req.newName && req.newName.trim() && req.newName.trim() !== schemaName) {
+      const newQuoted = sanitizeIdentifier(req.newName.trim());
+      await client.query(`ALTER SCHEMA ${currentQuoted} RENAME TO ${newQuoted};`);
+      currentQuoted = newQuoted;
+    }
+
+    if (req.owner && req.owner.trim()) {
+      const ownerQuoted = sanitizeIdentifier(req.owner.trim());
+      await client.query(`ALTER SCHEMA ${currentQuoted} OWNER TO ${ownerQuoted};`);
+    }
+
+    if (req.comment !== undefined) {
+      const escapedComment = req.comment.replace(/'/g, "''");
+      await client.query(`COMMENT ON SCHEMA ${currentQuoted} IS '${escapedComment}';`);
+    }
+
+    await client.query('COMMIT;');
+    await client.end();
+
+    const finalName = req.newName?.trim() || schemaName;
+    return {
+      success: true,
+      message: `Schema "${finalName}" updated successfully.`,
+      messageFa: `مشخصات اسکیمای "${finalName}" با موفقیت به‌روزرسانی شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to update schema "${schemaName}".`,
+      messageFa: `خطا در ویرایش اسکیمای "${schemaName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Drops an existing Schema inside a database.
+ */
+export async function dropPostgresSchema(
+  server: RemoteServer,
+  req: {
+    database: string;
+    name: string;
+    cascade?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    database: req.database,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const schemaName = req.name?.trim();
+  if (!schemaName) {
+    return {
+      success: false,
+      message: 'Schema name is required.',
+      messageFa: 'نام اسکیما الزامی است.',
+      error: 'Missing schema name',
+    };
+  }
+
+  if (['pg_catalog', 'information_schema', 'pg_toast'].includes(schemaName.toLowerCase())) {
+    return {
+      success: false,
+      message: `System schema "${schemaName}" cannot be dropped.`,
+      messageFa: `حذف اسکیمای سیستمی "${schemaName}" مجاز نمی‌باشد.`,
+      error: 'Cannot drop system schema',
+    };
+  }
+
+  try {
+    const quotedSchema = sanitizeIdentifier(schemaName);
+    const cascadeClause = req.cascade ? ' CASCADE' : ' RESTRICT';
+    const sql = `DROP SCHEMA ${quotedSchema}${cascadeClause};`;
+
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Schema "${schemaName}" dropped successfully from database "${req.database}".`,
+      messageFa: `اسکیمای "${schemaName}" با موفقیت از دیتابیس "${req.database}" حذف گردید.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to drop schema "${schemaName}".`,
+      messageFa: `خطا در حذف اسکیمای "${schemaName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
 
 

@@ -1400,6 +1400,95 @@ export async function applyRemoteServerPostgresPermissions(
   return res.json();
 }
 
+export async function createRemoteServerPostgresDatabase(
+  id: string,
+  data: import('../types').PostgresCreateDatabaseRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/databases/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresDatabase(
+  id: string,
+  data: import('../types').PostgresUpdateDatabaseRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/databases/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerPostgresDatabase(
+  id: string,
+  data: import('../types').PostgresDropDatabaseRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/databases/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresSchemas(
+  id: string,
+  params: {
+    database: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; schemas?: import('../types').PostgresSchemaItem[]; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/schemas`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerPostgresSchema(
+  id: string,
+  data: import('../types').PostgresCreateSchemaRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/schemas/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresSchema(
+  id: string,
+  data: import('../types').PostgresUpdateSchemaRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/schemas/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerPostgresSchema(
+  id: string,
+  data: import('../types').PostgresDropSchemaRequest
+): Promise<import('../types').PostgresDbLifecycleResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/schemas/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,
