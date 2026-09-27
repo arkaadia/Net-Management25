@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.190.0';
+export const APP_VERSION = '1.191.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.191.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱۰ مدیریت PostgreSQL: بخش بصری و کامل مدیریت کاربران، نقش‌ها، سطوح دسترسی، کلمه عبور و عضویت‌های گروهی (PostgreSQL Users & Roles Management)',
+    title_en: 'PostgreSQL Management Phase 10: Complete Visual Users & Roles Management, Granular Privileges, Secure Passwords & Group Membership',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۰ نقشه راه مدیریت PostgreSQL برای مدیریت و پیکربندی بصری و امن کاربران و نقش‌های سرور پایگاه داده.',
+      'افزودن تب مستقل و تخصصی "کاربران و نقش‌ها" (Users & Roles) در مودال مدیریت PostgreSQL به همراه نوار دسته‌بندی و فیلتر (همه نقش‌ها، کاربران دارای لاگین، گروه‌ها، سوپریوزرها) و فیلد جستجوی زنده.',
+      'جدول جامع مشخصات و ویژگی‌های نقش‌ها: نمایش دقیق وضعیت اجازه لاگین (LOGIN/NOLOGIN)، ادمین کل (SUPERUSER)، ساخت دیتابیس (CREATEDB)، ساخت نقش (CREATEROLE)، رپلیکیشن (REPLICATION)، رد کردن RLS (BYPASSRLS)، سقف تعداد اتصالات همزمان (Connection Limit)، تاریخ و ساعت انقضای حساب کاربری (Valid Until) و توضیحات.',
+      'سامانه بصری ایجاد کاربر و نقش جدید (Create Role / User): فرم پیشرفته ثبت نقش با سوئیچ‌های تفکیک‌شده اختیارات، تعیین محدودیت اتصال، تاریخ انقضا و کلمه عبور رمزنگاری‌شده.',
+      'ویرایش مشخصات و ارتقای سطوح دسترسی (Edit Role Attributes): امکان تغییر زنده تمامی مجوزها و فلگ‌های نقش‌های موجود بدون نیاز به تایپ دستی دستورات ALTER ROLE.',
+      'تغییر امن کلمه عبور نقش‌ها (Change Role Password): اعمال کلمه عبور جدید به صورت مستقیم و تراکنشی روی هسته PostgreSQL بدون هیچ‌گونه نشت، لاگ یا ذخیره‌سازی متن ساده در کلاینت یا سرور.',
+      'مدیریت روابط عضویت گروهی (Group Membership & Role Inheritance): تخصیص عضویت (GRANT) و سلب عضویت (REVOKE) نقش‌ها نسبت به یکدیگر به همراه پشتیبانی از آپشن WITH ADMIN OPTION.',
+      'عملیات حذف ایمن نقش‌ها (Safe Drop Role): مودال تایید حذف با امکان انتقال مالکیت اشیا و جداول باقیمانده به سوپریوزر (REASSIGN OWNED BY) و پاک‌سازی اختیارات (DROP OWNED BY) برای ممانعت از بروز خطای وابستگی در PostgreSQL.',
+      'ثبت خودکار تمامی عملیات ایجاد، ویرایش، حذف، تغییر رمز و عضویت‌ها در سیستم جامع لاگ امنیتی (Structured Audit Log).',
+      'انطباق ۱۰۰٪ با تم‌های تیره و روشن، رعایت کامل زبان انتخابی (فارسی و انگلیسی بدون هیچ‌گونه تداخل متنی) و مجهز بودن به راهنماهای سه‌گانه اینفو (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 10: Complete visual Users & Roles section with full security and privilege control.',
+      'Dedicated "Users & Roles" management tab in the PostgreSQL modal with instant category filters (All Roles, Login Users, Groups without login, Superusers) and live search.',
+      'Comprehensive Roles & Users Matrix: displays LOGIN status, SUPERUSER status, CREATEDB, CREATEROLE, REPLICATION, BYPASSRLS, Connection Limits, Account Expiration (VALID UNTIL), group memberships, and descriptions.',
+      'Interactive Role / User Creator: advanced modal for configuring granular privilege toggles, connection capacity limits, expiration timestamps, and initial encrypted credentials.',
+      'Role Attributes Editor: easily modify existing role privileges and settings with instantaneous ALTER ROLE transaction generation on the backend.',
+      'Secure In-Flight Password Updater: update role credentials directly on PostgreSQL with zero plain-text leakage, avoiding exposure in logs, APIs, or client memory.',
+      'Group Membership & Role Hierarchy Manager: grant and revoke role memberships (GRANT/REVOKE role TO/FROM member) with WITH ADMIN OPTION delegation support.',
+      'Dependency-Aware Safe Role Drop: pre-drop handling with automatic REASSIGN OWNED BY and DROP OWNED BY to prevent foreign dependency lockouts in PostgreSQL.',
+      'Structured Security Audit Logging: automatic logging of all role creations, edits, password updates, and drops in the central audit system.',
+      'Strict bilingual localization (English / Persian), theme contrast adaptability (Dark & Light modes), and boundary-safe 3-part FieldInfoTooltip guidance.'
+    ]
+  },
   {
     version: '1.190.0',
     releaseDate: '2026-09-26',

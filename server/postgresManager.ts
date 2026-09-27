@@ -93,6 +93,9 @@ export interface PostgresRoleItem {
   bypassRls: boolean;
   connectionLimit: number;
   validUntil: string | null;
+  memberOf?: string[];
+  members?: string[];
+  comment?: string | null;
 }
 
 export interface PostgresTableItem {
@@ -886,8 +889,10 @@ export async function getPostgresRoles(
           r.rolreplication as replication,
           COALESCE(r.rolbypassrls, false) as bypass_rls,
           r.rolconnlimit as connection_limit,
-          r.rolvaliduntil::text as valid_until
+          r.rolvaliduntil::text as valid_until,
+          d.description as comment
         FROM pg_catalog.pg_roles r
+        LEFT JOIN pg_catalog.pg_shdescription d ON d.objoid = r.oid AND d.classoid = 'pg_authid'::regclass
         ORDER BY r.rolsuper DESC, r.rolcanlogin DESC, r.rolname ASC;
       `);
     } catch {
@@ -902,25 +907,65 @@ export async function getPostgresRoles(
           r.rolreplication as replication,
           false as bypass_rls,
           r.rolconnlimit as connection_limit,
-          r.rolvaliduntil::text as valid_until
+          r.rolvaliduntil::text as valid_until,
+          d.description as comment
         FROM pg_catalog.pg_roles r
+        LEFT JOIN pg_catalog.pg_shdescription d ON d.objoid = r.oid AND d.classoid = 'pg_authid'::regclass
         ORDER BY r.rolsuper DESC, r.rolcanlogin DESC, r.rolname ASC;
       `);
     }
 
+    // Retrieve role memberships
+    let membershipMap: Record<string, { memberOf: string[]; members: string[] }> = {};
+    try {
+      const memRes = await client.query(`
+        SELECT 
+          r_group.rolname as group_role,
+          r_member.rolname as member_role,
+          m.admin_option
+        FROM pg_catalog.pg_auth_members m
+        JOIN pg_catalog.pg_roles r_group ON m.roleid = r_group.oid
+        JOIN pg_catalog.pg_roles r_member ON m.member = r_member.oid;
+      `);
+
+      for (const row of memRes.rows || []) {
+        const groupRole = String(row.group_role);
+        const memberRole = String(row.member_role);
+
+        if (!membershipMap[memberRole]) {
+          membershipMap[memberRole] = { memberOf: [], members: [] };
+        }
+        if (!membershipMap[groupRole]) {
+          membershipMap[groupRole] = { memberOf: [], members: [] };
+        }
+
+        membershipMap[memberRole].memberOf.push(groupRole);
+        membershipMap[groupRole].members.push(memberRole);
+      }
+    } catch {
+      // Ignore if auth_members not accessible
+    }
+
     await client.end();
 
-    const roles: PostgresRoleItem[] = (res.rows || []).map((row: any) => ({
-      rolname: String(row.rolname),
-      isSuperuser: Boolean(row.is_superuser),
-      canLogin: Boolean(row.can_login),
-      createDb: Boolean(row.create_db),
-      createRole: Boolean(row.create_role),
-      replication: Boolean(row.replication),
-      bypassRls: Boolean(row.bypass_rls),
-      connectionLimit: Number(row.connection_limit),
-      validUntil: row.valid_until ? String(row.valid_until) : null,
-    }));
+    const roles: PostgresRoleItem[] = (res.rows || []).map((row: any) => {
+      const name = String(row.rolname);
+      const mem = membershipMap[name] || { memberOf: [], members: [] };
+      return {
+        rolname: name,
+        isSuperuser: Boolean(row.is_superuser),
+        canLogin: Boolean(row.can_login),
+        createDb: Boolean(row.create_db),
+        createRole: Boolean(row.create_role),
+        replication: Boolean(row.replication),
+        bypassRls: Boolean(row.bypass_rls),
+        connectionLimit: Number(row.connection_limit),
+        validUntil: row.valid_until ? String(row.valid_until) : null,
+        comment: row.comment ? String(row.comment) : null,
+        memberOf: mem.memberOf,
+        members: mem.members,
+      };
+    });
 
     return { success: true, roles };
   } catch (err: any) {
@@ -3002,6 +3047,482 @@ export async function executePostgresQuery(
     try {
       await client.end();
     } catch {}
+  }
+}
+
+// ==========================================
+// Phase 10: Role & User Management Functions
+// ==========================================
+
+function sanitizeIdentifier(ident: string): string {
+  const clean = ident.trim();
+  if (!clean || !/^[a-zA-Z_][a-zA-Z0-9_$]*$/.test(clean)) {
+    throw new Error(`Invalid PostgreSQL identifier: "${ident}"`);
+  }
+  return `"${clean.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Creates a new PostgreSQL user or role with specified privileges.
+ */
+export async function createPostgresRole(
+  server: RemoteServer,
+  req: {
+    rolname: string;
+    canLogin: boolean;
+    isSuperuser?: boolean;
+    createDb?: boolean;
+    createRole?: boolean;
+    replication?: boolean;
+    bypassRls?: boolean;
+    connectionLimit?: number;
+    validUntil?: string | null;
+    password?: string;
+    memberOf?: string[];
+    comment?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const roleName = req.rolname?.trim();
+  if (!roleName) {
+    return {
+      success: false,
+      message: 'Role/User name is required.',
+      messageFa: 'نام نقش یا کاربر الزامی است.',
+      error: 'Missing role name',
+    };
+  }
+
+  try {
+    const quotedRole = sanitizeIdentifier(roleName);
+    const clauses: string[] = [];
+
+    clauses.push(req.canLogin ? 'LOGIN' : 'NOLOGIN');
+    clauses.push(req.isSuperuser ? 'SUPERUSER' : 'NOSUPERUSER');
+    clauses.push(req.createDb ? 'CREATEDB' : 'NOCREATEDB');
+    clauses.push(req.createRole ? 'CREATEROLE' : 'NOCREATEROLE');
+    clauses.push(req.replication ? 'REPLICATION' : 'NOREPLICATION');
+    clauses.push(req.bypassRls ? 'BYPASSRLS' : 'NOBYPASSRLS');
+
+    if (req.connectionLimit !== undefined && !isNaN(Number(req.connectionLimit))) {
+      clauses.push(`CONNECTION LIMIT ${Number(req.connectionLimit)}`);
+    }
+
+    if (req.validUntil && req.validUntil.trim()) {
+      const escapedUntil = req.validUntil.trim().replace(/'/g, "''");
+      clauses.push(`VALID UNTIL '${escapedUntil}'`);
+    } else if (req.validUntil === null) {
+      clauses.push(`VALID UNTIL 'infinity'`);
+    }
+
+    if (req.password) {
+      const escapedPass = req.password.replace(/'/g, "''");
+      clauses.push(`PASSWORD '${escapedPass}'`);
+    }
+
+    if (req.memberOf && Array.isArray(req.memberOf) && req.memberOf.length > 0) {
+      const validGroups = req.memberOf.map((g) => sanitizeIdentifier(g)).join(', ');
+      clauses.push(`IN ROLE ${validGroups}`);
+    }
+
+    const sql = `CREATE ROLE ${quotedRole} ${clauses.join(' ')};`;
+
+    await client.connect();
+    await client.query('BEGIN;');
+    await client.query(sql);
+
+    if (req.comment !== undefined) {
+      const escapedComment = req.comment.replace(/'/g, "''");
+      await client.query(`COMMENT ON ROLE ${quotedRole} IS '${escapedComment}';`);
+    }
+
+    await client.query('COMMIT;');
+    await client.end();
+
+    return {
+      success: true,
+      message: `Role "${roleName}" created successfully.`,
+      messageFa: `نقش یا کاربر "${roleName}" با موفقیت ایجاد گردید.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to create role "${roleName}".`,
+      messageFa: `خطا در ایجاد نقش یا کاربر "${roleName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Updates privileges, limits, and settings of an existing role.
+ */
+export async function updatePostgresRole(
+  server: RemoteServer,
+  req: {
+    rolname: string;
+    canLogin?: boolean;
+    isSuperuser?: boolean;
+    createDb?: boolean;
+    createRole?: boolean;
+    replication?: boolean;
+    bypassRls?: boolean;
+    connectionLimit?: number;
+    validUntil?: string | null;
+    comment?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const roleName = req.rolname?.trim();
+  if (!roleName) {
+    return {
+      success: false,
+      message: 'Role name is required.',
+      messageFa: 'نام نقش الزامی است.',
+      error: 'Missing role name',
+    };
+  }
+
+  try {
+    const quotedRole = sanitizeIdentifier(roleName);
+    const clauses: string[] = [];
+
+    if (req.canLogin !== undefined) clauses.push(req.canLogin ? 'LOGIN' : 'NOLOGIN');
+    if (req.isSuperuser !== undefined) clauses.push(req.isSuperuser ? 'SUPERUSER' : 'NOSUPERUSER');
+    if (req.createDb !== undefined) clauses.push(req.createDb ? 'CREATEDB' : 'NOCREATEDB');
+    if (req.createRole !== undefined) clauses.push(req.createRole ? 'CREATEROLE' : 'NOCREATEROLE');
+    if (req.replication !== undefined) clauses.push(req.replication ? 'REPLICATION' : 'NOREPLICATION');
+    if (req.bypassRls !== undefined) clauses.push(req.bypassRls ? 'BYPASSRLS' : 'NOBYPASSRLS');
+
+    if (req.connectionLimit !== undefined && !isNaN(Number(req.connectionLimit))) {
+      clauses.push(`CONNECTION LIMIT ${Number(req.connectionLimit)}`);
+    }
+
+    if (req.validUntil !== undefined) {
+      if (req.validUntil && req.validUntil.trim()) {
+        const escapedUntil = req.validUntil.trim().replace(/'/g, "''");
+        clauses.push(`VALID UNTIL '${escapedUntil}'`);
+      } else {
+        clauses.push(`VALID UNTIL 'infinity'`);
+      }
+    }
+
+    await client.connect();
+    await client.query('BEGIN;');
+
+    if (clauses.length > 0) {
+      const sql = `ALTER ROLE ${quotedRole} ${clauses.join(' ')};`;
+      await client.query(sql);
+    }
+
+    if (req.comment !== undefined) {
+      const escapedComment = req.comment.replace(/'/g, "''");
+      await client.query(`COMMENT ON ROLE ${quotedRole} IS '${escapedComment}';`);
+    }
+
+    await client.query('COMMIT;');
+    await client.end();
+
+    return {
+      success: true,
+      message: `Role "${roleName}" updated successfully.`,
+      messageFa: `مشخصات نقش "${roleName}" با موفقیت به‌روزرسانی شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to update role "${roleName}".`,
+      messageFa: `خطا در به‌روزرسانی نقش "${roleName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Changes a role's password securely on the database backend without logging or client leaks.
+ */
+export async function changePostgresRolePassword(
+  server: RemoteServer,
+  req: {
+    rolname: string;
+    newPassword: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const roleName = req.rolname?.trim();
+  if (!roleName) {
+    return {
+      success: false,
+      message: 'Role name is required.',
+      messageFa: 'نام نقش الزامی است.',
+      error: 'Missing role name',
+    };
+  }
+
+  if (typeof req.newPassword !== 'string' || req.newPassword.length === 0) {
+    return {
+      success: false,
+      message: 'New password cannot be empty.',
+      messageFa: 'کلمه عبور جدید نمی‌تواند خالی باشد.',
+      error: 'Empty password',
+    };
+  }
+
+  try {
+    const quotedRole = sanitizeIdentifier(roleName);
+    const escapedPass = req.newPassword.replace(/'/g, "''");
+    const sql = `ALTER ROLE ${quotedRole} WITH PASSWORD '${escapedPass}';`;
+
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    return {
+      success: true,
+      message: `Password for "${roleName}" changed successfully.`,
+      messageFa: `کلمه عبور نقش "${roleName}" با موفقیت تغییر یافت.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to change password for "${roleName}".`,
+      messageFa: `خطا در تغییر کلمه عبور نقش "${roleName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Grants or revokes role membership (e.g. GRANT group_role TO user_role).
+ */
+export async function managePostgresRoleMembership(
+  server: RemoteServer,
+  req: {
+    roleName: string;
+    memberRole: string;
+    action: 'grant' | 'revoke';
+    adminOption?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const roleName = req.roleName?.trim();
+  const memberRole = req.memberRole?.trim();
+
+  if (!roleName || !memberRole) {
+    return {
+      success: false,
+      message: 'Both parent role and member role are required.',
+      messageFa: 'هم نام نقش والد و هم نقش عضو الزامی هستند.',
+      error: 'Missing role names',
+    };
+  }
+
+  try {
+    const quotedParent = sanitizeIdentifier(roleName);
+    const quotedMember = sanitizeIdentifier(memberRole);
+
+    let sql = '';
+    if (req.action === 'grant') {
+      const adminOpt = req.adminOption ? ' WITH ADMIN OPTION' : '';
+      sql = `GRANT ${quotedParent} TO ${quotedMember}${adminOpt};`;
+    } else {
+      sql = `REVOKE ${quotedParent} FROM ${quotedMember};`;
+    }
+
+    await client.connect();
+    await client.query(sql);
+    await client.end();
+
+    const actionText = req.action === 'grant' ? 'granted to' : 'revoked from';
+    const actionTextFa = req.action === 'grant' ? 'اختصاص یافت به' : 'سلب گردید از';
+
+    return {
+      success: true,
+      message: `Role "${roleName}" successfully ${actionText} "${memberRole}".`,
+      messageFa: `عضویت در نقش "${roleName}" با موفقیت ${actionTextFa} "${memberRole}".`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to ${req.action} role membership.`,
+      messageFa: `خطا در ویرایش عضویت نقش.`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
+  }
+}
+
+/**
+ * Safely drops a role with pre-drop owned object handling (REASSIGN OWNED or DROP OWNED).
+ */
+export async function dropPostgresRole(
+  server: RemoteServer,
+  req: {
+    rolname: string;
+    reassignOwnedTo?: string;
+    dropOwned?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, {
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      message: 'Server host or IP address is missing.',
+      messageFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+      error: 'Missing host',
+    };
+  }
+
+  const roleName = req.rolname?.trim();
+  if (!roleName) {
+    return {
+      success: false,
+      message: 'Role name is required.',
+      messageFa: 'نام نقش الزامی است.',
+      error: 'Missing role name',
+    };
+  }
+
+  try {
+    const quotedRole = sanitizeIdentifier(roleName);
+
+    await client.connect();
+    await client.query('BEGIN;');
+
+    if (req.reassignOwnedTo && req.reassignOwnedTo.trim()) {
+      const quotedTarget = sanitizeIdentifier(req.reassignOwnedTo.trim());
+      await client.query(`REASSIGN OWNED BY ${quotedRole} TO ${quotedTarget};`);
+    }
+
+    if (req.dropOwned) {
+      await client.query(`DROP OWNED BY ${quotedRole};`);
+    }
+
+    await client.query(`DROP ROLE ${quotedRole};`);
+    await client.query('COMMIT;');
+    await client.end();
+
+    return {
+      success: true,
+      message: `Role "${roleName}" has been dropped successfully.`,
+      messageFa: `نقش یا کاربر "${roleName}" با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch {}
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Failed to drop role "${roleName}".`,
+      messageFa: `خطا در حذف نقش "${roleName}".`,
+      error: err.message || 'Unknown error',
+      errorFa: `خطای پایگاه داده: ${err.message || 'خطای ناشناخته'}`,
+    };
   }
 }
 

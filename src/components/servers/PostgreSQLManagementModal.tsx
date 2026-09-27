@@ -28,6 +28,7 @@ import {
   Radio,
   Sliders,
   ChevronRight,
+  Users,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -44,6 +45,7 @@ import {
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
 import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
+import { PostgresRolesManagerTab } from './PostgresRolesManagerTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -56,7 +58,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'overview' | 'databases' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'overview' | 'databases' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -405,6 +407,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               <span>{isEn ? 'SQL Editor' : 'ادیتور SQL'}</span>
             </button>
 
+            {/* TAB: USERS & ROLES MANAGEMENT (Phase 10) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('roles')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'roles'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Users & Roles' : 'کاربران و نقش‌ها'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('overview')}
@@ -495,6 +513,16 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               initialQuery={sqlEditorInitialQuery}
               isLightMode={isLightMode}
               isEn={isEn}
+            />
+          )}
+
+          {/* TAB 1.5: USERS & ROLES MANAGEMENT (Phase 10) */}
+          {activeTab === 'roles' && (
+            <PostgresRolesManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onRefreshOverview={handleFetchOverview}
             />
           )}
 

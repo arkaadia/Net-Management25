@@ -71,6 +71,11 @@ import {
   deletePostgresTableRow,
   executePostgresQuery,
   analyzePostgresSqlSafety,
+  createPostgresRole,
+  updatePostgresRole,
+  changePostgresRolePassword,
+  managePostgresRoleMembership,
+  dropPostgresRole,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1471,6 +1476,292 @@ const handlePostgresRoles = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/postgres/roles', handlePostgresRoles);
 apiRouter.post('/remote-servers/:id/postgres/roles', handlePostgresRoles);
+
+// POST /api/remote-servers/:id/postgres/roles/create - Create PostgreSQL Role / User
+apiRouter.post('/remote-servers/:id/postgres/roles/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      rolname,
+      canLogin,
+      isSuperuser,
+      createDb,
+      createRole,
+      replication,
+      bypassRls,
+      connectionLimit,
+      validUntil,
+      password,
+      memberOf,
+      comment,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    const result = await createPostgresRole(server, {
+      rolname,
+      canLogin: Boolean(canLogin),
+      isSuperuser: Boolean(isSuperuser),
+      createDb: Boolean(createDb),
+      createRole: Boolean(createRole),
+      replication: Boolean(replication),
+      bypassRls: Boolean(bypassRls),
+      connectionLimit: connectionLimit !== undefined ? Number(connectionLimit) : undefined,
+      validUntil,
+      password,
+      memberOf,
+      comment,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Create Role',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Created PostgreSQL role "${rolname}" (login: ${Boolean(canLogin)}, superuser: ${Boolean(isSuperuser)})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create role',
+      errorFa: 'خطا در ایجاد نقش در پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/roles/update - Update PostgreSQL Role Attributes
+apiRouter.post('/remote-servers/:id/postgres/roles/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      rolname,
+      canLogin,
+      isSuperuser,
+      createDb,
+      createRole,
+      replication,
+      bypassRls,
+      connectionLimit,
+      validUntil,
+      comment,
+      port,
+      user,
+      sessionPassword,
+    } = req.body || {};
+
+    const result = await updatePostgresRole(server, {
+      rolname,
+      canLogin,
+      isSuperuser,
+      createDb,
+      createRole,
+      replication,
+      bypassRls,
+      connectionLimit: connectionLimit !== undefined ? Number(connectionLimit) : undefined,
+      validUntil,
+      comment,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Update Role',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Updated PostgreSQL role "${rolname}" attributes`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update role',
+      errorFa: 'خطا در به‌روزرسانی مشخصات نقش در پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/roles/password - Change PostgreSQL Role Password
+apiRouter.post('/remote-servers/:id/postgres/roles/password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { rolname, newPassword, port, user, sessionPassword } = req.body || {};
+
+    const result = await changePostgresRolePassword(server, {
+      rolname,
+      newPassword,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Change Password',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Changed password for PostgreSQL role "${rolname}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to change role password',
+      errorFa: 'خطا در تغییر کلمه عبور نقش',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/roles/membership - Grant or Revoke Role Membership
+apiRouter.post('/remote-servers/:id/postgres/roles/membership', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { roleName, memberRole, action, adminOption, port, user, sessionPassword } = req.body || {};
+
+    const result = await managePostgresRoleMembership(server, {
+      roleName,
+      memberRole,
+      action: action === 'revoke' ? 'revoke' : 'grant',
+      adminOption: Boolean(adminOption),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Role Membership',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `${action === 'revoke' ? 'Revoked' : 'Granted'} membership of role "${roleName}" to/from "${memberRole}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update role membership',
+      errorFa: 'خطا در ویرایش عضویت نقش',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/roles/drop - Drop PostgreSQL Role
+apiRouter.post('/remote-servers/:id/postgres/roles/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { rolname, reassignOwnedTo, dropOwned, port, user, sessionPassword } = req.body || {};
+
+    const result = await dropPostgresRole(server, {
+      rolname,
+      reassignOwnedTo,
+      dropOwned: Boolean(dropOwned),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Drop Role',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Dropped PostgreSQL role "${rolname}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to drop role',
+      errorFa: 'خطا در حذف نقش پایگاه داده',
+    });
+  }
+});
 
 // GET & POST /api/remote-servers/:id/postgres/database-tree - Lazy-load database structural object tree
 const handlePostgresDatabaseTree = async (req: Request, res: Response) => {

@@ -1303,6 +1303,66 @@ export async function fetchRemoteServerPostgresRoles(
   return res.json();
 }
 
+export async function createRemoteServerPostgresRole(
+  id: string,
+  data: import('../types').PostgresRoleCreateRequest
+): Promise<import('../types').PostgresRoleOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresRole(
+  id: string,
+  data: import('../types').PostgresRoleUpdateRequest
+): Promise<import('../types').PostgresRoleOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function changeRemoteServerPostgresRolePassword(
+  id: string,
+  data: import('../types').PostgresRolePasswordChangeRequest
+): Promise<import('../types').PostgresRoleOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function manageRemoteServerPostgresRoleMembership(
+  id: string,
+  data: import('../types').PostgresRoleMembershipRequest
+): Promise<import('../types').PostgresRoleOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles/membership`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerPostgresRole(
+  id: string,
+  data: import('../types').PostgresRoleDropRequest
+): Promise<import('../types').PostgresRoleOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

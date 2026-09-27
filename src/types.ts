@@ -1513,6 +1513,9 @@ export interface PostgresRoleItem {
   bypassRls: boolean;
   connectionLimit: number;
   validUntil: string | null;
+  memberOf?: string[];
+  members?: string[];
+  comment?: string | null;
 }
 
 export interface PostgresTableItem {
@@ -1982,6 +1985,81 @@ export interface PostgresQueryHistoryItem {
   classificationType?: PostgresSqlClassificationType;
   riskLevel?: PostgresSqlRiskLevel;
   errorMessage?: string;
+}
+
+// ==========================================
+// Phase 10: PostgreSQL Users & Roles Management
+// ==========================================
+
+export interface PostgresRoleCreateRequest {
+  rolname: string;
+  canLogin: boolean;
+  isSuperuser?: boolean;
+  createDb?: boolean;
+  createRole?: boolean;
+  replication?: boolean;
+  bypassRls?: boolean;
+  connectionLimit?: number;
+  validUntil?: string | null;
+  password?: string;
+  memberOf?: string[];
+  comment?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRoleUpdateRequest {
+  rolname: string;
+  canLogin?: boolean;
+  isSuperuser?: boolean;
+  createDb?: boolean;
+  createRole?: boolean;
+  replication?: boolean;
+  bypassRls?: boolean;
+  connectionLimit?: number;
+  validUntil?: string | null;
+  comment?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRolePasswordChangeRequest {
+  rolname: string;
+  newPassword: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRoleMembershipRequest {
+  roleName: string;
+  memberRole: string;
+  action: 'grant' | 'revoke';
+  adminOption?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRoleDropRequest {
+  rolname: string;
+  reassignOwnedTo?: string;
+  dropOwned?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresRoleOperationResult {
+  success: boolean;
+  operation: 'create' | 'update' | 'password' | 'membership' | 'drop';
+  message: string;
+  messageFa: string;
+  roleName?: string;
+  error?: string;
+  errorFa?: string;
 }
 
 export interface NginxInstanceInfo {
