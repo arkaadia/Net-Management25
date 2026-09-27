@@ -2400,6 +2400,102 @@ export interface PostgresHealthAuditReport {
   items: PostgresHealthCheckItem[];
 }
 
+// ============================================================================
+// PHASE 16: pg_hba.conf / Client Authentication Management
+// ============================================================================
+
+export type PostgresHbaType = 'local' | 'host' | 'hostssl' | 'hostnossl' | 'hostgssenc' | 'hostnogssenc';
+
+export type PostgresHbaAuthMethod =
+  | 'scram-sha-256'
+  | 'md5'
+  | 'trust'
+  | 'reject'
+  | 'password'
+  | 'peer'
+  | 'cert'
+  | 'gss'
+  | 'sspi'
+  | 'pam'
+  | 'ldap'
+  | 'radius';
+
+export interface PostgresHbaRule {
+  id: string;
+  lineNumber: number;
+  rawLine: string;
+  type: PostgresHbaType;
+  database: string;
+  databaseList: string[];
+  user: string;
+  userList: string[];
+  address?: string;
+  netmask?: string;
+  method: string;
+  options?: string;
+  comment?: string;
+  enabled: boolean;
+  error?: string;
+}
+
+export interface PostgresHbaBackupItem {
+  name: string;
+  path: string;
+  sizeBytes: number;
+  sizeHuman: string;
+  createdAt: string;
+}
+
+export interface PostgresHbaFileMetadata {
+  hbaFilePath: string;
+  fileSize: number;
+  fileSizeHuman: string;
+  lastModified: string;
+  readable: boolean;
+  writable: boolean;
+  totalRules: number;
+  enabledRules: number;
+  syntaxErrors: number;
+  backups: PostgresHbaBackupItem[];
+}
+
+export interface PostgresHbaConfigData {
+  metadata: PostgresHbaFileMetadata;
+  rules: PostgresHbaRule[];
+  rawContent: string;
+}
+
+export interface PostgresHbaSaveRequest {
+  rules: PostgresHbaRule[];
+  createBackup?: boolean;
+  reloadPostgres?: boolean;
+  sessionPassword?: string;
+  database?: string;
+  port?: number;
+  user?: string;
+}
+
+export interface PostgresHbaSaveResult {
+  success: boolean;
+  message: string;
+  messageFa?: string;
+  backupPath?: string;
+  diffText?: string;
+  reloaded?: boolean;
+  syntaxValid?: boolean;
+  errors?: string[];
+  rules?: PostgresHbaRule[];
+}
+
+export interface PostgresHbaRestoreRequest {
+  backupFileName: string;
+  reloadPostgres?: boolean;
+  sessionPassword?: string;
+  database?: string;
+  port?: number;
+  user?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

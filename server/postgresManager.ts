@@ -6,6 +6,16 @@ import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { analyzePostgresSqlSafety, PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
+import {
+  PostgresHbaRule,
+  PostgresHbaType,
+  PostgresHbaBackupItem,
+  PostgresHbaFileMetadata,
+  PostgresHbaConfigData,
+  PostgresHbaSaveRequest,
+  PostgresHbaSaveResult,
+  PostgresHbaRestoreRequest,
+} from '../src/types';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
 export type { PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
@@ -4764,7 +4774,7 @@ async function performLogicalSqlDump(
   req: PostgresCreateBackupRequest
 ): Promise<{ sqlContent: string; tablesCount: number; schemasCount: number; schemas: string[]; tables: string[] }> {
   const targetDb = req.database.trim();
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: targetDb,
     port: req.port,
     user: req.user,
@@ -5309,7 +5319,7 @@ rm -f "${remoteTemp}"`;
     }
   }
 
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: targetDb,
     port: req.port,
     user: req.user,
@@ -5490,7 +5500,7 @@ export async function runPostgresHealthAudit(
   options?: { database?: string; port?: number; user?: string; password?: string }
 ): Promise<PostgresHealthAuditReport> {
   const targetDb = options?.database || server.postgres_database || 'postgres';
-  const client = createPostgresClient(server, {
+  const { client } = createPostgresClient(server, {
     database: targetDb,
     port: options?.port,
     user: options?.user,
@@ -6293,6 +6303,695 @@ export async function dropPostgresExtension(
     };
   }
 }
+
+// ============================================================================
+// PHASE 16: pg_hba.conf / Client Authentication Management Implementation
+// ============================================================================
+
+/**
+ * Parse a single line from pg_hba.conf into a structured rule object
+ */
+export function parseHbaLine(
+  line: string,
+  lineNumber: number,
+  liveRuleErrors?: Map<number, string>
+): PostgresHbaRule | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  let isCommented = false;
+  let workLine = trimmed;
+
+  if (workLine.startsWith('#')) {
+    isCommented = true;
+    workLine = workLine.replace(/^#+\s*/, '').trim();
+  }
+
+  // Parse tokens while preserving quotes
+  const tokens: string[] = [];
+  let currentToken = '';
+  let inQuote = false;
+  let commentPart = '';
+
+  for (let i = 0; i < workLine.length; i++) {
+    const ch = workLine[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+      currentToken += ch;
+    } else if (ch === '#' && !inQuote) {
+      commentPart = workLine.slice(i + 1).trim();
+      break;
+    } else if (/\s/.test(ch) && !inQuote) {
+      if (currentToken) {
+        tokens.push(currentToken);
+        currentToken = '';
+      }
+    } else {
+      currentToken += ch;
+    }
+  }
+  if (currentToken) {
+    tokens.push(currentToken);
+  }
+
+  if (tokens.length < 3) {
+    return null; // Not an HBA rule (plain comment or header)
+  }
+
+  const rawType = tokens[0].toLowerCase();
+  const validTypes = ['local', 'host', 'hostssl', 'hostnossl', 'hostgssenc', 'hostnogssenc'];
+  if (!validTypes.includes(rawType)) {
+    return null; // Not an HBA rule
+  }
+
+  const type = rawType as PostgresHbaType;
+  const database = tokens[1];
+  const user = tokens[2];
+  let address: string | undefined = undefined;
+  let netmask: string | undefined = undefined;
+  let method = '';
+  let options: string | undefined = undefined;
+
+  let currentIdx = 3;
+
+  if (type !== 'local') {
+    if (tokens.length < 4) return null;
+    address = tokens[currentIdx++];
+
+    // If next token is an IPv4 netmask (e.g. 255.255.255.0) and there is a subsequent method token
+    if (
+      tokens.length > currentIdx + 1 &&
+      /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(tokens[currentIdx]) &&
+      !tokens[currentIdx].includes('/')
+    ) {
+      netmask = tokens[currentIdx++];
+    }
+  }
+
+  if (currentIdx < tokens.length) {
+    method = tokens[currentIdx++];
+  }
+
+  if (currentIdx < tokens.length) {
+    options = tokens.slice(currentIdx).join(' ');
+  }
+
+  const error = liveRuleErrors?.get(lineNumber);
+
+  return {
+    id: `hba-rule-${lineNumber}-${Math.random().toString(36).substring(2, 7)}`,
+    lineNumber,
+    rawLine: line,
+    type,
+    database,
+    databaseList: database.split(',').map((s) => s.trim().replace(/^"|"$/g, '')),
+    user,
+    userList: user.split(',').map((s) => s.trim().replace(/^"|"$/g, '')),
+    address,
+    netmask,
+    method: method || 'scram-sha-256',
+    options,
+    comment: commentPart || undefined,
+    enabled: !isCommented,
+    error,
+  };
+}
+
+/**
+ * Format a structured PostgresHbaRule into a clean, aligned configuration line
+ */
+export function formatHbaRuleToLine(rule: PostgresHbaRule): string {
+  const parts: string[] = [];
+  parts.push(rule.type.padEnd(10, ' '));
+  parts.push(rule.database.padEnd(18, ' '));
+  parts.push(rule.user.padEnd(18, ' '));
+
+  if (rule.type !== 'local') {
+    const addr = rule.address || '127.0.0.1/32';
+    if (rule.netmask) {
+      parts.push(`${addr} ${rule.netmask}`.padEnd(24, ' '));
+    } else {
+      parts.push(addr.padEnd(24, ' '));
+    }
+  } else {
+    parts.push(''.padEnd(24, ' '));
+  }
+
+  parts.push(rule.method.padEnd(14, ' '));
+
+  if (rule.options) {
+    parts.push(rule.options.trim());
+  }
+
+  let line = parts.join(' ').trimEnd();
+
+  if (!rule.enabled) {
+    line = `# ${line}`;
+  }
+
+  if (rule.comment) {
+    line += ` # ${rule.comment}`;
+  }
+
+  return line;
+}
+
+/**
+ * Generate a standard unified diff between two text files
+ */
+export function generateUnifiedDiff(
+  oldText: string,
+  newText: string,
+  oldLabel = 'original',
+  newLabel = 'updated'
+): string {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const diff: string[] = [`--- ${oldLabel}`, `+++ ${newLabel}`];
+
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    const o = oldLines[i];
+    const n = newLines[i];
+    if (o !== n) {
+      if (o !== undefined) diff.push(`- ${o}`);
+      if (n !== undefined) diff.push(`+ ${n}`);
+    }
+  }
+  return diff.join('\n');
+}
+
+/**
+ * Query PostgreSQL for actual active hba_file path and read/parse its rules and backups
+ */
+export async function getPostgresHbaConfig(
+  server: RemoteServer,
+  opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
+): Promise<PostgresHbaConfigData> {
+  const client = createPostgresClient(server, {
+    database: opts?.database || server.postgres_database || 'postgres',
+    port: opts?.port,
+    user: opts?.user,
+    password: opts?.sessionPassword,
+  });
+
+  let hbaFilePath = '';
+  const liveErrors = new Map<number, string>();
+
+  try {
+    await client.connect();
+    const hbaRes = await client.query("SHOW hba_file;");
+    hbaFilePath = hbaRes.rows?.[0]?.hba_file || '';
+
+    // Check pg_hba_file_rules if available (PostgreSQL 10+)
+    try {
+      const rulesRes = await client.query(
+        "SELECT line_number, error FROM pg_hba_file_rules WHERE error IS NOT NULL ORDER BY line_number ASC;"
+      );
+      for (const r of rulesRes.rows || []) {
+        if (r.line_number && r.error) {
+          liveErrors.set(Number(r.line_number), String(r.error));
+        }
+      }
+    } catch {}
+
+    await client.end();
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    throw new Error(`Failed to query PostgreSQL for hba_file location: ${err.message}`);
+  }
+
+  if (!hbaFilePath) {
+    throw new Error('PostgreSQL did not return a valid hba_file path.');
+  }
+
+  // Use SSH to read file, permissions, and backups
+  const sshCmd = `export LC_ALL=C
+if [ -f "${hbaFilePath}" ]; then
+  echo "===FILE_EXISTS==="
+  stat -c "%s|%Y" "${hbaFilePath}" 2>/dev/null || stat -f "%z|%m" "${hbaFilePath}" 2>/dev/null || echo "0|0"
+  [ -r "${hbaFilePath}" ] && echo "READABLE=1" || echo "READABLE=0"
+  [ -w "${hbaFilePath}" ] && echo "WRITABLE=1" || echo "WRITABLE=0"
+  echo "===BACKUPS==="
+  ls -1t "${hbaFilePath}.bak."* 2>/dev/null | head -n 15 || true
+  echo "===CONTENT==="
+  cat "${hbaFilePath}"
+else
+  echo "===FILE_NOT_FOUND==="
+fi
+`;
+
+  let sshOut = '';
+  try {
+    sshOut = await runAdaptiveSshCommand(server, sshCmd, opts?.sessionPassword, 15000);
+  } catch (sshErr: any) {
+    throw new Error(`Failed to read pg_hba.conf via SSH on ${server.ip || server.name}: ${sshErr.message}`);
+  }
+
+  if (sshOut.includes('===FILE_NOT_FOUND===')) {
+    throw new Error(`pg_hba.conf file not found on remote server at: ${hbaFilePath}`);
+  }
+
+  const statPart = sshOut.split('===FILE_EXISTS===')[1]?.split('===BACKUPS===')[0] || '';
+  const statLines = statPart.trim().split('\n');
+  const sizeAndMtime = (statLines[0] || '0|0').split('|');
+  const fileSize = parseInt(sizeAndMtime[0], 10) || 0;
+  const mtimeSec = parseInt(sizeAndMtime[1], 10) || 0;
+  const lastModified = mtimeSec > 0 ? new Date(mtimeSec * 1000).toISOString() : new Date().toISOString();
+  const readable = statPart.includes('READABLE=1');
+  const writable = statPart.includes('WRITABLE=1');
+
+  // Backups parsing
+  const backupsPart = sshOut.split('===BACKUPS===')[1]?.split('===CONTENT===')[0] || '';
+  const backupPaths = backupsPart
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && l.startsWith(hbaFilePath));
+
+  const backups: PostgresHbaBackupItem[] = backupPaths.map((p) => {
+    const fileName = p.split('/').pop() || p;
+    return {
+      name: fileName,
+      path: p,
+      sizeBytes: 0,
+      sizeHuman: 'Backup',
+      createdAt: fileName.split('.bak.').pop()?.replace(/_/g, ' ') || 'Unknown',
+    };
+  });
+
+  const rawContent = sshOut.split('===CONTENT===')[1] || '';
+  const rawLines = rawContent.split('\n');
+
+  const rules: PostgresHbaRule[] = [];
+  rawLines.forEach((line, index) => {
+    const lineNum = index + 1;
+    const rule = parseHbaLine(line, lineNum, liveErrors);
+    if (rule) {
+      rules.push(rule);
+    }
+  });
+
+  const totalRules = rules.length;
+  const enabledRules = rules.filter((r) => r.enabled).length;
+  const syntaxErrors = liveErrors.size;
+
+  return {
+    metadata: {
+      hbaFilePath,
+      fileSize,
+      fileSizeHuman: formatBytesPretty(fileSize),
+      lastModified,
+      readable,
+      writable,
+      totalRules,
+      enabledRules,
+      syntaxErrors,
+      backups,
+    },
+    rules,
+    rawContent,
+  };
+}
+
+/**
+ * Save pg_hba.conf rules following the mandatory safety workflow:
+ * Backup -> Validate -> Show Diff -> Apply -> Reload -> Verify (Rollback on syntax error)
+ */
+export async function savePostgresHbaConfig(
+  server: RemoteServer,
+  req: PostgresHbaSaveRequest,
+  opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
+): Promise<PostgresHbaSaveResult> {
+  const client = createPostgresClient(server, {
+    database: req.database || opts?.database || server.postgres_database || 'postgres',
+    port: req.port || opts?.port,
+    user: req.user || opts?.user,
+    password: req.sessionPassword || opts?.sessionPassword,
+  });
+
+  let hbaFilePath = '';
+  try {
+    await client.connect();
+    const hbaRes = await client.query("SHOW hba_file;");
+    hbaFilePath = hbaRes.rows?.[0]?.hba_file || '';
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: `Failed to connect to PostgreSQL to verify hba_file: ${err.message}`,
+      messageFa: `خطا در ارتباط با PostgreSQL جهت بررسی مسیر فایل hba: ${err.message}`,
+      errors: [err.message],
+    };
+  }
+
+  if (!hbaFilePath) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: 'PostgreSQL did not return hba_file path.',
+      messageFa: 'سرور PostgreSQL مسیر فایل hba را بازنگرداند.',
+      errors: ['hba_file is empty'],
+    };
+  }
+
+  // 1. Validate rules
+  const validationErrors: string[] = [];
+  if (!req.rules || req.rules.length === 0) {
+    validationErrors.push('At least one authentication rule must be specified.');
+  }
+
+  req.rules.forEach((r, idx) => {
+    if (!['local', 'host', 'hostssl', 'hostnossl', 'hostgssenc', 'hostnogssenc'].includes(r.type)) {
+      validationErrors.push(`Rule #${idx + 1}: Invalid connection type "${r.type}".`);
+    }
+    if (!r.database || !r.database.trim()) {
+      validationErrors.push(`Rule #${idx + 1}: Database cannot be empty.`);
+    }
+    if (!r.user || !r.user.trim()) {
+      validationErrors.push(`Rule #${idx + 1}: User cannot be empty.`);
+    }
+    if (r.type !== 'local' && (!r.address || !r.address.trim())) {
+      validationErrors.push(`Rule #${idx + 1}: Address is required for TCP/IP connection type "${r.type}".`);
+    }
+    if (!r.method || !r.method.trim()) {
+      validationErrors.push(`Rule #${idx + 1}: Authentication method cannot be empty.`);
+    }
+  });
+
+  if (validationErrors.length > 0) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: 'Validation failed for one or more rules.',
+      messageFa: 'اعتبارسنجی قوانین احراز هویت با خطا مواجه شد.',
+      errors: validationErrors,
+    };
+  }
+
+  // 2. Read existing content for diff and backup
+  const readCmd = `cat "${hbaFilePath}" 2>/dev/null || true`;
+  let existingContent = '';
+  try {
+    existingContent = await runAdaptiveSshCommand(server, readCmd, req.sessionPassword || opts?.sessionPassword, 10000);
+  } catch (err: any) {
+    console.warn('[HBA read warning]:', err);
+  }
+
+  // 3. Generate new content
+  const generatedLines: string[] = [
+    '# ============================================================================',
+    '# PostgreSQL Client Authentication Configuration File (pg_hba.conf)',
+    '# Managed via NetTopology Remote Fleet Panel',
+    `# Updated at: ${new Date().toISOString()}`,
+    '# ============================================================================',
+    '# TYPE      DATABASE          USER              ADDRESS                 METHOD        OPTIONS',
+    '',
+  ];
+
+  req.rules.forEach((r) => {
+    generatedLines.push(formatHbaRuleToLine(r));
+  });
+  generatedLines.push(''); // trailing newline
+
+  const newContent = generatedLines.join('\n');
+  const diffText = generateUnifiedDiff(existingContent, newContent, 'current-pg_hba.conf', 'updated-pg_hba.conf');
+
+  // 4. Create Backup on remote server
+  const timestampStr = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+  const backupPath = `${hbaFilePath}.bak.${timestampStr}`;
+  const base64New = Buffer.from(newContent, 'utf-8').toString('base64');
+  const tempPath = `/tmp/pg_hba_new_${Date.now()}.conf`;
+
+  const applyScript = `export LC_ALL=C
+set -e
+# Step 1: Backup current file
+if [ -f "${hbaFilePath}" ]; then
+  cp -a "${hbaFilePath}" "${backupPath}"
+fi
+
+# Step 2: Write temp file
+echo "${base64New}" | base64 -d > "${tempPath}"
+
+# Step 3: Match permissions and ownership
+chmod --reference="${hbaFilePath}" "${tempPath}" 2>/dev/null || chmod 600 "${tempPath}"
+chown --reference="${hbaFilePath}" "${tempPath}" 2>/dev/null || true
+
+# Step 4: Atomic replacement
+mv -f "${tempPath}" "${hbaFilePath}"
+echo "APPLY_OK"
+`;
+
+  try {
+    const applyOut = await runAdaptiveSshCommand(server, applyScript, req.sessionPassword || opts?.sessionPassword, 15000);
+    if (!applyOut.includes('APPLY_OK')) {
+      throw new Error(`SSH script did not confirm replacement: ${applyOut}`);
+    }
+  } catch (sshErr: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: `Failed to write pg_hba.conf via SSH: ${sshErr.message}`,
+      messageFa: `خطا در نوشتن فایل pg_hba.conf از طریق SSH: ${sshErr.message}`,
+      errors: [sshErr.message],
+    };
+  }
+
+  // 5. Reload PostgreSQL and Verify syntax
+  let reloadOk = false;
+  const syntaxErrorsDetected: string[] = [];
+
+  try {
+    await client.query("SELECT pg_reload_conf();");
+    reloadOk = true;
+
+    // Check pg_hba_file_rules for errors
+    const checkRes = await client.query(
+      "SELECT line_number, error FROM pg_hba_file_rules WHERE error IS NOT NULL ORDER BY line_number ASC;"
+    );
+    for (const row of checkRes.rows || []) {
+      syntaxErrorsDetected.push(`Line ${row.line_number}: ${row.error}`);
+    }
+  } catch (relErr: any) {
+    syntaxErrorsDetected.push(`Reload execution failed: ${relErr.message}`);
+  }
+
+  // 6. Automatic Rollback if syntax error is detected!
+  if (syntaxErrorsDetected.length > 0) {
+    console.error('[HBA Syntax Error! Executing Automatic Rollback]:', syntaxErrorsDetected);
+    const rollbackScript = `export LC_ALL=C
+if [ -f "${backupPath}" ]; then
+  cp -f "${backupPath}" "${hbaFilePath}"
+  echo "ROLLBACK_RESTORED"
+fi
+`;
+    try {
+      await runAdaptiveSshCommand(server, rollbackScript, req.sessionPassword || opts?.sessionPassword, 10000);
+      try {
+        await client.query("SELECT pg_reload_conf();");
+      } catch {}
+    } catch (rbErr: any) {
+      console.error('[HBA Rollback Script Failed]:', rbErr);
+    }
+
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      message: `Syntax validation failed after reload. Configuration was automatically rolled back to prevent lockout. Errors: ${syntaxErrorsDetected.join('; ')}`,
+      messageFa: `اعتبارسنجی ساختار پس از بارگذاری ناموفق بود. جهت جلوگیری از قطع دسترسی، فایل به نسخه پشتیبان بازگردانده شد. خطاها: ${syntaxErrorsDetected.join('; ')}`,
+      backupPath,
+      diffText,
+      reloaded: false,
+      syntaxValid: false,
+      errors: syntaxErrorsDetected,
+    };
+  }
+
+  try {
+    await client.end();
+  } catch {}
+
+  return {
+    success: true,
+    message: `pg_hba.conf successfully updated and reloaded with zero errors. Backup created at ${backupPath}.`,
+    messageFa: `فایل pg_hba.conf با موفقیت بدون هیچ خطایی به‌روزرسانی و بارگذاری مجدد شد. نسخه پشتیبان در مسیر ${backupPath} ذخیره گردید.`,
+    backupPath,
+    diffText,
+    reloaded: true,
+    syntaxValid: true,
+    rules: req.rules,
+  };
+}
+
+/**
+ * Restore pg_hba.conf from a previous timestamped backup file
+ */
+export async function restorePostgresHbaBackup(
+  server: RemoteServer,
+  req: PostgresHbaRestoreRequest,
+  opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
+): Promise<PostgresHbaSaveResult> {
+  const client = createPostgresClient(server, {
+    database: req.database || opts?.database || server.postgres_database || 'postgres',
+    port: req.port || opts?.port,
+    user: req.user || opts?.user,
+    password: req.sessionPassword || opts?.sessionPassword,
+  });
+
+  let hbaFilePath = '';
+  try {
+    await client.connect();
+    const hbaRes = await client.query("SHOW hba_file;");
+    hbaFilePath = hbaRes.rows?.[0]?.hba_file || '';
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: `Failed to query PostgreSQL for hba_file: ${err.message}`,
+      messageFa: `خطا در دریافت مسیر hba_file: ${err.message}`,
+      errors: [err.message],
+    };
+  }
+
+  const cleanBackupName = req.backupFileName.trim().replace(/[^a-zA-Z0-9_\-\.]/g, '');
+  if (!cleanBackupName || !cleanBackupName.includes('.bak.')) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: 'Invalid backup file name.',
+      messageFa: 'نام فایل پشتیبان نامعتبر است.',
+      errors: ['Invalid backup file name'],
+    };
+  }
+
+  const backupDir = path.dirname(hbaFilePath);
+  const targetBackupFile = path.join(backupDir, cleanBackupName);
+
+  const restoreScript = `export LC_ALL=C
+set -e
+if [ ! -f "${targetBackupFile}" ]; then
+  echo "BACKUP_NOT_FOUND"
+  exit 1
+fi
+
+# Safeguard backup before restore
+cp -a "${hbaFilePath}" "${hbaFilePath}.bak.pre_restore_$(date +%Y%m%d_%H%M%S)"
+# Restore
+cp -f "${targetBackupFile}" "${hbaFilePath}"
+chmod --reference="${targetBackupFile}" "${hbaFilePath}" 2>/dev/null || chmod 600 "${hbaFilePath}"
+echo "RESTORE_OK"
+`;
+
+  try {
+    const resOut = await runAdaptiveSshCommand(server, restoreScript, req.sessionPassword || opts?.sessionPassword, 15000);
+    if (!resOut.includes('RESTORE_OK')) {
+      throw new Error(`Restore failed: ${resOut}`);
+    }
+  } catch (sshErr: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: `Failed to restore backup via SSH: ${sshErr.message}`,
+      messageFa: `خطا در بازیابی نسخه پشتیبان از طریق SSH: ${sshErr.message}`,
+      errors: [sshErr.message],
+    };
+  }
+
+  // Reload config
+  try {
+    await client.query("SELECT pg_reload_conf();");
+    await client.end();
+  } catch (relErr: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: true,
+      message: `Backup restored, but pg_reload_conf returned: ${relErr.message}`,
+      messageFa: `نسخه پشتیبان بازیابی شد اما بارگذاری مجدد با پیام زیر خاتمه یافت: ${relErr.message}`,
+      reloaded: false,
+    };
+  }
+
+  return {
+    success: true,
+    message: `Successfully restored pg_hba.conf from backup "${cleanBackupName}" and reloaded configuration.`,
+    messageFa: `فایل pg_hba.conf با موفقیت از نسخه پشتیبان "${cleanBackupName}" بازیابی و بارگذاری مجدد شد.`,
+    reloaded: true,
+    syntaxValid: true,
+  };
+}
+
+/**
+ * Reload PostgreSQL configuration via pg_reload_conf() and return syntax status
+ */
+export async function reloadPostgresHba(
+  server: RemoteServer,
+  opts?: { sessionPassword?: string; database?: string; port?: number; user?: string }
+): Promise<{ success: boolean; message: string; messageFa?: string; errors?: string[] }> {
+  const client = createPostgresClient(server, {
+    database: opts?.database || server.postgres_database || 'postgres',
+    port: opts?.port,
+    user: opts?.user,
+    password: opts?.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+    await client.query("SELECT pg_reload_conf();");
+
+    const errRes = await client.query(
+      "SELECT line_number, error FROM pg_hba_file_rules WHERE error IS NOT NULL ORDER BY line_number ASC;"
+    );
+    const syntaxErrors = (errRes.rows || []).map((r) => `Line ${r.line_number}: ${r.error}`);
+
+    await client.end();
+
+    if (syntaxErrors.length > 0) {
+      return {
+        success: false,
+        message: `PostgreSQL configuration reloaded, but syntax errors were detected in pg_hba.conf: ${syntaxErrors.join('; ')}`,
+        messageFa: `تنظیمات PostgreSQL بارگذاری شد، اما خطاهای ساختاری در pg_hba.conf مشاهده گردید: ${syntaxErrors.join('; ')}`,
+        errors: syntaxErrors,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'PostgreSQL configuration reloaded successfully. All pg_hba.conf rules are valid.',
+      messageFa: 'پیکربندی PostgreSQL با موفقیت بارگذاری شد. تمام قوانین pg_hba.conf معتبر هستند.',
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: `Failed to reload PostgreSQL configuration: ${err.message}`,
+      messageFa: `خطا در بارگذاری مجدد پیکربندی PostgreSQL: ${err.message}`,
+      errors: [err.message],
+    };
+  }
+}
+
 
 
 

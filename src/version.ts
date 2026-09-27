@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.196.0';
+export const APP_VERSION = '1.197.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.197.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۶ مدیریت PostgreSQL: مدیریت احراز هویت کلاینت‌ها (pg_hba.conf Client Authentication Management)',
+    title_en: 'PostgreSQL Management Phase 16: pg_hba.conf Client Authentication Management (Visual Rule Editor, Reordering, Unified Diff, Auto-Backup & Safety Rollback)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۶ نقشه راه مدیریت PostgreSQL: مدیریت بصری و ایمن فایل احراز هویت کلاینت‌ها (pg_hba.conf Client Authentication Management).',
+      'کشف خودکار مسیر واقعی فایل فعال pg_hba.conf روی سرور از طریق دستور SHOW hba_file و واکشی خطاهای ساختاری با ویوی سیستمی pg_hba_file_rules.',
+      'افزودن تب تخصصی "احراز هویت کلاینت‌ها (pg_hba.conf)" در مودال مدیریت PostgreSQL با نمایش متادیتای فایل، وضعیت خواندنی/نوشتنی و شمارشگر قوانین فعال.',
+      'ویرایشگر بصری قوانین احراز هویت (Visual HBA Rule Editor): پشتیبانی از انواع اتصال (local, host, hostssl, hostnossl)، تعیین پایگاه داده (all, sameuser, samerole, replication یا سفارشی)، کاربران، زیرشبکه CIDR و روش‌های احراز هویت (scram-sha-256, md5, trust, peer, cert, reject).',
+      'امکان تغییر ترتیب قوانین با اولویت بالا به پایین (Move Up/Down)، تکثیر قوانین، فعال/غیرفعال‌سازی سریع (کامنت/آن‌کامنت)، و هشدارهای امنیتی برای روش‌های خطرناک مانند trust روی IPهای غیرمحلی.',
+      'جریان کار کاملاً ایمن و تضمین‌شده طبق نقشه راه (Safety Workflow): پشتیبان‌گیری خودکار با برچسب زمانی قبل از هر تغییر (Backup) -> اعتبارسنجی قوانین (Validate) -> نمایش تفاوت‌ها در قالب Unified Diff -> اعمال اتمیک روی سرور (Apply) -> بارگذاری مجدد با pg_reload_conf -> اعتبارسنجی فوری و بازگشت خودکار به نسخه قبل در صورت خطای ساختاری (Auto-Rollback on Syntax Error).',
+      'سیستم تاریخچه و بازیابی نسخه‌های پشتیبان (Backup History & Restore): مشاهده کلیه پشتیبان‌های قبلی و بازیابی آنی با یک کلیک و تاییدیه دو مرحله‌ای.',
+      'مشاهده متن خام فایل اصلی (Raw Viewer)، بارگذاری مجدد دستی بدون راه‌اندازی سرور، انطباق کامل با تم‌های تیره/روشن و زبان‌های انگلیسی و فارسی (Rule 4).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 16: pg_hba.conf Client Authentication Management (Visual Rule Editor, Reordering, Unified Diff, Auto-Backup & Safety Rollback).',
+      'Automated discovery of active hba_file path on Linux servers via SHOW hba_file and real-time syntax error introspection via pg_hba_file_rules system view.',
+      'Added dedicated "Client Auth (pg_hba)" tab in the PostgreSQL management modal displaying file permissions, size, active rule counts, and health status.',
+      'Visual Rule Editor supporting connection types (local, host, hostssl, hostnossl), databases (all, sameuser, samerole, replication, custom), roles, CIDR addresses, and authentication methods (scram-sha-256, md5, trust, peer, cert, reject).',
+      'Top-to-bottom rule priority reordering (Move Up / Down), rule duplication, inline toggling (comment/uncomment), and safety banners for risky passwordless rules.',
+      'Roadmap-mandated zero-lockout safety workflow: Automatic Timestamped Backup -> Rule Validation -> Unified Diff Preview -> Atomic File Replacement -> pg_reload_conf() -> Live Verification & Automatic Rollback on Syntax Error.',
+      'Backup History & One-Click Restore: Browse existing timestamped backups on the remote host and safely restore with dual confirmation.',
+      'Raw configuration file viewer, manual reload trigger, full theme adaptability, strict localization (Rule 4), and boundary-safe 3-part FieldInfoTooltips.'
+    ]
+  },
   {
     version: '1.196.0',
     releaseDate: '2026-09-27',

@@ -1622,6 +1622,71 @@ export async function fetchRemoteServerPostgresHealthAudit(
   return res.json();
 }
 
+// ==========================================
+// Phase 16: pg_hba.conf Client Authentication API
+// ==========================================
+
+export async function fetchRemoteServerPostgresHbaConfig(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresHbaConfigData;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/hba${queryStr}`);
+  return res.json();
+}
+
+export async function saveRemoteServerPostgresHbaConfig(
+  id: string,
+  req: import('../types').PostgresHbaSaveRequest
+): Promise<import('../types').PostgresHbaSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/hba/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function restoreRemoteServerPostgresHbaBackup(
+  id: string,
+  req: import('../types').PostgresHbaRestoreRequest
+): Promise<import('../types').PostgresHbaSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/hba/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function reloadRemoteServerPostgresHbaConfig(
+  id: string,
+  data?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa?: string; errors?: string[] }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/hba/reload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

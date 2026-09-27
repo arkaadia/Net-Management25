@@ -14,6 +14,7 @@ import {
   Server,
   Key,
   ShieldCheck,
+  ShieldAlert,
   Terminal,
   Activity,
   Layers,
@@ -53,6 +54,7 @@ import { PostgresDatabaseLifecycleTab } from './PostgresDatabaseLifecycleTab';
 import { PostgresBackupManagerTab } from './PostgresBackupManagerTab';
 import { PostgresExtensionsManagerTab } from './PostgresExtensionsManagerTab';
 import { PostgresHealthAuditTab } from './PostgresHealthAuditTab';
+import { PostgresHbaManagerTab } from './PostgresHbaManagerTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -65,7 +67,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'overview' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'hba' | 'overview' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -527,6 +529,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             >
               <Activity className="w-3.5 h-3.5 text-emerald-400" />
               <span>{isEn ? 'Health & Audit' : 'سلامت و ممیزی'}</span>
+            </button>
+
+            {/* TAB: CLIENT AUTHENTICATION (pg_hba.conf) (Phase 16) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('hba')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'hba'
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isEn ? 'Client Auth (pg_hba)' : 'احراز هویت (pg_hba)'}</span>
             </button>
 
             <button
@@ -1109,6 +1127,16 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               onNavigateToSqlStudio={(sql) => {
                 setActiveTab('sql');
               }}
+            />
+          )}
+
+          {/* TAB: CLIENT AUTHENTICATION (pg_hba.conf) (Phase 16) */}
+          {activeTab === 'hba' && (
+            <PostgresHbaManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              databases={databases}
             />
           )}
 

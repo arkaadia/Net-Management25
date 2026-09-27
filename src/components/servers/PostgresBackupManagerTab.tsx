@@ -810,7 +810,7 @@ export const PostgresBackupManagerTab: React.FC<PostgresBackupManagerTabProps> =
                 >
                   {databases.map((db) => (
                     <option key={db.oid} value={db.name}>
-                      {db.name} ({db.sizePretty || db.sizeFormatted})
+                      {db.name} ({db.sizePretty || (db as any).sizeFormatted || ''})
                     </option>
                   ))}
                 </select>

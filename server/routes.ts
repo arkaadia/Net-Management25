@@ -95,6 +95,10 @@ import {
   updatePostgresExtension,
   dropPostgresExtension,
   runPostgresHealthAudit,
+  getPostgresHbaConfig,
+  savePostgresHbaConfig,
+  restorePostgresHbaBackup,
+  reloadPostgresHba,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2336,6 +2340,169 @@ apiRouter.get('/remote-servers/:id/postgres/health-audit', async (req: Request, 
     });
   }
 });
+
+// ============================================================================
+// PHASE 16: pg_hba.conf Client Authentication Management Endpoints
+// ============================================================================
+
+// GET /api/remote-servers/:id/postgres/hba - Discover hba_file location and parse rules/backups
+apiRouter.get('/remote-servers/:id/postgres/hba', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const data = await getPostgresHbaConfig(server, {
+      database,
+      port,
+      user,
+      sessionPassword: password,
+    });
+
+    return res.json({
+      success: true,
+      data,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to load PostgreSQL pg_hba.conf configuration',
+      errorFa: 'خطا در بارگذاری پیکربندی احراز هویت pg_hba.conf',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/hba/save - Save rules (Backup -> Validate -> Show Diff -> Apply -> Reload -> Rollback on error)
+apiRouter.post('/remote-servers/:id/postgres/hba/save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { rules, createBackup, reloadPostgres, sessionPassword, database, port, user } = req.body || {};
+
+    if (!rules || !Array.isArray(rules)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing or invalid rules array.',
+        errorFa: 'آرایه قوانین احراز هویت نامعتبر است.',
+      });
+    }
+
+    const result = await savePostgresHbaConfig(
+      server,
+      {
+        rules,
+        createBackup: createBackup !== false,
+        reloadPostgres: reloadPostgres !== false,
+        sessionPassword,
+        database,
+        port,
+        user,
+      }
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save pg_hba.conf',
+      errorFa: 'خطا در ذخیره‌سازی فایل pg_hba.conf',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/hba/restore - Restore from a previous backup file
+apiRouter.post('/remote-servers/:id/postgres/hba/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { backupFileName, reloadPostgres, sessionPassword, database, port, user } = req.body || {};
+
+    if (!backupFileName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing backupFileName parameter.',
+        errorFa: 'نام فایل پشتیبان مشخص نشده است.',
+      });
+    }
+
+    const result = await restorePostgresHbaBackup(server, {
+      backupFileName,
+      reloadPostgres: reloadPostgres !== false,
+      sessionPassword,
+      database,
+      port,
+      user,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restore pg_hba.conf backup',
+      errorFa: 'خطا در بازیابی نسخه پشتیبان pg_hba.conf',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/hba/reload - Execute pg_reload_conf() and return status
+apiRouter.post('/remote-servers/:id/postgres/hba/reload', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { sessionPassword, database, port, user } = req.body || {};
+
+    const result = await reloadPostgresHba(server, {
+      database,
+      port,
+      user,
+      sessionPassword,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to reload PostgreSQL configuration',
+      errorFa: 'خطا در بازخوانی مجدد پیکربندی PostgreSQL',
+    });
+  }
+});
+
 const handlePostgresRoles = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
