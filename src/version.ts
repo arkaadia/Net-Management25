@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.197.1';
+export const APP_VERSION = '1.198.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.198.0',
+    releaseDate: '2026-09-27',
+    type: 'minor',
+    title: 'فاز ۱۷ مدیریت PostgreSQL: پشتیبان‌گیری و بازیابی پیشرفته پایگاه داده و فایل‌های پیکربندی (Database & Configuration Backup & Restore)',
+    title_en: 'PostgreSQL Management Phase 17: Advanced Backup & Restore for Databases & System Configurations (Safety Validation & Preview)',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۷ نقشه راه مدیریت PostgreSQL: سیستم یکپارچه پشتیبان‌گیری و بازیابی پیشرفته برای پایگاه‌های داده و فایل‌های پیکربندی سیستم.',
+      'تفکیک دسته‌بندی پشتیبان‌ها به دو بخش پایگاه داده (Database) و فایل‌های پیکربندی (Configuration: postgresql.conf, pg_hba.conf, cluster roles/globals).',
+      'پشتیبانی از قالب‌های استاندارد Plain SQL (.sql)، Custom Dump (.dump) و Tar (.tar) با سطوح مختلف فشرده‌سازی.',
+      'جریان کار ایمن و چندمرحله‌ای بازیابی (Safety-Gated Restore Workflow) همراه با اعتبارسنجی پیش از اجرا (Pre-restore Validation): بررسی وجود دیتابیس مقصد، شمارش جداول موجود، تشخیص تداخل نام‌ها و الزام به تایید صریح در صورت وجود داده.',
+      'پنجره پیش‌نمایش درونی نسخه پشتیبان (In-Browser Backup Preview) با هایلایت کد، نمایش حجم دقیق، شمارش سطرها و امکان کپی در کلیپ‌بورد.',
+      'بازیابی امن پیکربندی‌ها با امکان بازنشانی خودکار سرور پس از بازیابی، ثبت لاگ‌های ممیزی سیستم (Audit Logs) و انطباق کامل با تم‌های تیره و روشن و دو زبانه انگلیسی و فارسی.'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 17: Unified Advanced Backup & Restore system for databases and system configuration files.',
+      'Categorized backup workflows separating database dumps (Full, Schema-only, Data-only) from configuration snapshots (postgresql.conf, pg_hba.conf, cluster roles/globals).',
+      'Support for standard formats including Plain SQL (.sql), Custom archive (.dump), and Tar (.tar) with adjustable compression levels.',
+      'Safety-gated restore workflow with pre-execution validation: checks target database existence, counts existing tables, detects schema collisions, and enforces explicit confirmation when overwriting data.',
+      'Built-in in-browser backup preview modal with syntax highlighting, exact byte sizes, line count telemetry, and one-click copy to clipboard.',
+      'Secure configuration restore with automatic server reload, full audit logging for compliance, and 100% bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.197.1',
     releaseDate: '2026-09-27',

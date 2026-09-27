@@ -483,7 +483,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               )}
             </button>
 
-            {/* TAB: BACKUP & RESTORE MANAGEMENT (Phase 13) */}
+            {/* TAB: BACKUP & RESTORE MANAGEMENT (Phase 17) */}
             <button
               type="button"
               onClick={() => setActiveTab('backups')}

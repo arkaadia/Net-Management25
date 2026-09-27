@@ -90,6 +90,8 @@ import {
   restorePostgresBackup,
   deletePostgresBackup,
   getPostgresBackupFilePath,
+  validatePostgresRestore,
+  previewPostgresBackup,
   listPostgresExtensions,
   installPostgresExtension,
   updatePostgresExtension,
@@ -1864,6 +1866,8 @@ apiRouter.post('/remote-servers/:id/postgres/backups/create', async (req: Reques
     }
 
     const {
+      category = 'database',
+      configType,
       database,
       mode = 'full',
       format = 'plain',
@@ -1879,6 +1883,8 @@ apiRouter.post('/remote-servers/:id/postgres/backups/create', async (req: Reques
     } = req.body || {};
 
     const result = await createPostgresBackup(server, {
+      category,
+      configType,
       database: database || server.postgres_database || 'postgres',
       mode,
       format,
@@ -1896,11 +1902,13 @@ apiRouter.post('/remote-servers/:id/postgres/backups/create', async (req: Reques
     if (result.success) {
       await addAuditLog({
         userName: (req.headers['x-user-name'] as string) || 'Admin',
-        action: 'PostgreSQL Create Backup',
+        action: category === 'configuration' ? 'PostgreSQL Create Config Backup' : 'PostgreSQL Create Backup',
         category: 'device',
         target: `${server.name} (${server.ip})`,
         status: 'success',
-        details: `Created PostgreSQL backup "${result.backup?.filename}" for database "${database || 'postgres'}" (${mode}, ${format})`,
+        details: category === 'configuration'
+          ? `Created PostgreSQL configuration backup "${result.backup?.filename}" (${configType || 'postgresql_conf'})`
+          : `Created PostgreSQL backup "${result.backup?.filename}" for database "${database || 'postgres'}" (${mode}, ${format})`,
         ipAddress: getClientIp(req),
         userAgent: req.headers['user-agent'] || 'WebUI',
       });
@@ -1913,6 +1921,70 @@ apiRouter.post('/remote-servers/:id/postgres/backups/create', async (req: Reques
       success: false,
       error: err.message || 'Failed to create backup',
       errorFa: 'خطا در ایجاد نسخه پشتیبان پایگاه داده',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/backups/validate-restore - Validate backup before restore
+apiRouter.post('/remote-servers/:id/postgres/backups/validate-restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        valid: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { filename, targetDatabase, port, user, sessionPassword } = req.body || {};
+    if (!filename) {
+      return res.status(400).json({
+        valid: false,
+        error: 'Filename is required for validation.',
+        errorFa: 'نام فایل نسخه پشتیبان الزامی است.',
+      });
+    }
+
+    const result = await validatePostgresRestore(server, {
+      filename,
+      targetDatabase,
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      valid: false,
+      error: err.message || 'Failed to validate restore',
+      errorFa: 'خطا در اعتبارسنجی فرآیند بازیابی',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/backups/:filename/preview - Preview backup content
+apiRouter.get('/remote-servers/:id/postgres/backups/:filename/preview', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const result = await previewPostgresBackup(server, decodeURIComponent(filename));
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to preview backup',
+      errorFa: 'خطا در پیش‌نمایش محتوای نسخه پشتیبان',
     });
   }
 });
@@ -1933,6 +2005,7 @@ apiRouter.post('/remote-servers/:id/postgres/backups/restore', async (req: Reque
     const {
       database,
       filename,
+      category,
       cleanFirst = false,
       singleTransaction = true,
       exitOnError = false,
@@ -1952,6 +2025,7 @@ apiRouter.post('/remote-servers/:id/postgres/backups/restore', async (req: Reque
     const result = await restorePostgresBackup(server, {
       database: database || server.postgres_database || 'postgres',
       filename,
+      category,
       cleanFirst: Boolean(cleanFirst),
       singleTransaction: Boolean(singleTransaction),
       exitOnError: Boolean(exitOnError),
@@ -1963,11 +2037,11 @@ apiRouter.post('/remote-servers/:id/postgres/backups/restore', async (req: Reque
     if (result.success) {
       await addAuditLog({
         userName: (req.headers['x-user-name'] as string) || 'Admin',
-        action: 'PostgreSQL Restore Backup',
+        action: category === 'configuration' ? 'PostgreSQL Restore Config Backup' : 'PostgreSQL Restore Backup',
         category: 'device',
         target: `${server.name} (${server.ip})`,
         status: 'success',
-        details: `Restored PostgreSQL backup "${filename}" into database "${database || 'postgres'}"`,
+        details: `Restored PostgreSQL backup "${filename}" into database "${database || 'postgres'}" (${result.executedStatementsCount || 0} statements in ${(result.durationMs ? (result.durationMs / 1000).toFixed(1) : 0)}s)`,
         ipAddress: getClientIp(req),
         userAgent: req.headers['user-agent'] || 'WebUI',
       });

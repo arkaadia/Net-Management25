@@ -1524,6 +1524,26 @@ export async function restoreRemoteServerPostgresBackup(
   return res.json();
 }
 
+export async function validateRemoteServerPostgresRestore(
+  id: string,
+  data: import('../types').PostgresValidateRestoreRequest
+): Promise<import('../types').PostgresValidateRestoreResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups/validate-restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function previewRemoteServerPostgresBackup(
+  id: string,
+  filename: string
+): Promise<import('../types').PostgresBackupPreviewResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/backups/${encodeURIComponent(filename)}/preview`);
+  return res.json();
+}
+
 export async function deleteRemoteServerPostgresBackup(
   id: string,
   filename: string

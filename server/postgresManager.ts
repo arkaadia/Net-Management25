@@ -4588,16 +4588,20 @@ export async function dropPostgresSchema(
 // Phase 13: PostgreSQL Backup & Restore
 // ==========================================
 
+export type PostgresBackupCategory = 'database' | 'configuration';
 export type PostgresBackupMode = 'full' | 'schema_only' | 'data_only';
+export type PostgresConfigBackupType = 'postgresql_conf' | 'pg_hba' | 'cluster_roles';
 export type PostgresBackupFormat = 'plain' | 'custom' | 'tar';
 
 export interface PostgresBackupItem {
   id: string;
   filename: string;
-  database: string;
+  category: PostgresBackupCategory;
+  database?: string;
+  configType?: PostgresConfigBackupType;
   sizeBytes: number;
   sizePretty: string;
-  mode: PostgresBackupMode;
+  mode?: PostgresBackupMode;
   format: PostgresBackupFormat;
   createdAt: string;
   tablesCount?: number;
@@ -4606,13 +4610,17 @@ export interface PostgresBackupItem {
   tables?: string[];
   compressionLevel?: number;
   downloadUrl?: string;
-  engineUsed: 'native_pg_dump' | 'logical_sql_dumper';
+  engineUsed: 'native_pg_dump' | 'logical_sql_dumper' | 'config_snapshot';
+  description?: string;
+  descriptionFa?: string;
 }
 
 export interface PostgresCreateBackupRequest {
-  database: string;
-  mode: PostgresBackupMode;
-  format: PostgresBackupFormat;
+  category?: PostgresBackupCategory;
+  database?: string;
+  mode?: PostgresBackupMode;
+  configType?: PostgresConfigBackupType;
+  format?: PostgresBackupFormat;
   schemas?: string[];
   tables?: string[];
   includeDrop?: boolean;
@@ -4638,6 +4646,7 @@ export interface PostgresCreateBackupResult {
 export interface PostgresRestoreBackupRequest {
   database: string;
   filename: string;
+  category?: PostgresBackupCategory;
   cleanFirst?: boolean;
   singleTransaction?: boolean;
   exitOnError?: boolean;
@@ -4655,6 +4664,42 @@ export interface PostgresRestoreBackupResult {
   error?: string;
   errorFa?: string;
   outputLog?: string;
+}
+
+export interface PostgresValidateRestoreRequest {
+  filename: string;
+  targetDatabase?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresValidateRestoreResult {
+  valid: boolean;
+  backupItem?: PostgresBackupItem;
+  targetDatabase: string;
+  databaseExists: boolean;
+  targetHasExistingData: boolean;
+  existingTablesCount: number;
+  existingTablesSample: string[];
+  warning?: string;
+  warningFa?: string;
+  requiresExplicitConfirmation: boolean;
+  error?: string;
+  errorFa?: string;
+}
+
+export interface PostgresBackupPreviewResult {
+  success: boolean;
+  filename: string;
+  content: string;
+  totalLines: number;
+  isTruncated: boolean;
+  sizeBytes: number;
+  category: PostgresBackupCategory;
+  format: PostgresBackupFormat;
+  error?: string;
+  errorFa?: string;
 }
 
 function formatBytesPretty(bytes: number): string {
@@ -4719,26 +4764,44 @@ export async function listPostgresBackups(server: RemoteServer): Promise<Postgre
       if (meta[filename]) {
         meta[filename].sizeBytes = stats.size;
         meta[filename].sizePretty = formatBytesPretty(stats.size);
+        if (!meta[filename].category) {
+          const isConf = filename.endsWith('.conf') || filename.includes('_conf_') || filename.startsWith('config_') || filename.includes('roles');
+          meta[filename].category = isConf ? 'configuration' : 'database';
+          if (filename.includes('hba')) meta[filename].configType = 'pg_hba';
+          else if (filename.includes('roles')) meta[filename].configType = 'cluster_roles';
+          else if (isConf) meta[filename].configType = 'postgresql_conf';
+        }
         items.push(meta[filename]);
       } else {
         const isGz = filename.endsWith('.gz');
         const isDump = filename.endsWith('.dump');
         const isTar = filename.endsWith('.tar');
-        const baseName = filename.replace(/\.(sql(\.gz)?|dump|tar)$/, '');
+        const isConf = filename.endsWith('.conf') || filename.includes('_conf_') || filename.startsWith('config_') || filename.includes('roles');
+        const baseName = filename.replace(/\.(sql(\.gz)?|dump|tar|conf)$/, '');
         const parts = baseName.split('_');
         const dbName = parts[0] || server.postgres_database || 'postgres';
+
+        let category: PostgresBackupCategory = isConf ? 'configuration' : 'database';
+        let configType: PostgresConfigBackupType | undefined;
+        if (isConf) {
+          if (filename.includes('hba')) configType = 'pg_hba';
+          else if (filename.includes('roles')) configType = 'cluster_roles';
+          else configType = 'postgresql_conf';
+        }
 
         const item: PostgresBackupItem = {
           id: filename,
           filename,
-          database: dbName,
+          category,
+          configType,
+          database: category === 'database' ? dbName : (server.postgres_database || 'postgres'),
           sizeBytes: stats.size,
           sizePretty: formatBytesPretty(stats.size),
-          mode: 'full',
+          mode: category === 'database' ? 'full' : undefined,
           format: isDump ? 'custom' : isTar ? 'tar' : 'plain',
           createdAt: stats.mtime.toISOString(),
           downloadUrl: `/api/remote-servers/${server.id}/postgres/backups/${encodeURIComponent(filename)}/download`,
-          engineUsed: 'logical_sql_dumper',
+          engineUsed: isConf ? 'config_snapshot' : 'logical_sql_dumper',
         };
         meta[filename] = item;
         items.push(item);
@@ -5106,10 +5169,272 @@ async function performLogicalSqlDump(
   };
 }
 
+/**
+ * Creates a configuration backup (postgresql.conf, pg_hba.conf, or cluster roles dump)
+ */
+export async function createPostgresConfigBackup(
+  server: RemoteServer,
+  req: PostgresCreateBackupRequest
+): Promise<PostgresCreateBackupResult> {
+  const startTime = Date.now();
+  const configType = req.configType || 'postgresql_conf';
+  const backupDir = getPostgresBackupsDir(server.id);
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const timestampStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  let finalFilename = '';
+  let content = '';
+  let descEn = '';
+  let descFa = '';
+
+  const { client, targetHost, targetPort } = createPostgresClient(server, {
+    database: req.database || server.postgres_database || 'postgres',
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+
+    if (configType === 'postgresql_conf') {
+      finalFilename = req.customFilename?.trim()
+        ? req.customFilename.trim().replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+        : `postgresql_conf_backup_${timestampStr}.conf`;
+      if (!finalFilename.endsWith('.conf')) finalFilename += '.conf';
+
+      const settingsRes = await client.query<{
+        name: string;
+        setting: string;
+        unit: string | null;
+        category: string;
+        short_desc: string | null;
+        context: string;
+        boot_val: string;
+        reset_val: string;
+        source: string;
+      }>(`
+        SELECT name, setting, unit, category, short_desc, context, boot_val, reset_val, source
+        FROM pg_settings
+        ORDER BY category, name;
+      `);
+
+      const confLines: string[] = [
+        `# ====================================================================`,
+        `# PostgreSQL Configuration Snapshot (postgresql.conf)`,
+        `# Host: ${targetHost}:${targetPort} | Exported: ${now.toISOString()}`,
+        `# Generated by NetTopology PostgreSQL Manager (Phase 17)`,
+        `# ====================================================================`,
+        ``,
+      ];
+
+      let currentCategory = '';
+      for (const row of settingsRes.rows || []) {
+        if (row.category !== currentCategory) {
+          currentCategory = row.category;
+          confLines.push(`\n# --------------------------------------------------------------------`);
+          confLines.push(`# Category: ${currentCategory}`);
+          confLines.push(`# --------------------------------------------------------------------`);
+        }
+        if (row.short_desc) {
+          confLines.push(`# ${row.short_desc}`);
+        }
+        const unitSuffix = row.unit ? ` # unit: ${row.unit}` : '';
+        const sourceComment = row.source && row.source !== 'default' ? ` (source: ${row.source})` : '';
+        confLines.push(`${row.name} = '${String(row.setting).replace(/'/g, "''")}'${unitSuffix}${sourceComment}`);
+      }
+
+      content = confLines.join('\n');
+      descEn = `Full snapshot of all active PostgreSQL configuration parameters (${settingsRes.rows?.length || 0} parameters).`;
+      descFa = `نسخه پشتیبان کامل از کلیه پارامترهای فعال پیکربندی سرور PostgreSQL (تعداد ${settingsRes.rows?.length || 0} پارامتر).`;
+
+    } else if (configType === 'pg_hba') {
+      finalFilename = req.customFilename?.trim()
+        ? req.customFilename.trim().replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+        : `pg_hba_backup_${timestampStr}.conf`;
+      if (!finalFilename.endsWith('.conf')) finalFilename += '.conf';
+
+      const hbaRes = await client.query("SHOW hba_file;");
+      const hbaFilePath = hbaRes.rows?.[0]?.hba_file || '';
+
+      let rawHba = '';
+      if (hbaFilePath && (server.ssh_password || server.ssh_key)) {
+        try {
+          rawHba = await runAdaptiveSshCommand(server, `cat "${hbaFilePath}" 2>/dev/null || true`);
+        } catch {}
+      }
+
+      if (!rawHba) {
+        try {
+          const rulesRes = await client.query(`
+            SELECT line_number, type, database, user_name, address, auth_method, options
+            FROM pg_hba_file_rules
+            ORDER BY line_number ASC;
+          `);
+          const lines: string[] = [
+            `# ====================================================================`,
+            `# PostgreSQL Client Authentication Configuration (pg_hba.conf)`,
+            `# Host: ${targetHost}:${targetPort} | Exported: ${now.toISOString()}`,
+            `# Source View: pg_hba_file_rules`,
+            `# ====================================================================`,
+            ``,
+          ];
+          for (const r of rulesRes.rows || []) {
+            const dbStr = Array.isArray(r.database) ? r.database.join(',') : (r.database || 'all');
+            const userStr = Array.isArray(r.user_name) ? r.user_name.join(',') : (r.user_name || 'all');
+            const addrStr = r.address || '';
+            const optsStr = Array.isArray(r.options) ? r.options.join(' ') : (r.options || '');
+            lines.push(`${(r.type || 'host').padEnd(8)} ${dbStr.padEnd(16)} ${userStr.padEnd(16)} ${addrStr.padEnd(18)} ${(r.auth_method || 'scram-sha-256').padEnd(12)} ${optsStr}`);
+          }
+          rawHba = lines.join('\n');
+        } catch {}
+      }
+
+      content = rawHba || `# pg_hba.conf snapshot generated on ${now.toISOString()}`;
+      descEn = `Snapshot of pg_hba.conf client authentication rules.`;
+      descFa = `نسخه پشتیبان از قوانین احراز هویت کلاینت‌ها (pg_hba.conf).`;
+
+    } else if (configType === 'cluster_roles') {
+      finalFilename = req.customFilename?.trim()
+        ? req.customFilename.trim().replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+        : `cluster_roles_backup_${timestampStr}.sql`;
+      if (!finalFilename.endsWith('.sql')) finalFilename += '.sql';
+
+      const rolesRes = await client.query<{
+        rolname: string;
+        rolsuper: boolean;
+        rolinherit: boolean;
+        rolcreaterole: boolean;
+        rolcreatedb: boolean;
+        rolcanlogin: boolean;
+        rolreplication: boolean;
+        rolconnlimit: number;
+        rolpassword: string | null;
+        rolvaliduntil: string | null;
+        rolbypassrls: boolean;
+      }>(`
+        SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+               rolcanlogin, rolreplication, rolconnlimit, rolpassword,
+               rolvaliduntil, rolbypassrls
+        FROM pg_roles
+        ORDER BY rolname;
+      `);
+
+      const membersRes = await client.query<{
+        role_name: string;
+        member_name: string;
+        admin_option: boolean;
+      }>(`
+        SELECT r.rolname AS role_name, m.rolname AS member_name, a.admin_option
+        FROM pg_auth_members a
+        JOIN pg_roles r ON r.oid = a.roleid
+        JOIN pg_roles m ON m.oid = a.member
+        ORDER BY r.rolname, m.rolname;
+      `);
+
+      const sqlLines: string[] = [
+        `-- ====================================================================`,
+        `-- PostgreSQL Cluster Roles & Global Privileges Dump`,
+        `-- Host: ${targetHost}:${targetPort} | Exported: ${now.toISOString()}`,
+        `-- Generated by NetTopology PostgreSQL Manager (Phase 17)`,
+        `-- ====================================================================`,
+        ``,
+        `BEGIN;`,
+        ``,
+      ];
+
+      for (const r of rolesRes.rows || []) {
+        if (r.rolname.startsWith('pg_')) continue;
+        const opts: string[] = [];
+        if (r.rolsuper) opts.push('SUPERUSER'); else opts.push('NOSUPERUSER');
+        if (r.rolcreatedb) opts.push('CREATEDB'); else opts.push('NOCREATEDB');
+        if (r.rolcreaterole) opts.push('CREATEROLE'); else opts.push('NOCREATEROLE');
+        if (r.rolinherit) opts.push('INHERIT'); else opts.push('NOINHERIT');
+        if (r.rolcanlogin) opts.push('LOGIN'); else opts.push('NOLOGIN');
+        if (r.rolreplication) opts.push('REPLICATION'); else opts.push('NOREPLICATION');
+        if (r.rolbypassrls) opts.push('BYPASSRLS'); else opts.push('NOBYPASSRLS');
+        if (r.rolconnlimit !== undefined && r.rolconnlimit >= 0) opts.push(`CONNECTION LIMIT ${r.rolconnlimit}`);
+        if (r.rolvaliduntil) opts.push(`VALID UNTIL '${r.rolvaliduntil}'`);
+        if (r.rolpassword) opts.push(`PASSWORD '${r.rolpassword.replace(/'/g, "''")}'`);
+
+        sqlLines.push(`DO $$`);
+        sqlLines.push(`BEGIN`);
+        sqlLines.push(`  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${r.rolname.replace(/'/g, "''")}') THEN`);
+        sqlLines.push(`    CREATE ROLE "${r.rolname}" ${opts.join(' ')};`);
+        sqlLines.push(`  ELSE`);
+        sqlLines.push(`    ALTER ROLE "${r.rolname}" ${opts.join(' ')};`);
+        sqlLines.push(`  END IF;`);
+        sqlLines.push(`END $$;`);
+        sqlLines.push(``);
+      }
+
+      for (const m of membersRes.rows || []) {
+        if (m.role_name.startsWith('pg_') && m.member_name.startsWith('pg_')) continue;
+        sqlLines.push(`GRANT "${m.role_name}" TO "${m.member_name}"${m.admin_option ? ' WITH ADMIN OPTION' : ''};`);
+      }
+
+      sqlLines.push(``);
+      sqlLines.push(`COMMIT;`);
+      content = sqlLines.join('\n');
+      descEn = `Export of ${rolesRes.rows?.length || 0} cluster roles, privilege flags, and group memberships.`;
+      descFa = `خروجی ساختاریافته از ${rolesRes.rows?.length || 0} رول و کاربر سرور همراه با سطوح دسترسی و عضویت‌های گروهی.`;
+    }
+
+    await client.end();
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    return {
+      success: false,
+      message: `Failed to create configuration backup: ${err.message}`,
+      messageFa: `خطا در ایجاد نسخه پشتیبان از پیکربندی: ${err.message}`,
+      error: err.message,
+    };
+  }
+
+  const targetFilePath = path.join(backupDir, finalFilename);
+  fs.writeFileSync(targetFilePath, content, 'utf8');
+
+  const stats = fs.statSync(targetFilePath);
+  const backupItem: PostgresBackupItem = {
+    id: finalFilename,
+    filename: finalFilename,
+    category: 'configuration',
+    configType,
+    database: req.database || server.postgres_database || 'postgres',
+    sizeBytes: stats.size,
+    sizePretty: formatBytesPretty(stats.size),
+    format: 'plain',
+    createdAt: now.toISOString(),
+    downloadUrl: `/api/remote-servers/${server.id}/postgres/backups/${encodeURIComponent(finalFilename)}/download`,
+    engineUsed: 'config_snapshot',
+    description: descEn,
+    descriptionFa: descFa,
+  };
+
+  const meta = loadPostgresBackupsMeta(server.id);
+  meta[finalFilename] = backupItem;
+  savePostgresBackupsMeta(server.id, meta);
+
+  const durationMs = Date.now() - startTime;
+  return {
+    success: true,
+    backup: backupItem,
+    message: `Configuration backup "${finalFilename}" created successfully in ${(durationMs / 1000).toFixed(1)}s.`,
+    messageFa: `نسخه پشتیبان پیکربندی "${finalFilename}" با موفقیت در ${(durationMs / 1000).toFixed(1)} ثانیه ایجاد گردید.`,
+    durationMs,
+    sqlDumpPreview: content.slice(0, 1500),
+  };
+}
+
 export async function createPostgresBackup(
   server: RemoteServer,
   req: PostgresCreateBackupRequest
 ): Promise<PostgresCreateBackupResult> {
+  if (req.category === 'configuration') {
+    return createPostgresConfigBackup(server, req);
+  }
+
   const targetDb = (req.database || server.postgres_database || 'postgres').trim();
   const startTime = Date.now();
 
@@ -5228,6 +5553,7 @@ rm -f "${remoteTempFile}"`;
   const backupItem: PostgresBackupItem = {
     id: finalFilename,
     filename: finalFilename,
+    category: 'database',
     database: targetDb,
     sizeBytes: stats.size,
     sizePretty: formatBytesPretty(stats.size),
@@ -5241,6 +5567,8 @@ rm -f "${remoteTempFile}"`;
     compressionLevel: req.compressionLevel,
     downloadUrl: `/api/remote-servers/${server.id}/postgres/backups/${encodeURIComponent(finalFilename)}/download`,
     engineUsed,
+    description: `${req.mode === 'full' ? 'Full Database Dump' : req.mode === 'schema_only' ? 'Schema DDL Only' : 'Data Tables Only'} (${tablesCount} tables, ${schemasCount} schemas)`,
+    descriptionFa: `${req.mode === 'full' ? 'پشتیبان کامل پایگاه داده' : req.mode === 'schema_only' ? 'صرفاً اسکیما و ساختار DDL' : 'صرفاً رکوردهای جداول'} (شامل ${tablesCount} جدول و ${schemasCount} اسکیما)`,
   };
 
   const meta = loadPostgresBackupsMeta(server.id);
@@ -5273,6 +5601,109 @@ export async function restorePostgresBackup(
       messageFa: `فایل نسخه پشتیبان "${req.filename}" یافت نشد.`,
       error: 'File not found',
     };
+  }
+
+  const meta = loadPostgresBackupsMeta(server.id);
+  const backupMeta = meta[req.filename];
+  const isConfigFile = req.filename.endsWith('.conf') || backupMeta?.category === 'configuration' || req.category === 'configuration';
+
+  if (isConfigFile) {
+    if (backupMeta?.configType === 'pg_hba' || req.filename.includes('pg_hba')) {
+      const rawText = fs.readFileSync(targetFilePath, 'utf8');
+      const lines = rawText.split('\n');
+      const rules: any[] = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const tokens = trimmed.split(/\s+/);
+        if (tokens.length >= 4) {
+          rules.push({
+            id: `rule-${Math.random().toString(36).slice(2, 8)}`,
+            enabled: true,
+            type: tokens[0],
+            database: tokens[1],
+            user: tokens[2],
+            address: tokens.length >= 5 ? tokens[3] : '',
+            method: tokens.length >= 5 ? tokens[4] : tokens[3],
+            options: tokens.slice(5).join(' ') || undefined,
+          });
+        }
+      }
+
+      if (rules.length > 0) {
+        const hbaRes = await savePostgresHbaConfig(server, {
+          database: req.database || server.postgres_database || 'postgres',
+          rules,
+          port: req.port,
+          user: req.user,
+          sessionPassword: req.sessionPassword,
+        });
+
+        const durationMs = Date.now() - startTime;
+        return {
+          success: hbaRes.success,
+          message: hbaRes.message,
+          messageFa: hbaRes.messageFa || hbaRes.message,
+          executedStatementsCount: rules.length,
+          durationMs,
+          error: hbaRes.errors?.[0],
+          outputLog: hbaRes.diffText || (hbaRes.errors || []).join('\n'),
+        };
+      }
+    } else if (backupMeta?.configType === 'postgresql_conf' || req.filename.includes('postgresql_conf')) {
+      const { client } = createPostgresClient(server, {
+        database: req.database || server.postgres_database || 'postgres',
+        port: req.port,
+        user: req.user,
+        password: req.sessionPassword,
+      });
+
+      try {
+        await client.connect();
+        const rawText = fs.readFileSync(targetFilePath, 'utf8');
+        const lines = rawText.split('\n');
+        let appliedParams = 0;
+        const errors: string[] = [];
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const match = trimmed.match(/^([a-zA-Z0-9_\.]+)\s*=\s*'?(.*?)'?\s*(?:#.*)?$/);
+          if (match) {
+            const paramName = match[1];
+            const paramVal = match[2].replace(/'/g, "''");
+            try {
+              await client.query(`ALTER SYSTEM SET ${paramName} = '${paramVal}';`);
+              appliedParams++;
+            } catch (paramErr: any) {
+              errors.push(`${paramName}: ${paramErr.message}`);
+            }
+          }
+        }
+
+        await client.query('SELECT pg_reload_conf();');
+        await client.end();
+
+        const durationMs = Date.now() - startTime;
+        return {
+          success: true,
+          message: `Restored and reloaded ${appliedParams} PostgreSQL configuration parameters in ${(durationMs / 1000).toFixed(1)}s.${errors.length > 0 ? ` (${errors.length} parameters skipped or require restart)` : ''}`,
+          messageFa: `تعداد ${appliedParams} پارامتر تنظیمات سرور با موفقیت بر روی PostgreSQL اعمال و بارگذاری مجدد شد.${errors.length > 0 ? ` (${errors.length} خطا یا نیازمند ریستارت)` : ''}`,
+          executedStatementsCount: appliedParams,
+          durationMs,
+          outputLog: errors.length > 0 ? errors.join('\n') : `All ${appliedParams} parameters reloaded via pg_reload_conf().`,
+        };
+      } catch (err: any) {
+        try { await client.end(); } catch {}
+        return {
+          success: false,
+          message: `Failed to restore configuration: ${err.message}`,
+          messageFa: `خطا در اعمال تنظیمات: ${err.message}`,
+          durationMs: Date.now() - startTime,
+          error: err.message,
+        };
+      }
+    }
   }
 
   const targetDb = (req.database || server.postgres_database || 'postgres').trim();
@@ -5445,6 +5876,184 @@ export function getPostgresBackupFilePath(server: RemoteServer, filename: string
     return filePath;
   }
   return null;
+}
+
+/**
+ * Validates a backup file before executing restore, checking target DB existence and collision risks.
+ */
+export async function validatePostgresRestore(
+  server: RemoteServer,
+  req: PostgresValidateRestoreRequest
+): Promise<PostgresValidateRestoreResult> {
+  const backupDir = getPostgresBackupsDir(server.id);
+  const targetFilePath = path.join(backupDir, path.basename(req.filename));
+
+  if (!fs.existsSync(targetFilePath)) {
+    return {
+      valid: false,
+      targetDatabase: req.targetDatabase || server.postgres_database || 'postgres',
+      databaseExists: false,
+      targetHasExistingData: false,
+      existingTablesCount: 0,
+      existingTablesSample: [],
+      requiresExplicitConfirmation: false,
+      error: `Backup file "${req.filename}" does not exist on disk.`,
+      errorFa: `فایل نسخه پشتیبان "${req.filename}" یافت نشد.`,
+    };
+  }
+
+  const meta = loadPostgresBackupsMeta(server.id);
+  const backupItem = meta[req.filename];
+  const targetDb = (req.targetDatabase || backupItem?.database || server.postgres_database || 'postgres').trim();
+
+  const { client } = createPostgresClient(server, {
+    database: targetDb,
+    port: req.port,
+    user: req.user,
+    password: req.sessionPassword,
+  });
+
+  let databaseExists = true;
+  let existingTablesCount = 0;
+  let existingTablesSample: string[] = [];
+
+  try {
+    await client.connect();
+
+    const tablesRes = await client.query<{ table_name: string }>(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+      ORDER BY table_name ASC
+      LIMIT 20;
+    `);
+
+    const countRes = await client.query<{ count: string }>(`
+      SELECT count(*)::text AS count
+      FROM information_schema.tables
+      WHERE table_schema NOT IN ('pg_catalog', 'information_schema');
+    `);
+
+    existingTablesCount = parseInt(countRes.rows?.[0]?.count || '0', 10);
+    existingTablesSample = (tablesRes.rows || []).map((r) => r.table_name);
+
+    await client.end();
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    if (err.message && err.message.includes('does not exist')) {
+      databaseExists = false;
+    }
+  }
+
+  const targetHasExistingData = existingTablesCount > 0;
+  const requiresExplicitConfirmation = targetHasExistingData;
+
+  let warning: string | undefined;
+  let warningFa: string | undefined;
+
+  if (targetHasExistingData) {
+    warning = `Target database "${targetDb}" already contains ${existingTablesCount} tables (${existingTablesSample.slice(0, 5).join(', ')}${existingTablesCount > 5 ? '...' : ''}). Restoring will modify or overwrite existing schemas and records!`;
+    warningFa = `پایگاه داده مقصد "${targetDb}" در حال حاضر شامل ${existingTablesCount} جدول می‌باشد (${existingTablesSample.slice(0, 5).join('، ')}${existingTablesCount > 5 ? '...' : ''}). اجرای بازیابی ممکن است داده‌ها یا اسکیماهای موجود را بازنویسی کند!`;
+  }
+
+  return {
+    valid: true,
+    backupItem,
+    targetDatabase: targetDb,
+    databaseExists,
+    targetHasExistingData,
+    existingTablesCount,
+    existingTablesSample,
+    warning,
+    warningFa,
+    requiresExplicitConfirmation,
+  };
+}
+
+/**
+ * Preview / Inspect the content of a Plain SQL or Configuration backup
+ */
+export async function previewPostgresBackup(
+  server: RemoteServer,
+  filename: string
+): Promise<PostgresBackupPreviewResult> {
+  const backupDir = getPostgresBackupsDir(server.id);
+  const targetFilePath = path.join(backupDir, path.basename(filename));
+
+  if (!fs.existsSync(targetFilePath)) {
+    return {
+      success: false,
+      filename,
+      content: '',
+      totalLines: 0,
+      isTruncated: false,
+      sizeBytes: 0,
+      category: 'database',
+      format: 'plain',
+      error: 'File not found',
+      errorFa: 'فایل یافت نشد',
+    };
+  }
+
+  const stats = fs.statSync(targetFilePath);
+  const meta = loadPostgresBackupsMeta(server.id);
+  const item = meta[filename];
+  const isGz = filename.endsWith('.gz');
+  const isDump = filename.endsWith('.dump');
+  const isTar = filename.endsWith('.tar');
+
+  if (isDump || isTar) {
+    return {
+      success: true,
+      filename,
+      content: `-- Binary/Tar archive backup (${formatBytesPretty(stats.size)}).\n-- Content inspection is available for Plain SQL and Configuration snapshots.\n-- Use "Restore" or "Download" to inspect binary archives.`,
+      totalLines: 3,
+      isTruncated: false,
+      sizeBytes: stats.size,
+      category: item?.category || 'database',
+      format: isDump ? 'custom' : 'tar',
+    };
+  }
+
+  try {
+    const rawBuffer = fs.readFileSync(targetFilePath);
+    let fullText = '';
+    if (isGz) {
+      fullText = zlib.gunzipSync(rawBuffer).toString('utf8');
+    } else {
+      fullText = rawBuffer.toString('utf8');
+    }
+
+    const lines = fullText.split('\n');
+    const totalLines = lines.length;
+    const maxPreviewLines = 300;
+    const previewLines = lines.slice(0, maxPreviewLines);
+    const isTruncated = totalLines > maxPreviewLines;
+
+    return {
+      success: true,
+      filename,
+      content: previewLines.join('\n') + (isTruncated ? `\n\n-- ... [Truncated: showing first ${maxPreviewLines} of ${totalLines} lines. Download file to view complete content] ...` : ''),
+      totalLines,
+      isTruncated,
+      sizeBytes: stats.size,
+      category: item?.category || (filename.endsWith('.conf') ? 'configuration' : 'database'),
+      format: 'plain',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      filename,
+      content: '',
+      totalLines: 0,
+      isTruncated: false,
+      sizeBytes: stats.size,
+      category: item?.category || 'database',
+      format: 'plain',
+      error: err.message,
+      errorFa: `خطا در باز کردن فایل: ${err.message}`,
+    };
+  }
 }
 
 // ==========================================

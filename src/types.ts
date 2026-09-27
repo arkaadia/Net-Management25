@@ -2228,19 +2228,23 @@ export interface PostgresDbLifecycleResult {
 }
 
 // ==========================================
-// Phase 13: Backup & Restore / Dump & Export
+// Phase 17: Backup & Restore (Database & Configuration)
 // ==========================================
 
+export type PostgresBackupCategory = 'database' | 'configuration';
 export type PostgresBackupMode = 'full' | 'schema_only' | 'data_only';
+export type PostgresConfigBackupType = 'postgresql_conf' | 'pg_hba' | 'cluster_roles';
 export type PostgresBackupFormat = 'plain' | 'custom' | 'tar';
 
 export interface PostgresBackupItem {
   id: string;
   filename: string;
-  database: string;
+  category: PostgresBackupCategory;
+  database?: string;
+  configType?: PostgresConfigBackupType;
   sizeBytes: number;
   sizePretty: string;
-  mode: PostgresBackupMode;
+  mode?: PostgresBackupMode;
   format: PostgresBackupFormat;
   createdAt: string;
   tablesCount?: number;
@@ -2249,13 +2253,17 @@ export interface PostgresBackupItem {
   tables?: string[];
   compressionLevel?: number;
   downloadUrl?: string;
-  engineUsed: 'native_pg_dump' | 'logical_sql_dumper';
+  engineUsed: 'native_pg_dump' | 'logical_sql_dumper' | 'config_snapshot';
+  description?: string;
+  descriptionFa?: string;
 }
 
 export interface PostgresCreateBackupRequest {
-  database: string;
-  mode: PostgresBackupMode;
-  format: PostgresBackupFormat;
+  category?: PostgresBackupCategory;
+  database?: string;
+  mode?: PostgresBackupMode;
+  configType?: PostgresConfigBackupType;
+  format?: PostgresBackupFormat;
   schemas?: string[];
   tables?: string[];
   includeDrop?: boolean;
@@ -2281,6 +2289,7 @@ export interface PostgresCreateBackupResult {
 export interface PostgresRestoreBackupRequest {
   database: string;
   filename: string;
+  category?: PostgresBackupCategory;
   cleanFirst?: boolean;
   singleTransaction?: boolean;
   exitOnError?: boolean;
@@ -2298,6 +2307,42 @@ export interface PostgresRestoreBackupResult {
   error?: string;
   errorFa?: string;
   outputLog?: string;
+}
+
+export interface PostgresValidateRestoreRequest {
+  filename: string;
+  targetDatabase?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresValidateRestoreResult {
+  valid: boolean;
+  backupItem?: PostgresBackupItem;
+  targetDatabase: string;
+  databaseExists: boolean;
+  targetHasExistingData: boolean;
+  existingTablesCount: number;
+  existingTablesSample: string[];
+  warning?: string;
+  warningFa?: string;
+  requiresExplicitConfirmation: boolean;
+  error?: string;
+  errorFa?: string;
+}
+
+export interface PostgresBackupPreviewResult {
+  success: boolean;
+  filename: string;
+  content: string;
+  totalLines: number;
+  isTruncated: boolean;
+  sizeBytes: number;
+  category: PostgresBackupCategory;
+  format: PostgresBackupFormat;
+  error?: string;
+  errorFa?: string;
 }
 
 // ==========================================
