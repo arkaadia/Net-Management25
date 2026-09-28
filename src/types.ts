@@ -1494,9 +1494,47 @@ export interface MysqlOverview {
 export interface MysqlDatabaseItem {
   name: string;
   defaultCollation: string;
+  defaultCharacterSet?: string;
   tableCount: number;
   sizeBytes: number;
   sizePretty: string;
+  isSystem?: boolean;
+}
+
+export interface MysqlDatabaseTableSummary {
+  name: string;
+  type: string;
+  engine?: string;
+  collation?: string;
+  approxRows: number;
+  dataLengthBytes: number;
+  dataLengthPretty: string;
+  indexLengthBytes: number;
+  indexLengthPretty: string;
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  createTime?: string;
+  updateTime?: string;
+  comment?: string;
+}
+
+export interface MysqlDatabaseDetails {
+  name: string;
+  defaultCollation: string;
+  defaultCharacterSet: string;
+  tableCount: number;
+  sizeBytes: number;
+  sizePretty: string;
+  isSystem: boolean;
+  tables: MysqlDatabaseTableSummary[];
+}
+
+export interface MysqlUserItem {
+  user: string;
+  host: string;
+  plugin?: string;
+  accountLocked?: boolean;
+  passwordExpired?: boolean;
 }
 
 export interface MysqlProcessItem {

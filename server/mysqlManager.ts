@@ -6,6 +6,9 @@ import {
   MysqlConnectionTestResult,
   MysqlOverview,
   MysqlDatabaseItem,
+  MysqlDatabaseDetails,
+  MysqlDatabaseTableSummary,
+  MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
@@ -245,8 +248,22 @@ export async function getMysqlOverview(server: RemoteServer): Promise<MysqlOverv
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
 /**
- * Retrieves the list of databases in MySQL with size and table count.
+ * Retrieves the list of databases in MySQL with size, charset, and table count.
  */
 export async function getMysqlDatabases(server: RemoteServer): Promise<MysqlDatabaseItem[]> {
   const config = getMysqlConfig(server);
@@ -265,34 +282,31 @@ export async function getMysqlDatabases(server: RemoteServer): Promise<MysqlData
     const [rows]: any = await conn.query(`
       SELECT 
         s.schema_name AS name,
+        s.default_character_set_name AS defaultCharacterSet,
         s.default_collation_name AS defaultCollation,
         COUNT(t.table_name) AS tableCount,
         COALESCE(SUM(t.data_length + t.index_length), 0) AS sizeBytes
       FROM information_schema.schemata s
       LEFT JOIN information_schema.tables t ON s.schema_name = t.table_schema
-      GROUP BY s.schema_name, s.default_collation_name
+      GROUP BY s.schema_name, s.default_character_set_name, s.default_collation_name
       ORDER BY s.schema_name ASC
     `);
 
     await conn.end();
 
+    const SYSTEM_DBS = new Set(['information_schema', 'mysql', 'performance_schema', 'sys']);
+
     return (rows || []).map((r: any) => {
       const bytes = Number(r.sizeBytes) || 0;
-      let sizePretty = '0 B';
-      if (bytes >= 1024 * 1024 * 1024) {
-        sizePretty = `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-      } else if (bytes >= 1024 * 1024) {
-        sizePretty = `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-      } else if (bytes >= 1024) {
-        sizePretty = `${(bytes / 1024).toFixed(1)} KB`;
-      }
-
+      const dbName = String(r.name || '');
       return {
-        name: r.name,
+        name: dbName,
+        defaultCharacterSet: r.defaultCharacterSet || 'utf8mb4',
         defaultCollation: r.defaultCollation || 'utf8mb4_general_ci',
         tableCount: Number(r.tableCount) || 0,
         sizeBytes: bytes,
-        sizePretty,
+        sizePretty: formatBytes(bytes),
+        isSystem: SYSTEM_DBS.has(dbName.toLowerCase()),
       };
     });
   } catch (err: any) {
@@ -302,6 +316,175 @@ export async function getMysqlDatabases(server: RemoteServer): Promise<MysqlData
       } catch {}
     }
     throw new Error(`Failed to fetch MySQL databases: ${err.message}`);
+  }
+}
+
+/**
+ * Retrieves detailed metadata and table list for a specific database in MySQL.
+ */
+export async function getMysqlDatabaseDetails(
+  server: RemoteServer,
+  databaseName: string
+): Promise<MysqlDatabaseDetails> {
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: 'information_schema',
+      connectTimeout: 7000,
+    });
+
+    // 1. Fetch Database Metadata
+    const [schemaRows]: any = await conn.query(
+      `SELECT schema_name AS name, default_character_set_name AS defaultCharacterSet, default_collation_name AS defaultCollation 
+       FROM information_schema.schemata 
+       WHERE schema_name = ?`,
+      [databaseName]
+    );
+
+    const schemaRow = Array.isArray(schemaRows) && schemaRows.length > 0 ? schemaRows[0] : null;
+    const defaultCharacterSet = schemaRow?.defaultCharacterSet || 'utf8mb4';
+    const defaultCollation = schemaRow?.defaultCollation || 'utf8mb4_general_ci';
+
+    // 2. Fetch Tables in Database
+    const [tableRows]: any = await conn.query(
+      `SELECT 
+         table_name AS name,
+         table_type AS type,
+         engine,
+         table_collation AS collation,
+         COALESCE(table_rows, 0) AS approxRows,
+         COALESCE(data_length, 0) AS dataLength,
+         COALESCE(index_length, 0) AS indexLength,
+         create_time AS createTime,
+         update_time AS updateTime,
+         table_comment AS comment
+       FROM information_schema.tables 
+       WHERE table_schema = ?
+       ORDER BY table_name ASC`,
+      [databaseName]
+    );
+
+    await conn.end();
+
+    let totalSizeBytes = 0;
+    const tables: MysqlDatabaseTableSummary[] = (tableRows || []).map((t: any) => {
+      const dataLen = Number(t.dataLength) || 0;
+      const indexLen = Number(t.indexLength) || 0;
+      const total = dataLen + indexLen;
+      totalSizeBytes += total;
+
+      return {
+        name: t.name,
+        type: t.type || 'BASE TABLE',
+        engine: t.engine || 'InnoDB',
+        collation: t.collation || defaultCollation,
+        approxRows: Number(t.approxRows) || 0,
+        dataLengthBytes: dataLen,
+        dataLengthPretty: formatBytes(dataLen),
+        indexLengthBytes: indexLen,
+        indexLengthPretty: formatBytes(indexLen),
+        totalSizeBytes: total,
+        totalSizePretty: formatBytes(total),
+        createTime: t.createTime ? new Date(t.createTime).toISOString() : undefined,
+        updateTime: t.updateTime ? new Date(t.updateTime).toISOString() : undefined,
+        comment: t.comment || undefined,
+      };
+    });
+
+    const SYSTEM_DBS = new Set(['information_schema', 'mysql', 'performance_schema', 'sys']);
+
+    return {
+      name: databaseName,
+      defaultCollation,
+      defaultCharacterSet,
+      tableCount: tables.length,
+      sizeBytes: totalSizeBytes,
+      sizePretty: formatBytes(totalSizeBytes),
+      isSystem: SYSTEM_DBS.has(databaseName.toLowerCase()),
+      tables,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to fetch database details for "${databaseName}": ${err.message}`);
+  }
+}
+
+/**
+ * Retrieves the list of user accounts in MySQL.
+ */
+export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem[]> {
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: 'mysql',
+      connectTimeout: 7000,
+    });
+
+    let userRows: any[] = [];
+    try {
+      const [rows]: any = await conn.query(
+        `SELECT user, host, plugin, account_locked, password_expired FROM mysql.user ORDER BY user, host`
+      );
+      userRows = rows;
+    } catch {
+      try {
+        const [rows]: any = await conn.query(`SELECT user, host, plugin FROM mysql.user ORDER BY user, host`);
+        userRows = rows;
+      } catch {
+        const [rows]: any = await conn.query(`SELECT USER() AS user, '' AS host`);
+        userRows = rows;
+      }
+    }
+
+    await conn.end();
+
+    return (userRows || []).map((u: any) => {
+      let user = u.user || u.User || '';
+      let host = u.host || u.Host || '%';
+      if (user.includes('@')) {
+        const parts = user.split('@');
+        user = parts[0];
+        host = parts[1] || host;
+      }
+      return {
+        user,
+        host,
+        plugin: u.plugin || u.Plugin || 'default',
+        accountLocked: u.account_locked === 'Y' || u.account_locked === 1,
+        passwordExpired: u.password_expired === 'Y' || u.password_expired === 1,
+      };
+    });
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return [
+      {
+        user: config.user || 'root',
+        host: '%',
+        plugin: 'default',
+        accountLocked: false,
+        passwordExpired: false,
+      },
+    ];
   }
 }
 

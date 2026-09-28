@@ -25,12 +25,32 @@ import {
   Play,
   Trash2,
   Zap,
+  Server,
+  Users,
+  User,
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  Copy,
+  Check,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Lock,
+  ExternalLink,
+  Code,
+  Eye,
+  Hash,
 } from 'lucide-react';
 import {
   RemoteServer,
   MysqlConnectionTestResult,
   MysqlOverview,
   MysqlDatabaseItem,
+  MysqlDatabaseDetails,
+  MysqlDatabaseTableSummary,
+  MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
@@ -39,6 +59,8 @@ import {
   testRemoteServerMysqlConnection,
   fetchRemoteServerMysqlOverview,
   fetchRemoteServerMysqlDatabases,
+  fetchRemoteServerMysqlDatabaseDetails,
+  fetchRemoteServerMysqlUsers,
   executeRemoteServerMysqlQuery,
   fetchRemoteServerMysqlProcesslist,
   killRemoteServerMysqlProcess,
@@ -101,6 +123,36 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [isExecutingSql, setIsExecutingSql] = useState(false);
   const [queryResult, setQueryResult] = useState<MysqlQueryResult | null>(null);
 
+  // Database browser tree navigation state (Phase 3)
+  const [selectedTreeNode, setSelectedTreeNode] = useState<{
+    type: 'root' | 'databases_folder' | 'database' | 'table' | 'users_folder' | 'user' | 'server_folder';
+    id: string;
+    name: string;
+    dbName?: string;
+    tableName?: string;
+    userName?: string;
+  }>({
+    type: 'root',
+    id: 'root',
+    name: 'MySQL',
+  });
+  const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
+    () => new Set(['root', 'databases_folder', 'users_folder'])
+  );
+  const [treeSearch, setTreeSearch] = useState('');
+  const [tableSearch, setTableSearch] = useState('');
+  const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
+
+  // Database details cache: dbName -> MysqlDatabaseDetails
+  const [dbDetailsCache, setDbDetailsCache] = useState<Record<string, MysqlDatabaseDetails>>({});
+  const [loadingDbDetails, setLoadingDbDetails] = useState<Set<string>>(new Set());
+  const [dbDetailsError, setDbDetailsError] = useState<Record<string, string>>({});
+
+  // Users state
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [users, setUsers] = useState<MysqlUserItem[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+
   // Run initial test and overview on open
   const runTestConnection = useCallback(async () => {
     if (!server) return;
@@ -153,6 +205,78 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
       setIsLoadingDatabases(false);
     }
   }, [server]);
+
+  const loadUsers = useCallback(async () => {
+    if (!server) return;
+    setIsLoadingUsers(true);
+    try {
+      const res = await fetchRemoteServerMysqlUsers(server.id);
+      if (res.success && res.users) {
+        setUsers(res.users);
+      }
+    } catch {} finally {
+      setIsLoadingUsers(false);
+    }
+  }, [server]);
+
+  const loadDatabaseDetails = useCallback(
+    async (dbName: string, force = false) => {
+      if (!server || !dbName) return;
+      if (!force && dbDetailsCache[dbName]) return;
+
+      setLoadingDbDetails((prev) => new Set(prev).add(dbName));
+      setDbDetailsError((prev) => {
+        const next = { ...prev };
+        delete next[dbName];
+        return next;
+      });
+
+      try {
+        const res = await fetchRemoteServerMysqlDatabaseDetails(server.id, dbName);
+        if (res.success && res.details) {
+          setDbDetailsCache((prev) => ({ ...prev, [dbName]: res.details! }));
+        } else {
+          setDbDetailsError((prev) => ({ ...prev, [dbName]: res.error || 'Failed to fetch details' }));
+        }
+      } catch (err: any) {
+        setDbDetailsError((prev) => ({ ...prev, [dbName]: err.message || 'Error fetching details' }));
+      } finally {
+        setLoadingDbDetails((prev) => {
+          const next = new Set(prev);
+          next.delete(dbName);
+          return next;
+        });
+      }
+    },
+    [server, dbDetailsCache]
+  );
+
+  const toggleTreeNode = (nodeId: string, onExpand?: () => void) => {
+    setExpandedTreeNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+        if (onExpand) onExpand();
+      }
+      return next;
+    });
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedSnippet(id);
+    setTimeout(() => setCopiedSnippet(null), 2000);
+  };
+
+  const handleOpenSqlForDatabase = (dbName: string, table?: string) => {
+    const query = table
+      ? `USE \`${dbName}\`;\nSELECT * FROM \`${table}\` LIMIT 50;`
+      : `USE \`${dbName}\`;\nSHOW TABLES;`;
+    setSqlQuery(query);
+    setActiveTab('sql');
+  };
 
   const loadProcesslist = useCallback(async () => {
     if (!server) return;
@@ -218,10 +342,13 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !server) return;
-    if (activeTab === 'databases') loadDatabases();
+    if (activeTab === 'databases') {
+      loadDatabases();
+      loadUsers();
+    }
     if (activeTab === 'processlist') loadProcesslist();
     if (activeTab === 'variables') loadVariables();
-  }, [isOpen, server, activeTab, loadDatabases, loadProcesslist, loadVariables]);
+  }, [isOpen, server, activeTab, loadDatabases, loadUsers, loadProcesslist, loadVariables]);
 
   const filteredDatabases = useMemo(() => {
     if (!dbSearch.trim()) return databases;
@@ -336,7 +463,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
         >
           {[
             { id: 'overview', label: isEn ? 'Overview & Metrics' : 'داشبورد و وضعیت', icon: Activity },
-            { id: 'databases', label: isEn ? 'Databases' : 'پایگاه‌های داده', icon: Layers },
+            { id: 'databases', label: isEn ? 'Database Browser' : 'کاوشگر پایگاه داده', icon: Layers },
             { id: 'sql', label: isEn ? 'SQL Console' : 'کنسول SQL', icon: Terminal },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
@@ -583,79 +710,942 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             </div>
           )}
 
-          {/* 2. DATABASES TAB */}
+          {/* 2. DATABASE BROWSER TAB (Phase 3) */}
           {activeTab === 'databases' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={dbSearch}
-                    onChange={(e) => setDbSearch(e.target.value)}
-                    placeholder={isEn ? 'Filter databases...' : 'فیلتر پایگاه‌های داده...'}
-                    className={`w-full pl-9 pr-3 py-1.5 rounded-xl border text-xs ${
-                      isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-white/10'
+            <div className="flex flex-col h-full space-y-3">
+              {/* Top Quick Status & Actions Bar */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm sm:text-base flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-orange-400" />
+                    <span>{isEn ? 'MySQL Database Browser' : 'مرورگر و درخت ساختار پایگاه‌های داده MySQL'}</span>
+                  </h3>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold ${
+                      isLightMode ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'
                     }`}
-                  />
+                  >
+                    {databases.length} {isEn ? 'Databases' : 'دیتابیس'}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold ${
+                      isLightMode ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    {users.length} {isEn ? 'Users' : 'کاربر'}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={loadDatabases}
-                  disabled={isLoadingDatabases}
-                  className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 hover:bg-white/10 transition cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDatabases ? 'animate-spin text-orange-400' : ''}`} />
-                  <span>{isEn ? 'Reload' : 'تازه‌سازی'}</span>
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadDatabases();
+                      loadUsers();
+                      if (selectedTreeNode.type === 'database' && selectedTreeNode.dbName) {
+                        loadDatabaseDetails(selectedTreeNode.dbName, true);
+                      }
+                    }}
+                    disabled={isLoadingDatabases || isLoadingUsers}
+                    className={`px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                      isLightMode
+                        ? 'border-slate-300 hover:bg-slate-100 text-slate-700'
+                        : 'border-white/10 hover:bg-white/10 text-slate-300'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDatabases || isLoadingUsers ? 'animate-spin text-orange-400' : ''}`} />
+                    <span>{isEn ? 'Refresh Catalog' : 'بروزرسانی کاتالوگ'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dbName = selectedTreeNode.dbName || server.mysql_database || 'mysql';
+                      handleOpenSqlForDatabase(dbName);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'SQL Console' : 'کنسول SQL'}</span>
+                  </button>
+                </div>
               </div>
 
+              {/* Main Split-Pane Explorer Layout */}
               <div
-                className={`rounded-xl border overflow-hidden ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-white/10'
+                className={`flex-1 flex flex-col md:flex-row rounded-xl border overflow-hidden min-h-[520px] ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                 }`}
               >
-                <table className="w-full text-xs text-left">
-                  <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/20'}>
-                    <tr className="border-b border-white/10">
-                      <th className="p-3">{isEn ? 'Database Name' : 'نام پایگاه داده'}</th>
-                      <th className="p-3">{isEn ? 'Collation' : 'کدگذاری (Collation)'}</th>
-                      <th className="p-3 text-center">{isEn ? 'Tables' : 'تعداد جداول'}</th>
-                      <th className="p-3 text-right">{isEn ? 'Size' : 'حجم دیتابیس'}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 font-mono">
-                    {isLoadingDatabases ? (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-slate-400">
-                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-orange-400 mb-2" />
-                          <span>{isEn ? 'Loading database catalog...' : 'در حال بارگذاری کاتالوگ...'}</span>
-                        </td>
-                      </tr>
-                    ) : filteredDatabases.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-slate-400 font-sans">
-                          {isEn ? 'No databases found.' : 'هیچ دیتابیسی یافت نشد.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredDatabases.map((db) => (
-                        <tr
-                          key={db.name}
-                          className={`transition ${isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/5'}`}
+                {/* ======================================================== */}
+                {/* LEFT PANE: Hierarchical Database Object Tree              */}
+                {/* ======================================================== */}
+                <div
+                  className={`w-full md:w-72 lg:w-80 shrink-0 border-b md:border-b-0 md:border-r flex flex-col ${
+                    isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/80 border-slate-800'
+                  }`}
+                >
+                  {/* Tree Search Box */}
+                  <div className="p-2.5 border-b border-inherit">
+                    <div
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                        isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-200'
+                      }`}
+                    >
+                      <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        value={treeSearch}
+                        onChange={(e) => setTreeSearch(e.target.value)}
+                        placeholder={isEn ? 'Filter tree nodes...' : 'فیلتر درخت اجزا...'}
+                        className="w-full bg-transparent focus:outline-hidden text-xs"
+                      />
+                      {treeSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setTreeSearch('')}
+                          className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
                         >
-                          <td className="p-3 flex items-center gap-2 font-bold text-slate-200">
-                            <Database className="w-3.5 h-3.5 text-orange-400" />
-                            <span>{db.name}</span>
-                          </td>
-                          <td className="p-3 text-slate-400">{db.defaultCollation}</td>
-                          <td className="p-3 text-center text-cyan-400 font-bold">{db.tableCount}</td>
-                          <td className="p-3 text-right text-emerald-400 font-bold">{db.sizePretty}</td>
-                        </tr>
-                      ))
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tree Node Hierarchy */}
+                  <div className="flex-1 overflow-y-auto p-2 text-xs select-none space-y-0.5 font-mono custom-scrollbar">
+                    {/* 1. ROOT NODE: MySQL Server */}
+                    <div>
+                      <div
+                        onClick={() =>
+                          setSelectedTreeNode({
+                            type: 'root',
+                            id: 'root',
+                            name: 'MySQL',
+                          })
+                        }
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition ${
+                          selectedTreeNode.type === 'root'
+                            ? isLightMode
+                              ? 'bg-orange-100 text-orange-900 font-bold'
+                              : 'bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30'
+                            : isLightMode
+                            ? 'hover:bg-slate-200/70 text-slate-800'
+                            : 'hover:bg-slate-800/60 text-slate-200'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleTreeNode('root');
+                          }}
+                          className="p-0.5 hover:text-white"
+                        >
+                          {expandedTreeNodes.has('root') ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <Server className="w-4 h-4 text-orange-400 shrink-0" />
+                        <span className="truncate font-sans font-semibold text-xs">MySQL</span>
+                        <span className="text-[10px] text-slate-400 ml-auto font-mono">
+                          {server.mysql_port || 3306}
+                        </span>
+                      </div>
+
+                      {/* Children of Root */}
+                      {expandedTreeNodes.has('root') && (
+                        <div className="pl-4 pr-1 mt-1 space-y-0.5 border-l border-slate-700/30 ml-2.5">
+                          {/* ======================================================== */}
+                          {/* BRANCH A: Databases                                      */}
+                          {/* ======================================================== */}
+                          <div>
+                            <div
+                              onClick={() => {
+                                setSelectedTreeNode({
+                                  type: 'databases_folder',
+                                  id: 'databases_folder',
+                                  name: isEn ? 'Databases' : 'پایگاه‌های داده',
+                                });
+                              }}
+                              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition ${
+                                selectedTreeNode.type === 'databases_folder'
+                                  ? isLightMode
+                                    ? 'bg-orange-100 text-orange-900 font-bold'
+                                    : 'bg-orange-500/20 text-orange-400 font-bold'
+                                  : isLightMode
+                                  ? 'hover:bg-slate-200/70 text-slate-700'
+                                  : 'hover:bg-slate-800/60 text-slate-300'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTreeNode('databases_folder');
+                                }}
+                                className="p-0.5 hover:text-white"
+                              >
+                                {expandedTreeNodes.has('databases_folder') ? (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              {expandedTreeNodes.has('databases_folder') ? (
+                                <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              ) : (
+                                <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              )}
+                              <span className="truncate font-sans font-medium text-xs">
+                                {isEn ? 'Databases' : 'پایگاه‌های داده'}
+                              </span>
+                              <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
+                                {databases.length}
+                              </span>
+                            </div>
+
+                            {/* Database List */}
+                            {expandedTreeNodes.has('databases_folder') && (
+                              <div className="pl-3 mt-0.5 space-y-0.5 border-l border-slate-700/20 ml-2">
+                                {databases
+                                  .filter((db) => !treeSearch || db.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                  .map((db) => {
+                                    const isSelected = selectedTreeNode.type === 'database' && selectedTreeNode.dbName === db.name;
+                                    const isExpanded = expandedTreeNodes.has(`db:${db.name}`);
+                                    const details = dbDetailsCache[db.name];
+                                    const isLoadingDetails = loadingDbDetails.has(db.name);
+
+                                    return (
+                                      <div key={db.name}>
+                                        <div
+                                          onClick={() => {
+                                            setSelectedTreeNode({
+                                              type: 'database',
+                                              id: `db:${db.name}`,
+                                              name: db.name,
+                                              dbName: db.name,
+                                            });
+                                            loadDatabaseDetails(db.name);
+                                          }}
+                                          className={`flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition text-xs ${
+                                            isSelected
+                                              ? isLightMode
+                                                ? 'bg-orange-100 text-orange-900 font-bold'
+                                                : 'bg-orange-500/25 text-orange-300 font-bold border border-orange-500/30'
+                                              : isLightMode
+                                              ? 'hover:bg-slate-200 text-slate-700'
+                                              : 'hover:bg-slate-800/60 text-slate-300'
+                                          }`}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleTreeNode(`db:${db.name}`, () => loadDatabaseDetails(db.name));
+                                            }}
+                                            className="p-0.5 hover:text-white"
+                                          >
+                                            {isExpanded ? (
+                                              <ChevronDown className="w-3 h-3" />
+                                            ) : (
+                                              <ChevronRight className="w-3 h-3" />
+                                            )}
+                                          </button>
+                                          <Database
+                                            className={`w-3.5 h-3.5 shrink-0 ${
+                                              db.isSystem ? 'text-slate-500' : 'text-orange-400'
+                                            }`}
+                                          />
+                                          <span className="truncate flex-1 font-mono text-[11px]" title={db.name}>
+                                            {db.name}
+                                          </span>
+                                          {db.isSystem ? (
+                                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-500 font-sans">
+                                              SYS
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] text-slate-400 font-mono">
+                                              {db.tableCount}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {/* Tables sub-branch under database */}
+                                        {isExpanded && (
+                                          <div className="pl-4 mt-0.5 space-y-0.5 border-l border-slate-700/20 ml-2">
+                                            {isLoadingDetails ? (
+                                              <div className="py-1 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                                <RefreshCw className="w-3 h-3 animate-spin text-orange-400" />
+                                                <span>{isEn ? 'Loading tables...' : 'در حال خواندن جداول...'}</span>
+                                              </div>
+                                            ) : details?.tables && details.tables.length > 0 ? (
+                                              details.tables
+                                                .filter((t) => !treeSearch || t.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                .slice(0, 100)
+                                                .map((table) => {
+                                                  const isTableSelected =
+                                                    selectedTreeNode.type === 'table' &&
+                                                    selectedTreeNode.dbName === db.name &&
+                                                    selectedTreeNode.tableName === table.name;
+                                                  return (
+                                                    <div
+                                                      key={table.name}
+                                                      onClick={() => {
+                                                        setSelectedTreeNode({
+                                                          type: 'table',
+                                                          id: `table:${db.name}:${table.name}`,
+                                                          name: table.name,
+                                                          dbName: db.name,
+                                                          tableName: table.name,
+                                                        });
+                                                      }}
+                                                      className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                        isTableSelected
+                                                          ? 'bg-orange-500/20 text-orange-300 font-bold'
+                                                          : isLightMode
+                                                          ? 'hover:bg-slate-200 text-slate-600'
+                                                          : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                      }`}
+                                                    >
+                                                      <Table className="w-3 h-3 text-cyan-400 shrink-0" />
+                                                      <span className="truncate flex-1" title={table.name}>
+                                                        {table.name}
+                                                      </span>
+                                                      <span className="text-[10px] text-slate-500 font-mono">
+                                                        {table.approxRows > 0 ? table.approxRows.toLocaleString() : '0'}
+                                                      </span>
+                                                    </div>
+                                                  );
+                                                })
+                                            ) : (
+                                              <div className="py-0.5 text-[10px] text-slate-500 italic">
+                                                {isEn ? 'No tables' : 'بدون جدول'}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ======================================================== */}
+                          {/* BRANCH B: Users & Accounts                               */}
+                          {/* ======================================================== */}
+                          <div>
+                            <div
+                              onClick={() => {
+                                setSelectedTreeNode({
+                                  type: 'users_folder',
+                                  id: 'users_folder',
+                                  name: isEn ? 'Users & Accounts' : 'کاربران و دسترسی‌ها',
+                                });
+                              }}
+                              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition ${
+                                selectedTreeNode.type === 'users_folder'
+                                  ? isLightMode
+                                    ? 'bg-orange-100 text-orange-900 font-bold'
+                                    : 'bg-orange-500/20 text-orange-400 font-bold'
+                                  : isLightMode
+                                  ? 'hover:bg-slate-200/70 text-slate-700'
+                                  : 'hover:bg-slate-800/60 text-slate-300'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTreeNode('users_folder');
+                                }}
+                                className="p-0.5 hover:text-white"
+                              >
+                                {expandedTreeNodes.has('users_folder') ? (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <Users className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                              <span className="truncate font-sans font-medium text-xs">
+                                {isEn ? 'Users' : 'کاربران'}
+                              </span>
+                              <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
+                                {users.length}
+                              </span>
+                            </div>
+
+                            {/* Users list */}
+                            {expandedTreeNodes.has('users_folder') && (
+                              <div className="pl-3 mt-0.5 space-y-0.5 border-l border-slate-700/20 ml-2">
+                                {users
+                                  .filter(
+                                    (u) =>
+                                      !treeSearch ||
+                                      u.user.toLowerCase().includes(treeSearch.toLowerCase()) ||
+                                      u.host.toLowerCase().includes(treeSearch.toLowerCase())
+                                  )
+                                  .map((u) => {
+                                    const userKey = `${u.user}@${u.host}`;
+                                    const isSelected = selectedTreeNode.type === 'user' && selectedTreeNode.userName === userKey;
+                                    return (
+                                      <div
+                                        key={userKey}
+                                        onClick={() => {
+                                          setSelectedTreeNode({
+                                            type: 'user',
+                                            id: `user:${userKey}`,
+                                            name: userKey,
+                                            userName: userKey,
+                                          });
+                                        }}
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-[11px] transition font-mono ${
+                                          isSelected
+                                            ? 'bg-orange-500/25 text-orange-300 font-bold border border-orange-500/30'
+                                            : isLightMode
+                                            ? 'hover:bg-slate-200 text-slate-700'
+                                            : 'hover:bg-slate-800/60 text-slate-300'
+                                        }`}
+                                      >
+                                        <User className="w-3 h-3 text-cyan-400 shrink-0" />
+                                        <span className="truncate flex-1" title={userKey}>
+                                          {userKey}
+                                        </span>
+                                        {u.accountLocked && (
+                                          <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 font-sans">
+                                            {isEn ? 'Locked' : 'قفل'}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ======================================================== */}
+                          {/* BRANCH C: Server                                         */}
+                          {/* ======================================================== */}
+                          <div>
+                            <div
+                              onClick={() => {
+                                setSelectedTreeNode({
+                                  type: 'server_folder',
+                                  id: 'server_folder',
+                                  name: isEn ? 'Server' : 'سرور و متغیرها',
+                                });
+                              }}
+                              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition ${
+                                selectedTreeNode.type === 'server_folder'
+                                  ? isLightMode
+                                    ? 'bg-orange-100 text-orange-900 font-bold'
+                                    : 'bg-orange-500/20 text-orange-400 font-bold'
+                                  : isLightMode
+                                  ? 'hover:bg-slate-200/70 text-slate-700'
+                                  : 'hover:bg-slate-800/60 text-slate-300'
+                              }`}
+                            >
+                              <Cpu className="w-3.5 h-3.5 text-purple-400 shrink-0 ml-4" />
+                              <span className="truncate font-sans font-medium text-xs">
+                                {isEn ? 'Server & Engine' : 'سرور و متغیرها'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ======================================================== */}
+                {/* RIGHT PANE: Object Details & Tables Browser View         */}
+                {/* ======================================================== */}
+                <div className="flex-1 flex flex-col p-4 overflow-y-auto custom-scrollbar">
+                  {/* Breadcrumb Header */}
+                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10 flex-wrap gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 text-slate-400 font-mono">
+                      <span>MySQL</span>
+                      <span>/</span>
+                      {selectedTreeNode.type === 'databases_folder' && (
+                        <span className="text-orange-400 font-bold">{isEn ? 'Databases' : 'پایگاه‌های داده'}</span>
+                      )}
+                      {selectedTreeNode.type === 'database' && (
+                        <>
+                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}>
+                            {isEn ? 'Databases' : 'پایگاه‌های داده'}
+                          </span>
+                          <span>/</span>
+                          <span className="text-orange-400 font-bold">{selectedTreeNode.dbName}</span>
+                        </>
+                      )}
+                      {selectedTreeNode.type === 'table' && (
+                        <>
+                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}>
+                            {isEn ? 'Databases' : 'پایگاه‌های داده'}
+                          </span>
+                          <span>/</span>
+                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'database', id: `db:${selectedTreeNode.dbName}`, name: selectedTreeNode.dbName!, dbName: selectedTreeNode.dbName })}>
+                            {selectedTreeNode.dbName}
+                          </span>
+                          <span>/</span>
+                          <span className="text-cyan-400 font-bold">{selectedTreeNode.tableName}</span>
+                        </>
+                      )}
+                      {selectedTreeNode.type === 'users_folder' && (
+                        <span className="text-blue-400 font-bold">{isEn ? 'Users & Accounts' : 'کاربران و دسترسی‌ها'}</span>
+                      )}
+                      {selectedTreeNode.type === 'user' && (
+                        <>
+                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'users_folder', id: 'users_folder', name: 'Users' })}>
+                            {isEn ? 'Users' : 'کاربران'}
+                          </span>
+                          <span>/</span>
+                          <span className="text-cyan-400 font-bold">{selectedTreeNode.userName}</span>
+                        </>
+                      )}
+                      {selectedTreeNode.type === 'server_folder' && (
+                        <span className="text-purple-400 font-bold">{isEn ? 'Server Overview' : 'مشخصات سرور'}</span>
+                      )}
+                      {selectedTreeNode.type === 'root' && (
+                        <span className="text-slate-200 font-bold">{isEn ? 'Root' : 'ریشه'}</span>
+                      )}
+                    </div>
+
+                    {selectedTreeNode.dbName && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(selectedTreeNode.dbName!, 'db-name')}
+                          className="px-2 py-1 rounded bg-black/20 hover:bg-black/40 text-[11px] font-mono flex items-center gap-1 text-slate-300 cursor-pointer"
+                        >
+                          {copiedSnippet === 'db-name' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedSnippet === 'db-name' ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy Name' : 'کپی نام')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSqlForDatabase(selectedTreeNode.dbName!, selectedTreeNode.tableName)}
+                          className="px-2.5 py-1 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Terminal className="w-3 h-3" />
+                          <span>{isEn ? 'Query in Console' : 'کوئری در کنسول'}</span>
+                        </button>
+                      </div>
                     )}
-                  </tbody>
-                </table>
+                  </div>
+
+                  {/* ---------------------------------------------------- */}
+                  {/* VIEW A: ROOT OR SERVER FOLDER                        */}
+                  {/* ---------------------------------------------------- */}
+                  {(selectedTreeNode.type === 'root' || selectedTreeNode.type === 'server_folder') && (
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-xl border border-white/10 bg-black/10">
+                        <h4 className="font-bold text-sm text-slate-200 mb-1 flex items-center gap-2">
+                          <Server className="w-4 h-4 text-orange-400" />
+                          <span>{server.name} — MySQL Engine</span>
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          {overview?.serverVersion || `${overview?.version || 'MySQL'} Community Server`} • Port {server.mysql_port || 3306}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Databases' : 'تعداد دیتابیس‌ها'}</div>
+                          <div className="text-xl font-bold text-orange-400 mt-1">{databases.length}</div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Total Tables' : 'مجموع جداول'}</div>
+                          <div className="text-xl font-bold text-cyan-400 mt-1">
+                            {databases.reduce((sum, d) => sum + d.tableCount, 0)}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Users' : 'کاربران سرور'}</div>
+                          <div className="text-xl font-bold text-blue-400 mt-1">{users.length}</div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Uptime' : 'مدت فعالیت'}</div>
+                          <div className="text-sm font-bold text-emerald-400 mt-1 truncate">{overview?.uptimePretty || '—'}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium flex items-center gap-1.5 cursor-pointer text-slate-300"
+                        >
+                          <Folder className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{isEn ? 'Explore Databases' : 'مشاهده دیتابیس‌ها'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTreeNode({ type: 'users_folder', id: 'users_folder', name: 'Users' })}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium flex items-center gap-1.5 cursor-pointer text-slate-300"
+                        >
+                          <Users className="w-3.5 h-3.5 text-blue-400" />
+                          <span>{isEn ? 'Manage Accounts' : 'مشاهده کاربران'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('variables')}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium flex items-center gap-1.5 cursor-pointer text-slate-300"
+                        >
+                          <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                          <span>{isEn ? 'System Variables' : 'متغیرهای سیستمی'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------------------- */}
+                  {/* VIEW B: ALL DATABASES GRID VIEW                      */}
+                  {/* ---------------------------------------------------- */}
+                  {selectedTreeNode.type === 'databases_folder' && (
+                    <div className="space-y-4">
+                      {/* Stat summary cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">{isEn ? 'All Databases' : 'کل دیتابیس‌ها'}</div>
+                          <div className="text-xl font-bold font-mono text-orange-400 mt-1">{databases.length}</div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">{isEn ? 'User Databases' : 'دیتابیس‌های کاربری'}</div>
+                          <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
+                            {databases.filter((d) => !d.isSystem).length}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">{isEn ? 'System Schemas' : 'طرح‌واره‌های سیستمی'}</div>
+                          <div className="text-xl font-bold font-mono text-slate-400 mt-1">
+                            {databases.filter((d) => d.isSystem).length}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded-xl border border-white/10 bg-black/10">
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">{isEn ? 'Total Storage' : 'حجم کل داده‌ها'}</div>
+                          <div className="text-base font-bold font-mono text-purple-400 mt-1">
+                            {(() => {
+                              const totalBytes = databases.reduce((sum, d) => sum + d.sizeBytes, 0);
+                              if (totalBytes >= 1024 * 1024 * 1024) return `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+                              if (totalBytes >= 1024 * 1024) return `${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
+                              return `${(totalBytes / 1024).toFixed(1)} KB`;
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Databases Table */}
+                      <div className="rounded-xl border border-white/10 overflow-hidden">
+                        <table className="w-full text-xs text-left">
+                          <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                            <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                              <th className="p-3">{isEn ? 'Database Name' : 'نام پایگاه داده'}</th>
+                              <th className="p-3">{isEn ? 'Charset / Collation' : 'کدگذاری و ترتیه‌بندی'}</th>
+                              <th className="p-3 text-center">{isEn ? 'Tables' : 'تعداد جداول'}</th>
+                              <th className="p-3 text-right">{isEn ? 'Size' : 'حجم دیتابیس'}</th>
+                              <th className="p-3 text-center">{isEn ? 'Action' : 'عملیات'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 font-mono">
+                            {databases.map((db) => (
+                              <tr
+                                key={db.name}
+                                onClick={() => {
+                                  setSelectedTreeNode({
+                                    type: 'database',
+                                    id: `db:${db.name}`,
+                                    name: db.name,
+                                    dbName: db.name,
+                                  });
+                                  loadDatabaseDetails(db.name);
+                                }}
+                                className={`transition cursor-pointer ${
+                                  isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                }`}
+                              >
+                                <td className="p-3 flex items-center gap-2 font-bold text-slate-200">
+                                  <Database className={`w-3.5 h-3.5 ${db.isSystem ? 'text-slate-500' : 'text-orange-400'}`} />
+                                  <span>{db.name}</span>
+                                  {db.isSystem && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-sans">
+                                      SYSTEM
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-slate-400 text-[11px]">
+                                  {db.defaultCharacterSet || 'utf8mb4'} • {db.defaultCollation}
+                                </td>
+                                <td className="p-3 text-center text-cyan-400 font-bold">{db.tableCount}</td>
+                                <td className="p-3 text-right text-emerald-400 font-bold">{db.sizePretty}</td>
+                                <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSqlForDatabase(db.name)}
+                                    className="p-1 rounded hover:bg-orange-500/20 text-slate-400 hover:text-orange-300"
+                                    title={isEn ? 'Query Database' : 'کوئری روی دیتابیس'}
+                                  >
+                                    <Terminal className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------------------- */}
+                  {/* VIEW C: INDIVIDUAL DATABASE DETAILS & TABLES LIST     */}
+                  {/* ---------------------------------------------------- */}
+                  {(selectedTreeNode.type === 'database' || selectedTreeNode.type === 'table') && selectedTreeNode.dbName && (
+                    <div className="space-y-4">
+                      {/* Database Header Card */}
+                      {(() => {
+                        const dbName = selectedTreeNode.dbName!;
+                        const details = dbDetailsCache[dbName];
+                        const dbMeta = databases.find((d) => d.name === dbName);
+                        const isLoading = loadingDbDetails.has(dbName);
+
+                        return (
+                          <>
+                            <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                                  <Database className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-base text-slate-100 font-mono">{dbName}</h3>
+                                    {dbMeta?.isSystem && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-sans font-bold">
+                                        SYSTEM CATALOG
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
+                                    <span>{details?.defaultCharacterSet || dbMeta?.defaultCharacterSet || 'utf8mb4'}</span>
+                                    <span>•</span>
+                                    <span>{details?.defaultCollation || dbMeta?.defaultCollation}</span>
+                                    <span>•</span>
+                                    <span className="text-emerald-400 font-bold">{details?.sizePretty || dbMeta?.sizePretty || '0 B'}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => loadDatabaseDetails(dbName, true)}
+                                  disabled={isLoading}
+                                  className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 text-xs flex items-center gap-1 cursor-pointer"
+                                  title={isEn ? 'Refresh Tables' : 'بروزرسانی جداول'}
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-orange-400' : ''}`} />
+                                  <span className="hidden sm:inline">{isEn ? 'Reload' : 'تازه‌سازی'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSqlForDatabase(dbName)}
+                                  className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Terminal className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Open in Console' : 'کنسول SQL'}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Tables Explorer Section */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                  <Table className="w-4 h-4 text-cyan-400" />
+                                  <span className="font-bold text-xs">
+                                    {isEn ? 'Tables & Views' : 'جداول و نماها'} ({details?.tables?.length ?? dbMeta?.tableCount ?? 0})
+                                  </span>
+                                </div>
+
+                                <div className="relative w-48 sm:w-64">
+                                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                  <input
+                                    type="text"
+                                    value={tableSearch}
+                                    onChange={(e) => setTableSearch(e.target.value)}
+                                    placeholder={isEn ? 'Filter tables...' : 'فیلتر جداول...'}
+                                    className="w-full pl-8 pr-2.5 py-1 rounded-lg border border-white/10 bg-black/20 text-xs focus:outline-hidden"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Tables Table Grid */}
+                              <div className="rounded-xl border border-white/10 overflow-hidden">
+                                <table className="w-full text-xs text-left">
+                                  <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                    <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                      <th className="p-2.5">{isEn ? 'Table' : 'نام جدول'}</th>
+                                      <th className="p-2.5">{isEn ? 'Type' : 'نوع'}</th>
+                                      <th className="p-2.5">{isEn ? 'Engine' : 'موتور'}</th>
+                                      <th className="p-2.5 text-right">{isEn ? 'Rows' : 'تعداد سطرها'}</th>
+                                      <th className="p-2.5 text-right">{isEn ? 'Data Size' : 'حجم داده'}</th>
+                                      <th className="p-2.5 text-right">{isEn ? 'Index Size' : 'حجم ایندکس'}</th>
+                                      <th className="p-2.5 text-right">{isEn ? 'Total Size' : 'حجم کل'}</th>
+                                      <th className="p-2.5 text-center">{isEn ? 'Query' : 'کوئری'}</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-white/5 font-mono">
+                                    {isLoading ? (
+                                      <tr>
+                                        <td colSpan={8} className="p-8 text-center text-slate-400">
+                                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-orange-400 mb-2" />
+                                          <span>{isEn ? 'Fetching table metadata from information_schema...' : 'در حال خواندن متادیتا از information_schema...'}</span>
+                                        </td>
+                                      </tr>
+                                    ) : details?.tables && details.tables.length > 0 ? (
+                                      details.tables
+                                        .filter((t) => !tableSearch || t.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                        .map((t) => {
+                                          const isSelected = selectedTreeNode.type === 'table' && selectedTreeNode.tableName === t.name;
+                                          return (
+                                            <tr
+                                              key={t.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'table',
+                                                  id: `table:${dbName}:${t.name}`,
+                                                  name: t.name,
+                                                  dbName,
+                                                  tableName: t.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isSelected
+                                                  ? 'bg-orange-500/15 text-orange-200'
+                                                  : isLightMode
+                                                  ? 'hover:bg-slate-100'
+                                                  : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Table className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{t.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-slate-400 text-[11px] font-sans">
+                                                {t.type === 'VIEW' ? (
+                                                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">VIEW</span>
+                                                ) : (
+                                                  'TABLE'
+                                                )}
+                                              </td>
+                                              <td className="p-2.5 text-slate-300 font-sans text-[11px]">{t.engine || '—'}</td>
+                                              <td className="p-2.5 text-right text-cyan-400 font-bold">
+                                                {t.approxRows.toLocaleString()}
+                                              </td>
+                                              <td className="p-2.5 text-right text-slate-400">{t.dataLengthPretty}</td>
+                                              <td className="p-2.5 text-right text-slate-400">{t.indexLengthPretty}</td>
+                                              <td className="p-2.5 text-right text-emerald-400 font-bold">{t.totalSizePretty}</td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenSqlForDatabase(dbName, t.name)}
+                                                  className="p-1 rounded hover:bg-orange-500/20 text-slate-400 hover:text-orange-300"
+                                                  title={`SELECT * FROM \`${dbName}\`.\`${t.name}\` LIMIT 50`}
+                                                >
+                                                  <Play className="w-3 h-3" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })
+                                    ) : (
+                                      <tr>
+                                        <td colSpan={8} className="p-8 text-center text-slate-400 font-sans">
+                                          {isEn ? 'No tables found in this database.' : 'هیچ جدولی در این پایگاه داده یافت نشد.'}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------------------- */}
+                  {/* VIEW D: USERS & ACCOUNTS LIST                        */}
+                  {/* ---------------------------------------------------- */}
+                  {(selectedTreeNode.type === 'users_folder' || selectedTreeNode.type === 'user') && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-blue-400" />
+                          <span className="font-bold text-xs">{isEn ? 'MySQL User Accounts' : 'حساب‌های کاربری MySQL'} ({users.length})</span>
+                        </div>
+                        <div className="relative w-48 sm:w-64">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={userSearch}
+                            onChange={(e) => setUserSearch(e.target.value)}
+                            placeholder={isEn ? 'Filter users...' : 'فیلتر حساب‌ها...'}
+                            className="w-full pl-8 pr-2.5 py-1 rounded-lg border border-white/10 bg-black/20 text-xs focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/10 overflow-hidden">
+                        <table className="w-full text-xs text-left">
+                          <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                            <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                              <th className="p-3">{isEn ? 'User Account' : 'نام کاربر'}</th>
+                              <th className="p-3">{isEn ? 'Host Scope' : 'محدوده هاست'}</th>
+                              <th className="p-3">{isEn ? 'Auth Plugin' : 'پلاگین احراز هویت'}</th>
+                              <th className="p-3 text-center">{isEn ? 'Status' : 'وضعیت حساب'}</th>
+                              <th className="p-3 text-center">{isEn ? 'Password Expired' : 'انقضای رمز'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 font-mono">
+                            {users
+                              .filter((u) => !userSearch || u.user.toLowerCase().includes(userSearch.toLowerCase()) || u.host.toLowerCase().includes(userSearch.toLowerCase()))
+                              .map((u) => (
+                                <tr key={`${u.user}@${u.host}`} className={isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'}>
+                                  <td className="p-3 flex items-center gap-2 font-bold text-slate-200">
+                                    <User className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>{u.user}</span>
+                                  </td>
+                                  <td className="p-3 text-slate-400">{u.host}</td>
+                                  <td className="p-3 text-slate-300 font-sans text-[11px]">{u.plugin || 'default'}</td>
+                                  <td className="p-3 text-center">
+                                    {u.accountLocked ? (
+                                      <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-sans font-bold">
+                                        {isEn ? 'Locked' : 'قفل‌شده'}
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-sans font-bold">
+                                        {isEn ? 'Active' : 'فعال'}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-center text-slate-400 text-[10px] font-sans">
+                                    {u.passwordExpired ? (
+                                      <span className="text-amber-400 font-bold">{isEn ? 'Expired' : 'منقضی'}</span>
+                                    ) : (
+                                      <span className="text-slate-500">{isEn ? 'Valid' : 'معتبر'}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

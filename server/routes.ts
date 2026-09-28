@@ -62,6 +62,8 @@ import {
   testMysqlConnection,
   getMysqlOverview,
   getMysqlDatabases,
+  getMysqlDatabaseDetails,
+  getMysqlUsers,
   executeMysqlQuery,
   getMysqlProcesslist,
   killMysqlProcess,
@@ -4283,6 +4285,36 @@ apiRouter.get('/remote-servers/:id/mysql/databases', async (req: Request, res: R
     }
     const databases = await getMysqlDatabases(server);
     return res.json({ success: true, databases });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/databases/:databaseName - Get database details and tables list
+apiRouter.get('/remote-servers/:id/mysql/databases/:databaseName', async (req: Request, res: Response) => {
+  try {
+    const { id, databaseName } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const details = await getMysqlDatabaseDetails(server, databaseName);
+    return res.json({ success: true, details });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/users - List user accounts in MySQL
+apiRouter.get('/remote-servers/:id/mysql/users', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const users = await getMysqlUsers(server);
+    return res.json({ success: true, users });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

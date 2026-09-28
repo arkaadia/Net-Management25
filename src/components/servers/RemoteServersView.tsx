@@ -3303,7 +3303,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     )}
 
                     {/* MySQL Management (shown ONLY for Linux servers where MySQL is configured) */}
-                    {menuAnchor.server.os_type !== 'windows' && (menuAnchor.server.has_mysql || menuAnchor.server.server_type === 'mysql' || (Array.isArray(menuAnchor.server.installed_databases) && (menuAnchor.server.installed_databases.includes('mysql') || menuAnchor.server.installed_databases.includes('mariadb')))) && (
+                    {(menuAnchor.server.has_mysql || menuAnchor.server.server_type === 'mysql' || (Array.isArray(menuAnchor.server.installed_databases) && (menuAnchor.server.installed_databases.includes('mysql') || menuAnchor.server.installed_databases.includes('mariadb')))) && (
                       <button
                         type="button"
                         onClick={() => {

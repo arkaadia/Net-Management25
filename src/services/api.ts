@@ -18,6 +18,8 @@ import {
   MysqlConnectionTestResult,
   MysqlOverview,
   MysqlDatabaseItem,
+  MysqlDatabaseDetails,
+  MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
@@ -1300,6 +1302,21 @@ export async function fetchRemoteServerMysqlDatabases(
   id: string
 ): Promise<{ success: boolean; databases?: MysqlDatabaseItem[]; error?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlDatabaseDetails(
+  id: string,
+  databaseName: string
+): Promise<{ success: boolean; details?: MysqlDatabaseDetails; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlUsers(
+  id: string
+): Promise<{ success: boolean; users?: MysqlUserItem[]; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users`);
   return res.json();
 }
 

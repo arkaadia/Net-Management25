@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.209.0';
+export const APP_VERSION = '1.210.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.210.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۳ مدیریت پایگاه‌داده MySQL: کاوشگر سلسله‌مراتبی پایگاه‌های داده، جداول، کاربران و اجزای سرور',
+    title_en: 'Phase 3 MySQL Management: Hierarchical Database Browser, Tables, Users & Server Object Explorer',
+    changes: [
+      'پیاده‌سازی کامل فاز ۳ نقشه راه ۲۰ مرحله‌ای مدیریت MySQL (Phase 3 — MySQL Database Browser): طراحی و پیاده‌سازی ناوبری درختی و سلسله‌مراتبی اشیاء پایگاه داده بر اساس متادیتای اختصاصی MySQL.',
+      'ساختار درختی چندشاخه مطابق مشخصات معین: شاخه پایگاه‌های داده (Databases)، شاخه کاربران و حساب‌ها (Users & Accounts)، و شاخه سرور و متغیرها (Server & Engine).',
+      'واکشی امن و دقیق فهرست پایگاه‌های داده از information_schema.schemata به همراه تفکیک هوشمند دیتابیس‌های سیستمی (information_schema, performance_schema, mysql, sys) از دیتابیس‌های کاربری.',
+      'واکشی متادیتا و جداول هر پایگاه داده شامل نام جدول، نوع (TABLE / VIEW)، موتور ذخیره‌سازی (InnoDB / MyISAM)، تعداد سطرهای تقریبی، حجم داده، حجم ایندکس و حجم کل.',
+      'مشاهده فهرست کاربران و حساب‌های کاربری MySQL به همراه محدوده هاست (user@host)، پلاگین احراز هویت، و وضعیت قفل یا انقضای رمز عبور از جدول mysql.user.',
+      'امکان جستجو و فیلتر لحظه‌ای در درخت اجزا و جستجوی مجزا در فهرست جداول و کاربران.',
+      'پشتیبانی کامل از دو زبانه فارسی و انگلیسی، انطباق کامل با تم‌های تیره و روشن، و حفظ فاصله و دسترس‌پذیری کامل نوار ابزار پایین (Footer).',
+    ],
+    changes_en: [
+      'Implemented Phase 3 of the MySQL Management 20-Phase Roadmap (Phase 3 — MySQL Database Browser): Hierarchical object tree navigation and catalog explorer grounded in genuine MySQL metadata.',
+      'Tri-branch tree architecture matching specifications: Databases branch (with expandable table sub-branches), Users & Accounts branch (user@host scope), and Server & Engine branch.',
+      'Secure database discovery from information_schema.schemata with intelligent segregation between system catalogs (sys, information_schema, performance_schema, mysql) and user databases.',
+      'On-demand database details and table metadata: Table type (BASE TABLE / VIEW), engine (InnoDB / MyISAM), approximate row count, data length, index length, and total allocated storage.',
+      'MySQL user accounts viewer displaying user@host identity, authentication plugin, account locked state, and password expiration status queried securely from mysql.user.',
+      'Instant real-time search and filter across tree nodes as well as dedicated filters for tables and user accounts.',
+      'Strict bilingual English/Persian internationalization, complete dark/light theme ergonomics, and strict footer boundary clearance.',
+    ],
+  },
   {
     version: '1.209.0',
     releaseDate: '2026-09-28',
