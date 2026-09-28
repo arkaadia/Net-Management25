@@ -10,9 +10,44 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.202.0';
+export const APP_VERSION = '1.203.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.203.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۲۲ مدیریت PostgreSQL: نظارت بر رپلیکیشن و دسترسی‌پذیری بالا (Replication & High-Availability Monitor)',
+    title_en: 'PostgreSQL Management Phase 22: Live Replication & High-Availability Monitor, Lag Telemetry & Slot Management',
+    changes: [
+      'پیاده‌سازی جامع فاز ۲۲ نقشه راه مدیریت PostgreSQL: سیستم یکپارچه نظارت بلادرنگ بر توپولوژی کلاستر، رپلیکیشن استریمینگ، پایش تاخیر همگام‌سازی، مدیریت اسلات‌های رپلیکیشن و کنترل‌های نود استندبای.',
+      'تشخیص خودکار نقش نود در کلاستر (Cluster Role & Recovery Detection): تفکیک هوشمند نودهای اصلی (Primary Read/Write) از رپلیکاهای استندبای (Standby Read-Only) از طریق تابع استاندارد pg_is_in_recovery() و نمایش نشانگرهای زنده وضعیت.',
+      'پایش جریان رپلیکاهای متصل (Connected Standby Streams): نظارت بلادرنگ بر جدول pg_stat_replication شامل آدرس کلاینت، شناسه PID، نام برنامه، وضعیت اتصال (streaming, catchup, startup)، حالت همگام‌سازی (sync, async, potential, quorum) و اولویت سینک.',
+      'سنجش دقیق تاخیر رپلیکیشن (Replication Lag Telemetry): محاسبه بلادرنگ تاخیر بر حسب بایت و زمان (ثانیه) با استفاده از تابع pg_wal_lsn_diff و هشدارهای هوشمند برای تاخیرهای بحرانی بیش از ۵۰ مگابایت یا ۳۰ ثانیه.',
+      'مرکز مدیریت اسلات‌های رپلیکیشن (Replication Slots Hub): استعلام و فهرست‌بندی کلیه اسلات‌های فیزیکی و لاجیکال از کاتالوگ pg_replication_slots، وضعیت فعال بودن و موقعیت‌های restart_lsn و confirmed_flush_lsn.',
+      'سیستم هشدار بحرانی تجمع فایل‌های WAL (WAL Retention Risk Guard): شناسایی خودکار اسلات‌های غیرفعال رهاشده با حجم اشغال‌شده بالای ۱۰۰ مگابایت جهت جلوگیری از پر شدن کامل دیسک سرور.',
+      'ابزار ایجاد و حذف ایمن اسلات‌ها (Replication Slot Lifecycle): دیالوگ اختصاصی برای ساخت اسلات فیزیکی جدید با گزینه رزرو آنی WAL و امکان حذف دو مرحله‌ای اسلات‌های غیرفعال جهت آزادسازی بلادرنگ فضای دیسک.',
+      'پایش فرآیند دریافت لاگ در استندبای (WAL Receiver Telemetry): بررسی وضعیت فرآیند پس‌زمینه pg_stat_wal_receiver شامل هاست و پورت فرستنده، رشته اتصال امن‌سازی‌شده (بدون افشای رمز عبور)، موقعیت‌های LSN نوشته و فلاش‌شده و زمان آخرین تراکنش بازپخش.',
+      'جعبه‌ابزار کنترل بازپخش استندبای (Standby Replay Controls): امکان توقف موقت بازپخش لاگ‌ها (pg_wal_replay_pause) و از سرگیری فوری (pg_wal_replay_resume) جهت مقاصد عیب‌یابی و تاخیر در اعمال تغییرات.',
+      'نقشه راه معماری دسترسی‌پذیری بالا (HA Blueprint & Failover Guide): راهنمای گام‌به‌گام دستورات ارتقای استندبای به پرایمری (SELECT pg_promote)، کوئری‌های کاربردی، تنظیمات رپلیکیشن سنکرون (synchronous_commit) با قابلیت کپی سریع و انتقال به SQL Studio.',
+      'موتور بروزرسانی زنده با قابلیت انتخاب بازه‌های ۲، ۵، ۱۰ و ۳۰ ثانیه جهت پایش بدون وقفه کلاستر.',
+      'رعایت صددرصدی قوانین چندزبانه (عدم نمایش متن فارسی در حالت انگلیسی)، تم‌های تیره و روشن، و راهنماهای اطلاعاتی سه‌بخشی FieldInfoTooltip.'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 22: Unified real-time cluster topology monitoring, streaming replication lag telemetry, replication slots lifecycle management, and standby WAL receiver controls.',
+      'Cluster Role & Recovery Auto-Detection: Automatically detects Primary (Read/Write master) vs Standby (Read-Only replica) via pg_is_in_recovery() with live status indicators.',
+      'Connected Standby Streams Monitor: Real-time inspection of pg_stat_replication detailing client IP/port, PID, application name, streaming state, sync state (sync/async/potential/quorum), and sync priority.',
+      'Replication Lag Telemetry: Live computation of replication lag in bytes and elapsed time (seconds) using pg_wal_lsn_diff, accompanied by critical alerts when lag exceeds 50 MB or 30 seconds.',
+      'Replication Slots Hub: Full visibility into physical and logical slots from pg_replication_slots, tracking active PIDs, restart_lsn, confirmed_flush_lsn, and retained disk bytes.',
+      'WAL Retention Risk Guard: Proactively detects inactive orphaned replication slots retaining over 100 MB of WAL on disk, preventing storage exhaustion and database crashes.',
+      'Slot Lifecycle Management: Dialog for creating physical replication slots with immediate WAL reservation, alongside safe two-step slot removal to instantly free retained WAL disk space.',
+      'Standby WAL Receiver Telemetry: Live metrics from pg_stat_wal_receiver including sender host/port, sanitized connection info, written/flushed LSN positions, and last transaction replay timestamp.',
+      'Standby Replay Controls: Safe one-click pause (pg_wal_replay_pause) and resume (pg_wal_replay_resume) of WAL replay on standby nodes with confirmation dialogs.',
+      'HA Blueprint & Failover Guide: Ready-to-use commands for promoting standby nodes (SELECT pg_promote()), synchronous replication tuning (synchronous_commit), and one-click query transfer to SQL Studio.',
+      'Configurable live auto-refresh polling (2s, 5s, 10s, 30s) or manual trigger with active spinners.',
+      'Strict compliance with Universal Modal guidelines, high-contrast dark/light themes, boundary-safe tooltips, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.202.0',
     releaseDate: '2026-09-28',

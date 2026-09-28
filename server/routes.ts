@@ -108,6 +108,9 @@ import {
   terminatePostgresSession,
   getPostgresPerformanceOverview,
   resetPostgresStatStatements,
+  getPostgresReplicationOverview,
+  managePostgresReplicationSlot,
+  controlPostgresWalReplay,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2919,6 +2922,149 @@ apiRouter.post('/remote-servers/:id/postgres/performance/reset', async (req: Req
       success: false,
       error: err.message || 'Failed to reset PostgreSQL stat statements',
       errorFa: 'خطا در بازنشانی آمار pg_stat_statements',
+    });
+  }
+});
+
+// ============================================================================
+// PHASE 22: Replication & High-Availability Cluster Status
+// ============================================================================
+
+// GET /api/remote-servers/:id/postgres/replication - Retrieve cluster role, replicas lag, slots & wal receiver
+apiRouter.get('/remote-servers/:id/postgres/replication', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const overview = await getPostgresReplicationOverview(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      data: overview,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve PostgreSQL replication overview',
+      errorFa: 'خطا در دریافت وضعیت رپلیکیشن و کلاستر PostgreSQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/replication/slot - Create or drop replication slot
+apiRouter.post('/remote-servers/:id/postgres/replication/slot', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { slotName, action, slotType, immediatelyReserve, database, port, user, password } = req.body || {};
+    if (!slotName || !action) {
+      return res.status(400).json({
+        success: false,
+        error: 'slotName and action (create | drop) are required.',
+        errorFa: 'نام اسلات و نوع عملیات (create یا drop) الزامی است.',
+      });
+    }
+
+    const result = await managePostgresReplicationSlot(server, {
+      slotName,
+      action,
+      slotType: slotType || 'physical',
+      immediatelyReserve: immediatelyReserve ?? true,
+      database: database || server.postgres_database || 'postgres',
+      port: port ? Number(port) : undefined,
+      user: user || server.postgres_user,
+      password,
+    });
+
+    try {
+      await addAuditLog({
+        user: (req as any).user?.username || 'system',
+        action: action === 'create' ? 'POSTGRES_REPLICATION_SLOT_CREATE' : 'POSTGRES_REPLICATION_SLOT_DROP',
+        details: `${action.toUpperCase()} replication slot "${slotName}" on server ${server.name || server.ip}`,
+        status: result.success ? 'success' : 'failure',
+      });
+    } catch {}
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute replication slot action',
+      errorFa: 'خطا در اجرای عملیات اسلات رپلیکیشن',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/replication/replay - Pause or resume WAL replay on standby
+apiRouter.post('/remote-servers/:id/postgres/replication/replay', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { action, database, port, user, password } = req.body || {};
+    if (action !== 'pause' && action !== 'resume') {
+      return res.status(400).json({
+        success: false,
+        error: 'Action must be either "pause" or "resume".',
+        errorFa: 'عملیات باید "pause" یا "resume" باشد.',
+      });
+    }
+
+    const result = await controlPostgresWalReplay(server, {
+      action,
+      database: database || server.postgres_database || 'postgres',
+      port: port ? Number(port) : undefined,
+      user: user || server.postgres_user,
+      password,
+    });
+
+    try {
+      await addAuditLog({
+        user: (req as any).user?.username || 'system',
+        action: action === 'pause' ? 'POSTGRES_WAL_REPLAY_PAUSE' : 'POSTGRES_WAL_REPLAY_RESUME',
+        details: `${action.toUpperCase()} WAL replay on standby server ${server.name || server.ip}`,
+        status: result.success ? 'success' : 'failure',
+      });
+    } catch {}
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to control WAL replay',
+      errorFa: 'خطا در کنترل پخش مجدد WAL',
     });
   }
 });

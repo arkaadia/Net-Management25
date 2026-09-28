@@ -26,6 +26,13 @@ import {
   PostgresStatStatementItem,
   PostgresLiveSessionItem,
   PostgresPerformanceOverview,
+  PostgresClusterRole,
+  PostgresStandbyReplicaItem,
+  PostgresReplicationSlotItem,
+  PostgresWalReceiverStatus,
+  PostgresReplicationOverview,
+  PostgresReplicationSlotActionRequest,
+  PostgresReplicationReplayControlRequest,
 } from '../src/types';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
@@ -9326,6 +9333,393 @@ export async function resetPostgresStatStatements(
       success: false,
       message: err.message || 'Failed to reset pg_stat_statements',
       messageFa: 'خطا در بازنشانی آمار pg_stat_statements',
+      error: err.message,
+    };
+  }
+}
+
+// ============================================================================
+// PHASE 22: Replication & High-Availability Cluster Status
+// ============================================================================
+
+/**
+ * Phase 22: Retrieves live cluster role, standby replica streams, replication lag,
+ * replication slots retention risk, and WAL receiver telemetry.
+ */
+export async function getPostgresReplicationOverview(
+  server: RemoteServer,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<PostgresReplicationOverview> {
+  const { client } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    // 1. Role & In-Recovery check
+    const recoveryRes = await client.query(`SELECT pg_is_in_recovery() AS in_recovery;`);
+    const inRecovery = Boolean(recoveryRes.rows?.[0]?.in_recovery);
+    const role: PostgresClusterRole = inRecovery ? 'standby' : 'primary';
+
+    // 2. Configuration settings
+    let walLevel = 'replica';
+    let maxWalSenders = 10;
+    let maxReplicationSlots = 10;
+    let synchronousStandbyNames = '';
+    let hotStandby = true;
+
+    try {
+      const s = await client.query(`SHOW wal_level;`);
+      walLevel = s.rows[0]?.wal_level || 'replica';
+    } catch {}
+    try {
+      const s = await client.query(`SHOW max_wal_senders;`);
+      maxWalSenders = Number(s.rows[0]?.max_wal_senders) || 10;
+    } catch {}
+    try {
+      const s = await client.query(`SHOW max_replication_slots;`);
+      maxReplicationSlots = Number(s.rows[0]?.max_replication_slots) || 10;
+    } catch {}
+    try {
+      const s = await client.query(`SHOW synchronous_standby_names;`);
+      synchronousStandbyNames = s.rows[0]?.synchronous_standby_names || '';
+    } catch {}
+    try {
+      const s = await client.query(`SHOW hot_standby;`);
+      hotStandby = s.rows[0]?.hot_standby === 'on';
+    } catch {}
+
+    let currentWalLsn: string | undefined;
+    let lastWalReplayLsn: string | undefined;
+
+    // 3. Primary-specific queries
+    let replicas: PostgresStandbyReplicaItem[] = [];
+    let replicationSlots: PostgresReplicationSlotItem[] = [];
+    let hasInactiveSlotsRisk = false;
+
+    if (!inRecovery) {
+      try {
+        const lsnRes = await client.query(`SELECT pg_current_wal_lsn()::text AS current_lsn;`);
+        currentWalLsn = lsnRes.rows?.[0]?.current_lsn;
+      } catch {
+        try {
+          const lsnOld = await client.query(`SELECT pg_current_xlog_location()::text AS current_lsn;`);
+          currentWalLsn = lsnOld.rows?.[0]?.current_lsn;
+        } catch {}
+      }
+
+      // Replicas in pg_stat_replication
+      try {
+        const repRes = await client.query(`
+          SELECT
+            s.pid,
+            COALESCE(s.usename, '') AS usename,
+            COALESCE(s.application_name, '') AS application_name,
+            COALESCE(s.client_addr::text, 'local') AS client_addr,
+            COALESCE(s.client_hostname, '') AS client_hostname,
+            s.client_port,
+            s.backend_start,
+            COALESCE(s.state, 'streaming') AS state,
+            COALESCE(s.sync_state, 'async') AS sync_state,
+            COALESCE(s.sync_priority, 0)::integer AS sync_priority,
+            COALESCE(s.sent_lsn::text, '') AS sent_lsn,
+            COALESCE(s.write_lsn::text, '') AS write_lsn,
+            COALESCE(s.flush_lsn::text, '') AS flush_lsn,
+            COALESCE(s.replay_lsn::text, '') AS replay_lsn,
+            ROUND(EXTRACT(EPOCH FROM s.write_lag)::numeric, 2)::float AS write_lag_seconds,
+            ROUND(EXTRACT(EPOCH FROM s.flush_lag)::numeric, 2)::float AS flush_lag_seconds,
+            ROUND(EXTRACT(EPOCH FROM s.replay_lag)::numeric, 2)::float AS replay_lag_seconds,
+            CASE
+              WHEN s.replay_lsn IS NOT NULL AND pg_current_wal_lsn() IS NOT NULL THEN
+                COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), s.replay_lsn), 0)::bigint
+              ELSE 0
+            END AS replay_lag_bytes
+          FROM pg_stat_replication s
+          ORDER BY s.client_addr ASC, s.pid ASC;
+        `);
+
+        replicas = (repRes.rows || []).map((r: any) => {
+          const lagBytes = Math.max(0, Number(r.replay_lag_bytes) || 0);
+          const lagSec = Number(r.replay_lag_seconds) || 0;
+          const isLagCritical = lagBytes > 50 * 1024 * 1024 || lagSec > 30; // > 50MB or > 30s
+          return {
+            pid: Number(r.pid),
+            usename: r.usename,
+            applicationName: r.application_name,
+            clientAddr: r.client_addr,
+            clientHostname: r.client_hostname || undefined,
+            clientPort: r.client_port ? Number(r.client_port) : undefined,
+            backendStart: r.backend_start ? new Date(r.backend_start).toISOString() : new Date().toISOString(),
+            state: r.state,
+            syncState: r.sync_state,
+            syncPriority: Number(r.sync_priority) || 0,
+            sentLsn: r.sent_lsn,
+            writeLsn: r.write_lsn,
+            flushLsn: r.flush_lsn,
+            replayLsn: r.replay_lsn,
+            writeLagSeconds: r.write_lag_seconds !== null ? Number(r.write_lag_seconds) : undefined,
+            flushLagSeconds: r.flush_lag_seconds !== null ? Number(r.flush_lag_seconds) : undefined,
+            replayLagSeconds: r.replay_lag_seconds !== null ? Number(r.replay_lag_seconds) : undefined,
+            replayLagBytes: lagBytes,
+            replayLagPretty: formatBytesPretty(lagBytes),
+            isLagCritical,
+          };
+        });
+      } catch {}
+
+      // Replication slots
+      try {
+        const slotsRes = await client.query(`
+          SELECT
+            slot_name,
+            plugin,
+            slot_type,
+            datoid,
+            database,
+            temporary,
+            active,
+            active_pid,
+            xmin::text,
+            catalog_xmin::text,
+            restart_lsn::text,
+            confirmed_flush_lsn::text,
+            wal_status,
+            safe_wal_size,
+            CASE
+              WHEN restart_lsn IS NOT NULL THEN
+                COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0)::bigint
+              ELSE 0
+            END AS retained_bytes
+          FROM pg_replication_slots;
+        `);
+
+        replicationSlots = (slotsRes.rows || []).map((s: any) => {
+          const isActive = Boolean(s.active);
+          const retBytes = Math.max(0, Number(s.retained_bytes) || 0);
+          // Risk if slot is inactive and retaining > 100MB of WAL
+          const isRetainingWalRisk = !isActive && retBytes > 100 * 1024 * 1024;
+          if (isRetainingWalRisk) {
+            hasInactiveSlotsRisk = true;
+          }
+
+          return {
+            slotName: s.slot_name,
+            plugin: s.plugin || undefined,
+            slotType: s.slot_type || 'physical',
+            datoid: s.datoid ? Number(s.datoid) : undefined,
+            database: s.database || undefined,
+            temporary: Boolean(s.temporary),
+            active: isActive,
+            activePid: s.active_pid ? Number(s.active_pid) : undefined,
+            xmin: s.xmin || undefined,
+            catalogXmin: s.catalog_xmin || undefined,
+            restartLsn: s.restart_lsn || undefined,
+            confirmedFlushLsn: s.confirmed_flush_lsn || undefined,
+            walStatus: s.wal_status || undefined,
+            safeWalSize: s.safe_wal_size ? Number(s.safe_wal_size) : undefined,
+            retainedBytes: retBytes,
+            retainedPretty: formatBytesPretty(retBytes),
+            isRetainingWalRisk,
+          };
+        });
+      } catch {}
+    }
+
+    // 4. Standby-specific queries
+    let walReceiver: PostgresWalReceiverStatus | undefined;
+    if (inRecovery) {
+      try {
+        const repLsnRes = await client.query(`SELECT pg_last_wal_replay_lsn()::text AS replay_lsn;`);
+        lastWalReplayLsn = repLsnRes.rows?.[0]?.replay_lsn;
+      } catch {}
+
+      try {
+        const pausedRes = await client.query(`SELECT pg_is_wal_replay_paused() AS is_paused;`);
+        const isReplayPaused = Boolean(pausedRes.rows?.[0]?.is_paused);
+
+        const xactRes = await client.query(`
+          SELECT
+            pg_last_xact_replay_timestamp() AS last_xact,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp()))::numeric, 2)::float AS replay_lag_seconds;
+        `);
+        const lastXact = xactRes.rows?.[0]?.last_xact;
+        const replayLagSeconds = xactRes.rows?.[0]?.replay_lag_seconds !== null
+          ? Number(xactRes.rows?.[0]?.replay_lag_seconds)
+          : undefined;
+
+        const wrRes = await client.query(`
+          SELECT
+            status,
+            receive_start_lsn::text,
+            receive_start_tli,
+            written_lsn::text,
+            flushed_lsn::text,
+            received_tli,
+            last_msg_send_time,
+            last_msg_receipt_time,
+            latest_end_lsn::text,
+            latest_end_time,
+            slot_name,
+            sender_host,
+            sender_port,
+            conninfo
+          FROM pg_stat_wal_receiver;
+        `);
+
+        if (wrRes.rows?.[0]) {
+          const wr = wrRes.rows[0];
+          // Sanitize conninfo: strip password
+          let sanitizedConn = wr.conninfo || '';
+          sanitizedConn = sanitizedConn.replace(/password=\S+/gi, 'password=******');
+
+          walReceiver = {
+            status: wr.status || 'streaming',
+            receiveStartLsn: wr.receive_start_lsn || undefined,
+            receiveStartTli: wr.receive_start_tli ? Number(wr.receive_start_tli) : undefined,
+            writtenLsn: wr.written_lsn || undefined,
+            flushedLsn: wr.flushed_lsn || undefined,
+            receivedTli: wr.received_tli ? Number(wr.received_tli) : undefined,
+            lastMsgSendTime: wr.last_msg_send_time ? new Date(wr.last_msg_send_time).toISOString() : undefined,
+            lastMsgReceiptTime: wr.last_msg_receipt_time ? new Date(wr.last_msg_receipt_time).toISOString() : undefined,
+            latestEndLsn: wr.latest_end_lsn || undefined,
+            latestEndTime: wr.latest_end_time ? new Date(wr.latest_end_time).toISOString() : undefined,
+            slotName: wr.slot_name || undefined,
+            senderHost: wr.sender_host || undefined,
+            senderPort: wr.sender_port ? Number(wr.sender_port) : undefined,
+            conninfoSanitized: sanitizedConn,
+            lastXactReplayTimestamp: lastXact ? new Date(lastXact).toISOString() : undefined,
+            replayLagSeconds,
+            isReplayPaused,
+          };
+        } else {
+          walReceiver = {
+            status: 'stopped',
+            isReplayPaused,
+            lastXactReplayTimestamp: lastXact ? new Date(lastXact).toISOString() : undefined,
+            replayLagSeconds,
+          };
+        }
+      } catch {}
+    }
+
+    await client.end();
+
+    return {
+      retrievedAt: new Date().toISOString(),
+      role,
+      inRecovery,
+      currentWalLsn,
+      lastWalReplayLsn,
+      walLevel,
+      maxWalSenders,
+      maxReplicationSlots,
+      synchronousStandbyNames,
+      hotStandby,
+      connectedReplicasCount: replicas.length,
+      replicas,
+      replicationSlots,
+      hasInactiveSlotsRisk,
+      walReceiver,
+      primaryServerAddress: inRecovery ? (walReceiver?.senderHost || undefined) : undefined,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Phase 22: Manage replication slots (create physical slot or drop inactive/orphaned slot).
+ */
+export async function managePostgresReplicationSlot(
+  server: RemoteServer,
+  options: PostgresReplicationSlotActionRequest
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const { client } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    const slotName = options.slotName.trim();
+    if (!slotName) {
+      throw new Error('Replication slot name is required');
+    }
+
+    if (options.action === 'create') {
+      const immediatelyReserve = options.immediatelyReserve ?? true;
+      await client.query(`SELECT pg_create_physical_replication_slot($1, $2);`, [slotName, immediatelyReserve]);
+      await client.end();
+      return {
+        success: true,
+        message: `Physical replication slot "${slotName}" created successfully.`,
+        messageFa: `اسلات فیزیکی رپلیکیشن "${slotName}" با موفقیت ایجاد شد.`,
+      };
+    } else if (options.action === 'drop') {
+      await client.query(`SELECT pg_drop_replication_slot($1);`, [slotName]);
+      await client.end();
+      return {
+        success: true,
+        message: `Replication slot "${slotName}" dropped successfully.`,
+        messageFa: `اسلات رپلیکیشن "${slotName}" با موفقیت حذف شد و فضای WAL آزاد گردید.`,
+      };
+    } else {
+      throw new Error(`Unsupported slot action: ${options.action}`);
+    }
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: err.message || `Failed to ${options.action} replication slot`,
+      messageFa: `خطا در اجرای عملیات اسلات رپلیکیشن`,
+      error: err.message,
+    };
+  }
+}
+
+/**
+ * Phase 22: Pause or resume WAL replay on standby nodes.
+ */
+export async function controlPostgresWalReplay(
+  server: RemoteServer,
+  options: PostgresReplicationReplayControlRequest
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const { client } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    if (options.action === 'pause') {
+      await client.query(`SELECT pg_wal_replay_pause();`);
+      await client.end();
+      return {
+        success: true,
+        message: 'WAL replay paused on standby node.',
+        messageFa: 'فرآیند پخش مجدد WAL بر روی نود استندبای موقتا متوقف شد.',
+      };
+    } else if (options.action === 'resume') {
+      await client.query(`SELECT pg_wal_replay_resume();`);
+      await client.end();
+      return {
+        success: true,
+        message: 'WAL replay resumed on standby node.',
+        messageFa: 'فرآیند پخش مجدد WAL بر روی نود استندبای از سر گرفته شد.',
+      };
+    } else {
+      throw new Error(`Unsupported replay action: ${options.action}`);
+    }
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: err.message || `Failed to ${options.action} WAL replay`,
+      messageFa: `خطا در تغییر وضعیت پخش WAL`,
       error: err.message,
     };
   }

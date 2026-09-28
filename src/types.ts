@@ -2829,6 +2829,113 @@ export interface PostgresPerformanceOverview {
   activeSessions: PostgresLiveSessionItem[];
 }
 
+// ============================================================================
+// PHASE 22: Replication & High-Availability Cluster Status
+// ============================================================================
+
+export type PostgresClusterRole = 'primary' | 'standby';
+
+export interface PostgresStandbyReplicaItem {
+  pid: number;
+  usename: string;
+  applicationName: string;
+  clientAddr: string;
+  clientHostname?: string;
+  clientPort?: number;
+  backendStart: string;
+  state: 'startup' | 'catchup' | 'streaming' | 'backup' | 'stopping' | string;
+  syncState: 'async' | 'sync' | 'potential' | 'quorum' | string;
+  syncPriority: number;
+  sentLsn: string;
+  writeLsn: string;
+  flushLsn: string;
+  replayLsn: string;
+  writeLagSeconds?: number;
+  flushLagSeconds?: number;
+  replayLagSeconds?: number;
+  replayLagBytes: number;
+  replayLagPretty: string;
+  isLagCritical: boolean;
+}
+
+export interface PostgresReplicationSlotItem {
+  slotName: string;
+  plugin?: string;
+  slotType: 'physical' | 'logical';
+  datoid?: number;
+  database?: string;
+  temporary: boolean;
+  active: boolean;
+  activePid?: number;
+  xmin?: string;
+  catalogXmin?: string;
+  restartLsn?: string;
+  confirmedFlushLsn?: string;
+  walStatus?: 'normal' | 'reserved' | 'extended' | 'unreserved' | 'lost' | string;
+  safeWalSize?: number;
+  retainedBytes?: number;
+  retainedPretty?: string;
+  isRetainingWalRisk: boolean;
+}
+
+export interface PostgresWalReceiverStatus {
+  status: string;
+  receiveStartLsn?: string;
+  receiveStartTli?: number;
+  writtenLsn?: string;
+  flushedLsn?: string;
+  receivedTli?: number;
+  lastMsgSendTime?: string;
+  lastMsgReceiptTime?: string;
+  latestEndLsn?: string;
+  latestEndTime?: string;
+  slotName?: string;
+  senderHost?: string;
+  senderPort?: number;
+  conninfoSanitized?: string;
+  lastXactReplayTimestamp?: string;
+  replayLagSeconds?: number;
+  isReplayPaused: boolean;
+}
+
+export interface PostgresReplicationOverview {
+  retrievedAt: string;
+  role: PostgresClusterRole;
+  inRecovery: boolean;
+  currentWalLsn?: string;
+  lastWalReplayLsn?: string;
+  walLevel: string;
+  maxWalSenders: number;
+  maxReplicationSlots: number;
+  synchronousStandbyNames: string;
+  hotStandby: boolean;
+  connectedReplicasCount: number;
+  replicas: PostgresStandbyReplicaItem[];
+  replicationSlots: PostgresReplicationSlotItem[];
+  hasInactiveSlotsRisk: boolean;
+  walReceiver?: PostgresWalReceiverStatus;
+  primaryServerAddress?: string;
+}
+
+export interface PostgresReplicationSlotActionRequest {
+  database?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  action: 'create' | 'drop';
+  slotName: string;
+  slotType?: 'physical' | 'logical';
+  immediatelyReserve?: boolean;
+}
+
+export interface PostgresReplicationReplayControlRequest {
+  database?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  action: 'pause' | 'resume';
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

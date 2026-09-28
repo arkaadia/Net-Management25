@@ -1847,6 +1847,53 @@ export async function resetRemoteServerPostgresStatStatements(
   return res.json();
 }
 
+// ==========================================
+// Phase 22: Replication & High-Availability API
+// ==========================================
+export async function fetchRemoteServerPostgresReplication(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresReplicationOverview;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/replication${queryStr}`);
+  return res.json();
+}
+
+export async function manageRemoteServerPostgresReplicationSlot(
+  id: string,
+  req: import('../types').PostgresReplicationSlotActionRequest
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/replication/slot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function controlRemoteServerPostgresWalReplay(
+  id: string,
+  req: import('../types').PostgresReplicationReplayControlRequest
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/replication/replay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,
