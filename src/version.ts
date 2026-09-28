@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.199.0';
+export const APP_VERSION = '1.200.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.200.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۱۹ مدیریت PostgreSQL: مرکز جامع ارزیابی سلامت، ممیزی امنیتی و پایش ظرفیت ذخیره‌سازی (Health Check & Security Auditing Hub)',
+    title_en: 'PostgreSQL Management Phase 19: Comprehensive Health Check, Security Auditing & Storage Capacity Hub',
+    changes: [
+      'پیاده‌سازی جامع فاز ۱۹ نقشه راه مدیریت PostgreSQL: هاب پایش سلامت عمیق، ممیزی امنیتی پیشرفته، سنجش آسیب‌پذیری‌ها و ارزیابی ظرفیت دیسک و سن شناسه‌های تراکنش (XID).',
+      'ارزیابی دقیق تنظیمات آسیب‌پذیر (Vulnerable Configuration Assessment): بررسی الزام رمزنگاری SSL/TLS و پروتکل‌های مجاز، الگوریتم هشینگ کلمات عبور (شناسایی هش‌های ضعیف MD5 در برابر استاندارد SCRAM-SHA-256)، اعتبارسنجی حیاتی همگام‌سازی fsync و full_page_writes جهت جلوگیری قطعی از خرابی کلاستر، بررسی standard_conforming_strings، آستانه زمان اجرای کوئری‌ها (statement_timeout) و لاگ‌های ثبت رخداد نشست‌ها.',
+      'ممیزی پورت‌ها و در معرض قرارگیری شبکه (Port & Network Exposure Analysis): بررسی پورت ۵۴۳۲ در برابر پورت‌های سفارشی، سنجش آدرس‌های شنود (listen_addresses) در حالت عمومی 0.0.0.0 و *، و اسکن عمیق کاتالوگ pg_hba_file_rules جهت تشخیص قوانین به شدت ناامن trust که امکان ورود کلاینت‌ها را بدون هیچ کلمه عبوری فراهم می‌سازند.',
+      'ممیزی حساب‌های کاربری بدون رمز و کاربران سوپریوزر (Passwordless Accounts & Superuser Audit): اسکن امن کاتالوگ‌های اعتبارسنجی جهت شناسایی بلادرنگ حساب‌های با قابلیت ورود (LOGIN) که فاقد هرگونه کلمه عبور هستند، فهرست‌بندی دقیق سوپریوزرها و نقش‌های دارای امتیازات خطرناک نظیر BYPASSRLS و CREATEROLE همراه با ارائه اسکریپت‌های اصلاحی آنی.',
+      'پایش ظرفیت دیسک، حجم کلاستر و ریسک بحرانی Transaction ID Wraparound: محاسبه مجموع حجم ذخیره‌سازی پایگاه‌های داده و تفکیک دیتابیس‌های حجیم، پایش سن شناسه‌های تراکنش (age(datfrozenxid)) در مقایسه با سقف بحرانی ۲ میلیارد و آستانه autovacuum_freeze_max_age همراه با اسکریپت‌های اورژانسی VACUUM FREEZE.',
+      'پایش سلامت آرشیو WAL (WAL Archiver Diagnostics): بررسی خطاهای سرویس آرشیو لاگ‌های تراکنش از کاتالوگ pg_stat_archiver و هشدار سریع در صورت بروز شکستگی در فرآیند آرشیو جهت جلوگیری از سرریز فضای دیسک سرور.',
+      'کارت امتیازی ۴ بخشی (Executive Scorecards): محاسبه تفکیک‌شده امتیاز امنیت (Security Score)، کارایی (Performance Score)، نگهداری (Maintenance Score) و ذخیره‌سازی (Storage Score) همراه با نوارهای بصری پیشرفت و محاسبه میانگین وزنی امتیاز کل.',
+      'جعبه‌ابزار اقدامات اصلاحی و صدور گزارش: امکان کپی یک‌کلیکه اسکریپت‌های اصلاحی SQL، باز کردن مستقیم کوئری در SQL Studio، دریافت خروجی کامل JSON، کپی گزارش ساختاریافته دو زبانه Markdown و امکان چاپ یا صدور PDF.',
+      'انطباق صددرصدی با راهنماهای طراحی، حفظ مرزهای فوتر، تم‌های تیره و روشن ارگونومیک و قوانین سخت‌گیرانه چندزبانگی (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 19: Deep Health Check, Advanced Security Auditing, Vulnerability Scanner, Storage Capacity & Transaction ID Wraparound Analysis Hub.',
+      'Vulnerable Configuration Assessment: Audits mandatory SSL/TLS encryption and minimum cipher protocols, password hashing algorithms (detecting legacy MD5 vs modern SCRAM-SHA-256 standard), critical validation of fsync and full_page_writes durability switches, standard_conforming_strings escaping, global statement_timeout, and session auditing log parameters.',
+      'Port & Network Exposure Analysis: Inspects standard port 5432 vs non-default ports, public listening bindings (0.0.0.0 and *), and deep catalog scanning of pg_hba_file_rules to detect critical insecure "trust" authentication rules granting open unauthenticated entry.',
+      'Passwordless Accounts & Superuser Audit: Authentic scanning of PostgreSQL authentication catalogs detecting active login-enabled roles with empty/null passwords, listing superuser accounts, and flagging dangerous privileges such as BYPASSRLS and CREATEROLE with instant remediation commands.',
+      'Cluster Storage Capacity & Transaction ID (XID) Wraparound Safety: Measures total database cluster footprint and per-database sizes, monitors max frozen transaction age (datfrozenxid) against the catastrophic 2-billion wraparound ceiling and autovacuum_freeze_max_age, providing emergency VACUUM FREEZE remediation.',
+      'WAL Archiver Diagnostics: Deep inspection of pg_stat_archiver to alert on failed archiving passes that would otherwise accumulate WAL segments and cause disk exhaustion crashes.',
+      '4-Part Executive Scorecards: Granular evaluation displaying individual progress ratings for Security, Performance, Maintenance, and Storage & Durability, alongside weighted overall health scoring.',
+      'Remediation Toolkit & Reporting Suite: One-click SQL remediation script copying, seamless "Open in SQL Studio" direct routing, full JSON export, structured bilingual Markdown summary generator, and print/PDF export readiness.',
+      'Strict compliance with Universal Modal guidelines, high-contrast dark and light themes, boundary-safe tooltips, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.199.0',
     releaseDate: '2026-09-28',

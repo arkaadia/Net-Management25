@@ -6057,11 +6057,11 @@ export async function previewPostgresBackup(
 }
 
 // ==========================================
-// Phase 15: PostgreSQL Health Check & Security Audit
+// Phase 19: PostgreSQL Comprehensive Health Check & Security Audit Hub
 // ==========================================
 
 export type PostgresAuditSeverity = 'critical' | 'warning' | 'good' | 'info';
-export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration';
+export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration' | 'storage';
 
 export interface PostgresHealthCheckItem {
   id: string;
@@ -6088,10 +6088,29 @@ export interface PostgresHealthAuditSummary {
   bloatedTablesCount: number;
   unusedIndexesCount: number;
   idleInTxCount: number;
+  // Phase 19 extensions:
+  securityScore: number;
+  performanceScore: number;
+  maintenanceScore: number;
+  storageScore: number;
+  passwordlessRolesCount: number;
+  openTrustRulesCount: number;
+  wraparoundMaxAge: number;
+  wraparoundPercent: number;
+  totalDatabaseSizeBytes: number;
+  totalDatabaseSizePretty: string;
+  walArchiverFailing: boolean;
+  vulnerableSettingsCount: number;
+  superuserNames?: string[];
+  passwordlessNames?: string[];
 }
 
 export interface PostgresHealthAuditReport {
   overallScore: number;
+  securityScore: number;
+  performanceScore: number;
+  maintenanceScore: number;
+  storageScore: number;
   generatedAt: string;
   database: string;
   serverVersion: string;
@@ -6121,6 +6140,15 @@ export async function runPostgresHealthAudit(
   try {
     const items: PostgresHealthCheckItem[] = [];
 
+    // Helper format size
+    const formatBytes = (bytes: number) => {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+    };
+
     // 1. Version & Uptime
     const verRes = await client.query<{ version: string }>(`SELECT version();`);
     const serverVersion = verRes.rows[0]?.version || 'Unknown';
@@ -6147,8 +6175,8 @@ export async function runPostgresHealthAudit(
           description: `PostgreSQL ${majorVer} has reached official End-of-Life (EOL) and no longer receives security patches.`,
           descriptionFa: `نسخه PostgreSQL ${majorVer} به پایان چرخه پشتیبانی رسمی رسیده و دیگر بسته‌های امنیتی دریافت نمی‌کند.`,
           metricValue: `v${majorVer}`,
-          recommendation: 'Upgrade PostgreSQL engine to a supported release (v14, v15, v16, or newer).',
-          recommendationFa: 'موتور PostgreSQL را به نسخه‌های تحت پشتیبانی (نگارش ۱۴، ۱۵ یا ۱۶ به بالا) ارتقا دهید.',
+          recommendation: 'Upgrade PostgreSQL engine to an actively supported release (v14, v15, v16, or v17).',
+          recommendationFa: 'موتور PostgreSQL را به نسخه‌های تحت پشتیبانی رسمی (نگارش ۱۴، ۱۵، ۱۶ یا ۱۷) ارتقا دهید.',
         });
       } else {
         items.push({
@@ -6166,63 +6194,275 @@ export async function runPostgresHealthAudit(
       }
     }
 
-    // 2. Settings check
+    // 2. Settings check (Deep Configuration & Vulnerabilities)
     const settingsRes = await client.query<{ name: string; setting: string }>(`
       SELECT name, setting FROM pg_settings 
-      WHERE name IN ('ssl', 'listen_addresses', 'port', 'max_connections', 'autovacuum', 'shared_buffers', 'work_mem', 'checkpoint_completion_target');
+      WHERE name IN (
+        'ssl', 'ssl_min_protocol_version', 'password_encryption', 'fsync', 'full_page_writes',
+        'standard_conforming_strings', 'listen_addresses', 'port', 'max_connections',
+        'autovacuum', 'shared_buffers', 'work_mem', 'checkpoint_completion_target',
+        'log_connections', 'log_disconnections', 'log_min_duration_statement',
+        'statement_timeout', 'shared_preload_libraries', 'autovacuum_freeze_max_age'
+      );
     `);
     const settingsMap = new Map<string, string>();
     for (const r of settingsRes.rows) {
       settingsMap.set(r.name, r.setting);
     }
 
+    let vulnerableSettingsCount = 0;
+
+    // 2.1 SSL / TLS Check
     const sslOn = settingsMap.get('ssl') === 'on';
     if (!sslOn) {
+      vulnerableSettingsCount++;
       items.push({
         id: 'ssl_enforcement',
         title: 'SSL/TLS Encryption Disabled',
         titleFa: 'غیرفعال بودن رمزنگاری امن SSL/TLS',
         category: 'security',
         severity: 'warning',
-        description: 'PostgreSQL server is configured without mandatory SSL encryption. Network traffic can be snooped in transit.',
-        descriptionFa: 'سرور PostgreSQL بدون الزام رمزنگاری SSL پیکربندی شده است. امکان شنود ترافیک در شبکه وجود دارد.',
+        description: 'PostgreSQL server is configured without mandatory SSL encryption. Network traffic and queries can be snooped in transit.',
+        descriptionFa: 'سرور PostgreSQL بدون الزام رمزنگاری SSL پیکربندی شده است. امکان شنود ترافیک و کوئری‌ها در شبکه وجود دارد.',
         metricValue: 'ssl = off',
         recommendation: 'Enable SSL encryption in postgresql.conf and deploy verified TLS certificates.',
         recommendationFa: 'مقدار ssl = on را در فایل postgresql.conf فعال کرده و سرتیفیکیت معتبر بارگذاری کنید.',
         remediationSql: `ALTER SYSTEM SET ssl = 'on';`,
       });
     } else {
+      const minTls = settingsMap.get('ssl_min_protocol_version') || 'TLSv1.2';
       items.push({
         id: 'ssl_enforcement',
         title: 'SSL/TLS Encryption Active',
         titleFa: 'رمزنگاری ارتباطات با SSL/TLS فعال است',
         category: 'security',
         severity: 'good',
-        description: 'PostgreSQL enforces SSL encryption for client connections.',
-        descriptionFa: 'ارتباطات کلاینت با پایگاه داده از طریق لایه امن SSL رمزنگاری می‌شوند.',
-        metricValue: 'ssl = on',
+        description: `PostgreSQL enforces SSL encryption for client connections (Min Protocol: ${minTls}).`,
+        descriptionFa: `ارتباطات کلاینت با پایگاه داده از طریق لایه امن SSL رمزنگاری می‌شوند (حداقل پروتکل: ${minTls}).`,
+        metricValue: `ssl = on (${minTls})`,
         recommendation: 'Ensure client applications verify server certificates properly.',
         recommendationFa: 'اطمینان حاصل کنید کلاینت‌ها صحت سرتیفیکیت سرور را اعتبارسنجی کنند.',
       });
     }
 
-    const currentPort = settingsMap.get('port') || '5432';
-    if (currentPort === '5432') {
+    // 2.2 Password Encryption Algorithm (SCRAM vs MD5)
+    const passEnc = settingsMap.get('password_encryption') || 'md5';
+    if (passEnc.toLowerCase().includes('md5')) {
+      vulnerableSettingsCount++;
       items.push({
-        id: 'default_port',
-        title: 'Default Port 5432 In Use',
-        titleFa: 'استفاده از پورت پیش‌فرض ۵۴۳۲',
+        id: 'password_encryption_md5',
+        title: 'Weak Password Encryption Algorithm (MD5)',
+        titleFa: 'الگوریتم رمزنگاری ضعیف کلمات عبور (MD5)',
         category: 'security',
-        severity: 'info',
-        description: 'Using standard port 5432 makes the server more susceptible to automated brute-force scans.',
-        descriptionFa: 'استفاده از پورت استاندارد ۵۴۳۲ سرور را در معرض اسکن‌های خودکار بروت‌فورس قرار می‌دهد.',
-        metricValue: `Port ${currentPort}`,
-        recommendation: 'Consider changing PostgreSQL to a non-standard port or restricting access with firewall/VPN.',
-        recommendationFa: 'پورت را به یک شماره غیراستاندارد تغییر دهید یا دسترسی را به فایروال و VPN محدود کنید.',
-        remediationSql: `ALTER SYSTEM SET port = 5433;`,
+        severity: 'warning',
+        description: 'PostgreSQL uses legacy MD5 password hashing which is susceptible to dictionary and offline rainbow-table cracking.',
+        descriptionFa: 'سرور از هشینگ قدیمی MD5 برای رمزهای عبور استفاده می‌کند که در برابر حملات آفلاین دیکشنری و رینبو تیبل آسیب‌پذیر است.',
+        metricValue: `password_encryption = ${passEnc}`,
+        recommendation: 'Switch password_encryption to scram-sha-256 for military-grade PBKDF2/HMAC-SHA256 password security.',
+        recommendationFa: 'تنظیم password_encryption را به scram-sha-256 تغییر داده و رمزهای کاربران را مجدداً ذخیره کنید.',
+        remediationSql: `ALTER SYSTEM SET password_encryption = 'scram-sha-256';\nSELECT pg_reload_conf();`,
+      });
+    } else {
+      items.push({
+        id: 'password_encryption_scram',
+        title: 'Modern SCRAM-SHA-256 Password Security',
+        titleFa: 'رمزنگاری مدرن و امن کلمات عبور (SCRAM-SHA-256)',
+        category: 'security',
+        severity: 'good',
+        description: 'PostgreSQL enforces robust SCRAM-SHA-256 password authentication hashing.',
+        descriptionFa: 'رمزهای عبور با استفاده از الگوریتم ایمن و استاندارد SCRAM-SHA-256 محافظت می‌شوند.',
+        metricValue: 'scram-sha-256',
+        recommendation: 'Maintain scram-sha-256 across all user roles and client connection pools.',
+        recommendationFa: 'الگوریتم scram-sha-256 را در سراسر پایگاه داده حفظ نمایید.',
       });
     }
 
+    // 2.3 fsync Safety Evaluation
+    const fsyncSetting = settingsMap.get('fsync') ?? 'on';
+    if (fsyncSetting === 'off') {
+      vulnerableSettingsCount++;
+      items.push({
+        id: 'fsync_disabled',
+        title: 'CRITICAL: fsync is Turned OFF',
+        titleFa: 'بحرانی: همگام‌سازی fsync خاموش است',
+        category: 'storage',
+        severity: 'critical',
+        description: 'fsync is disabled. While writes may appear faster, ANY power outage or operating system crash WILL corrupt database pages beyond repair.',
+        descriptionFa: 'تنظیم fsync خاموش است. در صورت بروز هرگونه قطعی برق یا کرش سیستم‌عامل، صفحات پایگاه داده دچار فساد جبران‌ناپذیر خواهند شد.',
+        metricValue: 'fsync = off',
+        recommendation: 'Enable fsync immediately to ensure ACID compliance and transaction durability.',
+        recommendationFa: 'سریعاً fsync را فعال کنید تا پایداری و سلامت داده‌ها بر روی دیسک تضمین شود.',
+        remediationSql: `ALTER SYSTEM SET fsync = 'on';\nSELECT pg_reload_conf();`,
+      });
+    } else {
+      items.push({
+        id: 'fsync_enabled',
+        title: 'Disk Flush Synchronization (fsync) Active',
+        titleFa: 'همگام‌سازی دیسک fsync فعال و ایمن است',
+        category: 'storage',
+        severity: 'good',
+        description: 'fsync is enabled, guaranteeing that WAL records and modified data pages are safely committed to physical storage.',
+        descriptionFa: 'قابلیت fsync فعال است و ثبت امن رکوردهای تراکنش بر روی دیسک فیزیکی را تضمین می‌کند.',
+        metricValue: 'fsync = on',
+        recommendation: 'Never disable fsync in production environments.',
+        recommendationFa: 'هرگز در محیط‌های عملیاتی fsync را خاموش نکنید.',
+      });
+    }
+
+    // 2.4 full_page_writes Evaluation
+    const fpw = settingsMap.get('full_page_writes') ?? 'on';
+    if (fpw === 'off') {
+      vulnerableSettingsCount++;
+      items.push({
+        id: 'full_page_writes_disabled',
+        title: 'Torn-Page Risk: full_page_writes is OFF',
+        titleFa: 'خطر پارگی صفحات داده: full_page_writes خاموش است',
+        category: 'storage',
+        severity: 'critical',
+        description: 'full_page_writes is turned off. A crash during partial disk page write causes unrecoverable page corruption.',
+        descriptionFa: 'تنظیم full_page_writes خاموش است. بروز کرش حین نوشتن نیمه‌کاره صفحات دیسک موجب خرابی کلاستر می‌شود.',
+        metricValue: 'full_page_writes = off',
+        recommendation: 'Enable full_page_writes immediately to protect against torn pages.',
+        recommendationFa: 'بلافاصله full_page_writes را روی on تنظیم کنید.',
+        remediationSql: `ALTER SYSTEM SET full_page_writes = 'on';\nSELECT pg_reload_conf();`,
+      });
+    }
+
+    // 2.5 standard_conforming_strings (SQL Injection vector)
+    const scs = settingsMap.get('standard_conforming_strings') ?? 'on';
+    if (scs === 'off') {
+      vulnerableSettingsCount++;
+      items.push({
+        id: 'standard_conforming_strings_off',
+        title: 'Escape String Vulnerability (standard_conforming_strings)',
+        titleFa: 'آسیب‌پذیری اسکیپ کاراکترها در رشته‌ها',
+        category: 'security',
+        severity: 'warning',
+        description: 'standard_conforming_strings is off. Backslashes are treated as escape characters, which may allow SQL injection attacks.',
+        descriptionFa: 'تنظیم standard_conforming_strings خاموش است و کاراکتر بک‌اسلش اسکیپ می‌شود که راه نفوذ SQL Injection ایجاد می‌کند.',
+        metricValue: 'standard_conforming_strings = off',
+        recommendation: 'Enable standard_conforming_strings to adhere to modern SQL standards.',
+        recommendationFa: 'مقدار standard_conforming_strings را روی on بگذارید.',
+        remediationSql: `ALTER SYSTEM SET standard_conforming_strings = 'on';`,
+      });
+    }
+
+    // 2.6 Port & Network Exposure
+    const currentPort = settingsMap.get('port') || '5432';
+    const listenAddr = settingsMap.get('listen_addresses') || 'localhost';
+    const isPublicListen = listenAddr === '*' || listenAddr.includes('0.0.0.0');
+
+    if (currentPort === '5432' && isPublicListen) {
+      items.push({
+        id: 'default_port_public',
+        title: 'Public Listening on Default Port 5432',
+        titleFa: 'گوش فرا دادن عمومی روی پورت پیش‌فرض ۵۴۳۲',
+        category: 'security',
+        severity: 'warning',
+        description: `Server listens on "${listenAddr}" on standard port 5432. It is publicly exposed to automated brute-force port scanners.`,
+        descriptionFa: `سرور روی تمام آدرس‌ها (${listenAddr}) و پورت پیش‌فرض ۵۴۳۲ شنود می‌کند و در معرض اسکن‌های خودکار ربات‌هاست.`,
+        metricValue: `${listenAddr}:${currentPort}`,
+        recommendation: 'Restrict listen_addresses to private network/localhost or enforce strict firewall/VPN filtering.',
+        recommendationFa: 'آدرس‌های شنود را به شبکه خصوصی/لوکال محدود کرده یا پورت را از طریق فایروال مسدود نمایید.',
+        remediationSql: `ALTER SYSTEM SET listen_addresses = 'localhost, 10.0.0.1';`,
+      });
+    } else if (currentPort === '5432') {
+      items.push({
+        id: 'default_port',
+        title: 'Default Port 5432 In Use',
+        titleFa: 'استفاده از شماره پورت پیش‌فرض ۵۴۳۲',
+        category: 'configuration',
+        severity: 'info',
+        description: 'Server operates on default port 5432 with restricted listen interface.',
+        descriptionFa: 'سرور روی پورت استاندارد ۵۴۳۲ ولی با آدرس‌های شنود مشخص کار می‌کند.',
+        metricValue: `Port ${currentPort}`,
+        recommendation: 'Consider changing PostgreSQL to a non-standard port for defense-in-depth.',
+        recommendationFa: 'جهت امنیت لایه‌ای می‌توانید پورت را به شماره‌ای غیر از ۵۴۳۲ تغییر دهید.',
+      });
+    } else {
+      items.push({
+        id: 'custom_port',
+        title: 'Non-Standard Port Configured',
+        titleFa: 'پیکربندی پورت غیراستاندارد',
+        category: 'security',
+        severity: 'good',
+        description: `PostgreSQL is configured on custom port ${currentPort}, avoiding default port scanning bots.`,
+        descriptionFa: `پایگاه داده روی پورت غیراستاندارد ${currentPort} تنظیم شده و از اسکن‌های کور در امان است.`,
+        metricValue: `Port ${currentPort}`,
+        recommendation: 'Ensure client application connection strings reflect the custom port.',
+        recommendationFa: 'از تنظیم صحیح پورت در کانکشن استرینگ برنامه‌ها اطمینان حاصل کنید.',
+      });
+    }
+
+    // 2.7 Logging Configuration (Connection audit & slow query telemetry)
+    const logConn = settingsMap.get('log_connections') === 'on';
+    const logDisconn = settingsMap.get('log_disconnections') === 'on';
+    const logMinDur = parseInt(settingsMap.get('log_min_duration_statement') ?? '-1', 10);
+
+    if (!logConn || !logDisconn) {
+      items.push({
+        id: 'audit_logging_incomplete',
+        title: 'Connection Audit Logging Inactive',
+        titleFa: 'ثبت لاگ‌های ورود و خروج کاربران غیرفعال است',
+        category: 'configuration',
+        severity: 'info',
+        description: 'log_connections or log_disconnections is disabled. Failed login attempts and unauthorized session bursts will not be logged.',
+        descriptionFa: 'لاگ ورود و خروج نشست‌ها غیرفعال است. امکان ردیابی تلاش‌های نفوذ و حملات بروت‌فورس وجود ندارد.',
+        metricValue: `log_connections=${logConn ? 'on' : 'off'}, log_disconnections=${logDisconn ? 'on' : 'off'}`,
+        recommendation: 'Enable log_connections and log_disconnections to capture security audit trails.',
+        recommendationFa: 'گزینه‌های log_connections و log_disconnections را در postgresql.conf فعال کنید.',
+        remediationSql: `ALTER SYSTEM SET log_connections = 'on';\nALTER SYSTEM SET log_disconnections = 'on';\nSELECT pg_reload_conf();`,
+      });
+    } else {
+      items.push({
+        id: 'audit_logging_active',
+        title: 'Session Audit Logging Enabled',
+        titleFa: 'ثبت لاگ‌های ورود و خروج نشست‌ها فعال است',
+        category: 'configuration',
+        severity: 'good',
+        description: 'PostgreSQL logs connection authentications and disconnections for forensic security auditing.',
+        descriptionFa: 'تمام اتصالات و نشست‌های ورودی و خروجی در لاگ‌های امنیتی سرور ثبت می‌شوند.',
+        metricValue: 'Auditing Active',
+        recommendation: 'Maintain connection logging with automated log rotation.',
+        recommendationFa: 'چرخش دوره‌ای فایل‌های لاگ سرور را بررسی کنید.',
+      });
+    }
+
+    if (logMinDur === -1) {
+      items.push({
+        id: 'slow_query_logging_disabled',
+        title: 'Slow Query Logging Disabled',
+        titleFa: 'ثبت لاگ کوئری‌های کند غیرفعال است',
+        category: 'performance',
+        severity: 'info',
+        description: 'log_min_duration_statement is disabled (-1). Slow execution queries will not be captured for optimization.',
+        descriptionFa: 'پارامتر log_min_duration_statement غیرفعال است و کوئری‌های کند در لاگ سرور ذخیره نمی‌شوند.',
+        metricValue: 'Disabled (-1)',
+        recommendation: 'Set log_min_duration_statement to 1000 (1 second) or 2000 to identify slow queries in production.',
+        recommendationFa: 'مقدار log_min_duration_statement را روی ۱۰۰۰ (یک ثانیه) بگذارید تا کوئری‌های کند ثبت شوند.',
+        remediationSql: `ALTER SYSTEM SET log_min_duration_statement = 1000;\nSELECT pg_reload_conf();`,
+      });
+    }
+
+    // 2.8 Statement Timeout
+    const stmtTimeout = parseInt(settingsMap.get('statement_timeout') || '0', 10);
+    if (stmtTimeout === 0) {
+      items.push({
+        id: 'no_statement_timeout',
+        title: 'No Global Statement Timeout Configured',
+        titleFa: 'عدم تنظیم سقف زمانی اجرای کوئری‌ها (Statement Timeout)',
+        category: 'performance',
+        severity: 'info',
+        description: 'statement_timeout is 0 (unlimited). Runaway or poorly indexed queries can lock tables and run indefinitely.',
+        descriptionFa: 'سقف زمانی کوئری‌ها نامحدود است. کوئری‌های معیوب می‌توانند تا بی‌نهایت منابع سرور را درگیر نمایند.',
+        metricValue: 'statement_timeout = 0 (Unlimited)',
+        recommendation: 'Configure a reasonable statement_timeout (e.g. 30000ms = 30 seconds) to terminate accidental long queries.',
+        recommendationFa: 'یک سقف زمانی منطقی (مانند ۳۰ ثانیه) برای جلوگیری از قفل شدن سرور تنظیم کنید.',
+        remediationSql: `ALTER SYSTEM SET statement_timeout = '30000';\nSELECT pg_reload_conf();`,
+      });
+    }
+
+    // 3. Autovacuum Daemon Status
     const autovacuumOn = settingsMap.get('autovacuum') === 'on';
     if (!autovacuumOn) {
       items.push({
@@ -6231,12 +6471,12 @@ export async function runPostgresHealthAudit(
         titleFa: 'غیرفعال بودن دیمون پاکسازی خودکار (Autovacuum)',
         category: 'maintenance',
         severity: 'critical',
-        description: 'Autovacuum is turned off. Tables will suffer severe bloat, disk exhaustion, and transaction wraparound outage.',
-        descriptionFa: 'سرویس Autovacuum خاموش است. جداول دچار انباشتگی وحشتناک داده‌های مرده، اشغال دیسک و خطای Wraparound می‌شوند.',
+        description: 'Autovacuum is turned off. Tables will suffer severe dead tuple bloat, disk exhaustion, and catastrophic transaction ID wraparound.',
+        descriptionFa: 'سرویس Autovacuum خاموش است. جداول دچار انباشتگی شدید رکوردهای مرده، اتمام فضای دیسک و کرش Wraparound می‌شوند.',
         metricValue: 'autovacuum = off',
         recommendation: 'Enable autovacuum immediately in postgresql.conf.',
         recommendationFa: 'بلافاصله سرویس autovacuum را فعال نمایید.',
-        remediationSql: `ALTER SYSTEM SET autovacuum = 'on';`,
+        remediationSql: `ALTER SYSTEM SET autovacuum = 'on';\nSELECT pg_reload_conf();`,
       });
     } else {
       items.push({
@@ -6245,7 +6485,7 @@ export async function runPostgresHealthAudit(
         titleFa: 'دیمون پاکسازی خودکار (Autovacuum) فعال است',
         category: 'maintenance',
         severity: 'good',
-        description: 'Background autovacuum worker is actively reclaiming dead tuples and updating table statistics.',
+        description: 'Background autovacuum worker is actively reclaiming dead tuples and refreshing optimizer stats.',
         descriptionFa: 'سرویس پس‌زمینه پاکسازی خودکار در حال بازیافت رکوردهای مرده و به‌روزرسانی آمار است.',
         metricValue: 'autovacuum = on',
         recommendation: 'Keep autovacuum enabled with recommended scale-factor thresholds.',
@@ -6253,11 +6493,87 @@ export async function runPostgresHealthAudit(
       });
     }
 
-    // 3. Superusers audit
-    const rolesRes = await client.query<{ rolname: string }>(`
-      SELECT rolname FROM pg_roles WHERE rolsuper = true ORDER BY rolname;
+    // 4. pg_hba.conf Client Authentication Audit
+    let openTrustRulesCount = 0;
+    try {
+      const hbaRulesRes = await client.query<{
+        line_number: number;
+        type: string;
+        database: string[];
+        user_name: string[];
+        address: string | null;
+        netmask: string | null;
+        auth_method: string;
+        options: string[];
+        error: string | null;
+      }>(`
+        SELECT line_number, type, database, user_name, address, auth_method, error
+        FROM pg_hba_file_rules
+        ORDER BY line_number ASC;
+      `);
+
+      const trustRules = hbaRulesRes.rows.filter(
+        (r) => r.auth_method === 'trust' && !r.error
+      );
+      openTrustRulesCount = trustRules.length;
+
+      if (openTrustRulesCount > 0) {
+        const lineNums = trustRules.map((r) => `#${r.line_number}`).join(', ');
+        items.push({
+          id: 'hba_trust_rules_found',
+          title: 'CRITICAL: Insecure "trust" Authentication Rules in pg_hba.conf',
+          titleFa: 'بحرانی: وجود قواعد احراز هویت ناامن "trust" در فایل pg_hba.conf',
+          category: 'security',
+          severity: 'critical',
+          description: `Found ${openTrustRulesCount} rule(s) in pg_hba.conf (lines: ${lineNums}) using "trust" method. Anyone matching these rules can connect WITHOUT ANY PASSWORD!`,
+          descriptionFa: `تعداد ${openTrustRulesCount} قانون با متد "trust" در pg_hba.conf (سطرهای ${lineNums}) یافت شد. هر کلاینتی مطابق این قوانین می‌تواند بدون هیچ کلمه عبوری وارد پایگاه داده شود!`,
+          metricValue: `${openTrustRulesCount} trust rules`,
+          recommendation: 'Replace "trust" authentication with "scram-sha-256" in pg_hba.conf and reload PostgreSQL.',
+          recommendationFa: 'در فایل pg_hba.conf متد trust را با scram-sha-256 جایگزین کرده و سرور را ریلود کنید.',
+        });
+      } else {
+        items.push({
+          id: 'hba_trust_rules_clean',
+          title: 'pg_hba.conf Passwordless Trust Rules Audited',
+          titleFa: 'قوانین احراز هویت pg_hba.conf فاقد دسترسی بدون رمز (trust) هستند',
+          category: 'security',
+          severity: 'good',
+          description: 'No unauthenticated "trust" rules found in active pg_hba.conf. All connections require credentials.',
+          descriptionFa: 'هیچ قانون احراز هویت با متد trust یافت نشد و تمام اتصالات نیازمند احراز هویت معتبر هستند.',
+          metricValue: 'Secured (0 trust rules)',
+          recommendation: 'Regularly audit client authentication rules via Client Auth manager.',
+          recommendationFa: 'تنظیمات pg_hba.conf را به صورت دوره‌ای در تب Client Auth بررسی کنید.',
+        });
+      }
+    } catch {}
+
+    // 5. User Roles, Superusers & Passwordless Accounts Audit
+    const rolesRes = await client.query<{
+      rolname: string;
+      rolsuper: boolean;
+      rolcanlogin: boolean;
+      rolcreaterole: boolean;
+      rolcreatedb: boolean;
+      rolbypassrls: boolean;
+      has_expiry: boolean;
+      is_expired: boolean;
+    }>(`
+      SELECT 
+        rolname,
+        rolsuper,
+        rolcanlogin,
+        rolcreaterole,
+        rolcreatedb,
+        rolbypassrls,
+        (rolvaliduntil IS NOT NULL) as has_expiry,
+        (rolvaliduntil IS NOT NULL AND rolvaliduntil < now()) as is_expired
+      FROM pg_roles 
+      ORDER BY rolname;
     `);
-    const superusers = rolesRes.rows.map((r) => r.rolname);
+
+    const superusers = rolesRes.rows.filter((r) => r.rolsuper).map((r) => r.rolname);
+    const loginSuperusers = rolesRes.rows.filter((r) => r.rolsuper && r.rolcanlogin).map((r) => r.rolname);
+
     if (superusers.length > 3) {
       items.push({
         id: 'excessive_superusers',
@@ -6266,7 +6582,7 @@ export async function runPostgresHealthAudit(
         category: 'security',
         severity: 'warning',
         description: `Found ${superusers.length} superuser accounts (${superusers.join(', ')}). Principle of least privilege is violated.`,
-        descriptionFa: `تعداد ${superusers.length} کاربر سوپریوزر یافت شد (${superusers.join(', ')}). اصل حداقل دسترسی نقض شده است.`,
+        descriptionFa: `تعداد ${superusers.length} کاربر با دسترسی سوپریوزر یافت شد (${superusers.join(', ')}). اصل حداقل دسترسی نقض شده است.`,
         metricValue: `${superusers.length} Superusers`,
         recommendation: 'Demote non-administrative users to standard application roles with explicit grants.',
         recommendationFa: 'کاربران غیرضروری را به نقش‌های استاندارد با دسترسی‌های تفکیک‌شده تبدیل نمایید.',
@@ -6286,7 +6602,69 @@ export async function runPostgresHealthAudit(
       });
     }
 
-    // 4. Public schema permission check
+    // 5.2 Passwordless Accounts Check (via pg_authid / pg_shadow)
+    let passwordlessRoles: string[] = [];
+    try {
+      const authidRes = await client.query<{ rolname: string }>(`
+        SELECT rolname 
+        FROM pg_authid 
+        WHERE rolcanlogin = true AND (rolpassword IS NULL OR rolpassword = '');
+      `);
+      passwordlessRoles = authidRes.rows.map((r) => r.rolname);
+    } catch {
+      // Non-superuser connecting; cannot inspect pg_authid
+    }
+
+    if (passwordlessRoles.length > 0) {
+      items.push({
+        id: 'passwordless_login_roles',
+        title: 'CRITICAL: Login Accounts Without Passwords Detected',
+        titleFa: 'بحرانی: حساب‌های کاربری بدون رمز عبور با قابلیت لاگین',
+        category: 'security',
+        severity: 'critical',
+        description: `Identified ${passwordlessRoles.length} account(s) (${passwordlessRoles.join(', ')}) with login rights but NO PASSWORD configured. Attackers can login freely!`,
+        descriptionFa: `تعداد ${passwordlessRoles.length} حساب کاربری (${passwordlessRoles.join(', ')}) بدون رمز عبور و با قابلیت ورود شناسایی شدند. مهاجمان می‌توانند بدون رمز وارد شوند!`,
+        metricValue: `${passwordlessRoles.length} Passwordless Roles`,
+        recommendation: 'Assign strong passwords or revoke LOGIN privilege from passwordless accounts immediately.',
+        recommendationFa: 'فوراً برای این کاربران رمزهای قوی تعیین کنید یا حق ورود (LOGIN) آنها را لغو نمایید.',
+        remediationSql: passwordlessRoles
+          .map((u) => `ALTER ROLE "${u}" WITH PASSWORD 'SET_STRONG_PASSWORD_HERE';`)
+          .join('\n'),
+      });
+    } else {
+      items.push({
+        id: 'passwordless_login_roles',
+        title: 'All Login Roles Protected With Passwords',
+        titleFa: 'تمام حساب‌های کاربری ورود دارای کلمه عبور هستند',
+        category: 'security',
+        severity: 'good',
+        description: 'Every user account with LOGIN privileges has a password assigned.',
+        descriptionFa: 'تمام نقش‌های کاربری با قابلیت لاگین، دارای کلمه عبور محافظت‌شده هستند.',
+        metricValue: 'Protected',
+        recommendation: 'Enforce strong password rotation policies.',
+        recommendationFa: 'سیاست‌های تغییر دوره‌ای رمز عبور را حفظ کنید.',
+      });
+    }
+
+    // 5.3 Row-Level Security (RLS) Bypass Roles
+    const rlsBypassRoles = rolesRes.rows.filter((r) => r.rolbypassrls && !r.rolsuper).map((r) => r.rolname);
+    if (rlsBypassRoles.length > 0) {
+      items.push({
+        id: 'rls_bypass_roles',
+        title: 'Non-Superuser Roles Bypassing Row-Level Security',
+        titleFa: 'نقش‌های غیر سوپریوزر با امکان دور زدن Row-Level Security',
+        category: 'security',
+        severity: 'warning',
+        description: `Roles (${rlsBypassRoles.join(', ')}) have BYPASSRLS privilege enabled, circumventing tenant isolation rules.`,
+        descriptionFa: `نقش‌های (${rlsBypassRoles.join(', ')}) دسترسی دور زدن فیلترهای سطری RLS را دارند که انزوای داده‌ها را به خطر می‌اندازد.`,
+        metricValue: `${rlsBypassRoles.length} Roles with BYPASSRLS`,
+        recommendation: 'Revoke BYPASSRLS from application users unless explicitly required for reporting backups.',
+        recommendationFa: 'دسترسی BYPASSRLS را از کاربران عادی لغو کنید.',
+        remediationSql: rlsBypassRoles.map((r) => `ALTER ROLE "${r}" NOBYPASSRLS;`).join('\n'),
+      });
+    }
+
+    // 5.4 Public schema permission check
     try {
       const pubPrivRes = await client.query<{ has_create: boolean }>(`
         SELECT has_schema_privilege('public', 'public', 'CREATE') as has_create;
@@ -6321,7 +6699,170 @@ export async function runPostgresHealthAudit(
       }
     } catch {}
 
-    // 5. Cache Hit Ratio (Buffer Cache)
+    // 6. Disk Space, Storage Capacity, Database Sizes & Transaction ID Wraparound Risk
+    let totalClusterBytes = 0;
+    let maxFrozenAge = 0;
+    let maxFrozenDb = '';
+
+    try {
+      const dbSizesRes = await client.query<{
+        datname: string;
+        size_bytes: string;
+        xid_age: string;
+      }>(`
+        SELECT 
+          datname, 
+          pg_database_size(datname) as size_bytes,
+          age(datfrozenxid) as xid_age
+        FROM pg_database 
+        WHERE datistemplate = false 
+        ORDER BY pg_database_size(datname) DESC;
+      `);
+
+      for (const d of dbSizesRes.rows) {
+        const b = parseInt(d.size_bytes || '0', 10);
+        totalClusterBytes += b;
+        const xAge = parseInt(d.xid_age || '0', 10);
+        if (xAge > maxFrozenAge) {
+          maxFrozenAge = xAge;
+          maxFrozenDb = d.datname;
+        }
+      }
+
+      // Check Database Cluster Total Size
+      const totalPretty = formatBytes(totalClusterBytes);
+      const topDbs = dbSizesRes.rows.slice(0, 3).map((d) => `${d.datname} (${formatBytes(parseInt(d.size_bytes, 10))})`).join(', ');
+
+      items.push({
+        id: 'cluster_storage_volume',
+        title: 'Cluster Database Storage Capacity',
+        titleFa: 'ظرفیت و حجم کلی پایگاه‌های داده کلاستر',
+        category: 'storage',
+        severity: 'good',
+        description: `Total cluster database storage footprint is ${totalPretty}. Largest databases: ${topDbs}.`,
+        descriptionFa: `مجموع حجم پایگاه‌های داده در این کلاستر ${totalPretty} است. بزرگترین دیتابیس‌ها: ${topDbs}.`,
+        metricValue: totalPretty,
+        recommendation: 'Ensure disk storage has at least 30% free space to accommodate VACUUM FULL and temp sorts.',
+        recommendationFa: 'اطمینان حاصل کنید حداقل ۳۰٪ فضای خالی در دیسک برای عملیات VACUUM و فایل‌های موقت موجود باشد.',
+      });
+
+      // Transaction ID Wraparound (2 Billion limit safety)
+      const freezeMaxAge = parseInt(settingsMap.get('autovacuum_freeze_max_age') || '200000000', 10);
+      const wraparoundPct = Math.round((maxFrozenAge / 2000000000) * 100);
+
+      if (maxFrozenAge > 1000000000) {
+        items.push({
+          id: 'xid_wraparound_danger',
+          title: 'CRITICAL: Severe Transaction ID (XID) Wraparound Risk',
+          titleFa: 'بحرانی: خطر جدی خطای توقف پایگاه داده در اثر انباشت شناسه تراکنش (Wraparound)',
+          category: 'storage',
+          severity: 'critical',
+          description: `Database "${maxFrozenDb}" transaction ID age is ${maxFrozenAge.toLocaleString()} (${wraparoundPct}% of 2B limit). If age reaches 2 billion, PostgreSQL halts ALL writes to prevent data loss!`,
+          descriptionFa: `عمر شناسه تراکنش در پایگاه "${maxFrozenDb}" به ${maxFrozenAge.toLocaleString()} رسیده است (${wraparoundPct}٪ سقف نهایی). در صورت رسیدن به ۲ میلیارد، کلیه عملیات نوشتن متوقف می‌شود!`,
+          metricValue: `${maxFrozenAge.toLocaleString()} XIDs (${wraparoundPct}%)`,
+          recommendation: 'Execute emergency VACUUM FREEZE ANALYZE immediately on all tables to advance datfrozenxid.',
+          recommendationFa: 'فوراً دستور VACUUM FREEZE ANALYZE را روی تمامی جداول اجرا نمایید.',
+          remediationSql: `VACUUM FREEZE VERBOSE ANALYZE;`,
+        });
+      } else if (maxFrozenAge > freezeMaxAge) {
+        items.push({
+          id: 'xid_wraparound_warning',
+          title: 'Transaction ID Age Exceeds Autovacuum Freeze Max Age',
+          titleFa: 'سن شناسه تراکنش‌ها از آستانه فریز خودکار عبور کرده است',
+          category: 'storage',
+          severity: 'warning',
+          description: `Transaction ID age in "${maxFrozenDb}" is ${maxFrozenAge.toLocaleString()}, exceeding autovacuum_freeze_max_age (${freezeMaxAge.toLocaleString()}). Anti-wraparound autovacuum is triggered.`,
+          descriptionFa: `سن شناسه تراکنش در دیتابیس "${maxFrozenDb}" (${maxFrozenAge.toLocaleString()}) از سقف autovacuum_freeze_max_age عبور کرده و نیازمند پاکسازی است.`,
+          metricValue: `${maxFrozenAge.toLocaleString()} XIDs`,
+          recommendation: 'Allow autovacuum to complete aggressive freeze passes or manually run VACUUM FREEZE.',
+          recommendationFa: 'اجازه دهید فرایند پاکسازی فریز با اولویت بالا پایان یابد یا به صورت دستی VACUUM FREEZE را اجرا کنید.',
+          remediationSql: `VACUUM FREEZE ANALYZE;`,
+        });
+      } else {
+        items.push({
+          id: 'xid_wraparound_healthy',
+          title: 'Transaction ID (XID) Age Healthy',
+          titleFa: 'سن شناسه‌های تراکنش (XID) در وضعیت ایمن',
+          category: 'storage',
+          severity: 'good',
+          description: `Max transaction ID age is ${maxFrozenAge.toLocaleString()} in "${maxFrozenDb}", well below wraparound safety thresholds.`,
+          descriptionFa: `حداکثر سن تراکنش‌ها ${maxFrozenAge.toLocaleString()} بوده و کاملاً در محدوده ایمن قرار دارد.`,
+          metricValue: `${maxFrozenAge.toLocaleString()} XIDs`,
+          recommendation: 'Maintain continuous autovacuum to keep transaction ID aging bounded.',
+          recommendationFa: 'با روشن نگه داشتن autovacuum از مدیریت خودکار تراکنش‌ها اطمینان حاصل کنید.',
+        });
+      }
+    } catch {}
+
+    // 6.2 WAL Archiving Status (pg_stat_archiver)
+    let walArchiverFailing = false;
+    try {
+      const archRes = await client.query<{
+        archived_count: string;
+        last_archived_time: string | null;
+        failed_count: string;
+        last_failed_time: string | null;
+      }>(`
+        SELECT archived_count, last_archived_time::text, failed_count, last_failed_time::text
+        FROM pg_stat_archiver;
+      `);
+      if (archRes.rows.length > 0) {
+        const arch = archRes.rows[0];
+        const failedCount = parseInt(arch.failed_count || '0', 10);
+        const lastFailed = arch.last_failed_time ? new Date(arch.last_failed_time).getTime() : 0;
+        const lastArchived = arch.last_archived_time ? new Date(arch.last_archived_time).getTime() : 0;
+
+        if (failedCount > 0 && lastFailed >= lastArchived) {
+          walArchiverFailing = true;
+          items.push({
+            id: 'wal_archiver_failing',
+            title: 'CRITICAL: WAL Archiver Process Failing',
+            titleFa: 'بحرانی: بروز خطا در فرآیند آرشیو لاگ‌های WAL',
+            category: 'storage',
+            severity: 'critical',
+            description: `WAL archiver has ${failedCount} failure(s). Latest failure occurred at ${arch.last_failed_time}. If WAL files cannot be archived, disk space will fill up and crash PostgreSQL!`,
+            descriptionFa: `سرویس آرشیو WAL دارای ${failedCount} خطاست. آخرین خطا در ${arch.last_failed_time} رخ داده است. عدم ذخیره لاگ‌های WAL باعث پر شدن دیسک و کرش سرور می‌شود!`,
+            metricValue: `${failedCount} Failed Archives`,
+            recommendation: 'Check archive_command in postgresql.conf and inspect target backup disk permissions and capacity.',
+            recommendationFa: 'دستور archive_command را در postgresql.conf چک کرده و دسترسی و فضای دیسک مقصد را بررسی کنید.',
+          });
+        }
+      }
+    } catch {}
+
+    // 6.3 Temporary Files Spilling to Disk
+    try {
+      const tempRes = await client.query<{
+        total_temp_bytes: string;
+        total_temp_files: string;
+      }>(`
+        SELECT 
+          sum(temp_bytes) as total_temp_bytes, 
+          sum(temp_files) as total_temp_files 
+        FROM pg_stat_database;
+      `);
+      const tempBytes = parseInt(tempRes.rows[0]?.total_temp_bytes || '0', 10);
+      const tempFiles = parseInt(tempRes.rows[0]?.total_temp_files || '0', 10);
+
+      if (tempBytes > 1024 * 1024 * 1024) { // > 1 GB
+        const prettyTemp = formatBytes(tempBytes);
+        items.push({
+          id: 'excessive_temp_files',
+          title: 'High Temporary File Spilling to Disk',
+          titleFa: 'تولید بیش از حد فایل‌های موقت روی دیسک (Spilling)',
+          category: 'performance',
+          severity: 'warning',
+          description: `Queries have written ${prettyTemp} across ${tempFiles.toLocaleString()} temporary disk files because work_mem was insufficient for in-memory sorting/hashing.`,
+          descriptionFa: `به دلیل کمبود work_mem، مقدار ${prettyTemp} داده در قالب ${tempFiles.toLocaleString()} فایل موقت روی دیسک نوشته شده که کارایی را کاهش می‌دهد.`,
+          metricValue: `${prettyTemp} temp files`,
+          recommendation: 'Increase work_mem in postgresql.conf to allow complex sort and hash operations to complete in RAM.',
+          recommendationFa: 'مقدار work_mem را افزایش دهید تا عملیات مرتب‌سازی و هش در حافظه رم انجام شود.',
+          remediationSql: `ALTER SYSTEM SET work_mem = '64MB';\nSELECT pg_reload_conf();`,
+        });
+      }
+    } catch {}
+
+    // 7. Cache Hit Ratio (Buffer Cache)
     let cacheHitRatio = 100;
     try {
       const cacheRes = await client.query<{ ratio: string }>(`
@@ -6361,7 +6902,7 @@ export async function runPostgresHealthAudit(
       }
     } catch {}
 
-    // 6. Index Hit Ratio
+    // 8. Index Hit Ratio
     let indexHitRatio = 100;
     try {
       const idxHitRes = await client.query<{ ratio: string }>(`
@@ -6401,7 +6942,7 @@ export async function runPostgresHealthAudit(
       }
     } catch {}
 
-    // 7. Connection Saturation
+    // 9. Connection Saturation & Long Queries
     let activeConn = 0;
     let idleInTx = 0;
     const maxConn = parseInt(settingsMap.get('max_connections') || '100', 10);
@@ -6410,16 +6951,19 @@ export async function runPostgresHealthAudit(
         total: string;
         active: string;
         idle_in_tx: string;
+        long_running: string;
       }>(`
         SELECT 
           count(*) as total,
           count(*) FILTER (WHERE state = 'active') as active,
-          count(*) FILTER (WHERE state = 'idle in transaction') as idle_in_tx
+          count(*) FILTER (WHERE state = 'idle in transaction') as idle_in_tx,
+          count(*) FILTER (WHERE state = 'active' AND (now() - query_start) > interval '5 minutes') as long_running
         FROM pg_stat_activity;
       `);
       const totalConn = parseInt(connRes.rows[0]?.total || '0', 10);
       activeConn = parseInt(connRes.rows[0]?.active || '0', 10);
       idleInTx = parseInt(connRes.rows[0]?.idle_in_tx || '0', 10);
+      const longRunning = parseInt(connRes.rows[0]?.long_running || '0', 10);
 
       const usagePct = Math.round((totalConn / Math.max(maxConn, 1)) * 100);
       if (usagePct >= 80) {
@@ -6466,9 +7010,24 @@ export async function runPostgresHealthAudit(
           remediationSql: `ALTER SYSTEM SET idle_in_transaction_session_timeout = '60000';`,
         });
       }
+
+      if (longRunning > 0) {
+        items.push({
+          id: 'long_running_queries',
+          title: 'Long-Running Active Queries Detected',
+          titleFa: 'کوئری‌های با مدت زمان اجرای طولانی (بیش از ۵ دقیقه)',
+          category: 'performance',
+          severity: 'warning',
+          description: `Found ${longRunning} active query session(s) executing for more than 5 minutes. They may be consuming excessive CPU or holding table locks.`,
+          descriptionFa: `تعداد ${longRunning} کوئری در حال اجرا با زمان بیش از ۵ دقیقه شناسایی شدند که ممکن است پردازنده یا قفل‌های جداول را درگیر کرده باشند.`,
+          metricValue: `${longRunning} queries > 5m`,
+          recommendation: 'Inspect active queries in pg_stat_activity and terminate stalled statements.',
+          recommendationFa: 'کوئری‌های فعال را در pg_stat_activity بررسی کرده و تراکنش‌های معلق را خاتمه دهید.',
+        });
+      }
     } catch {}
 
-    // 8. Bloated Tables Check
+    // 10. Bloated Tables Check
     let bloatedCount = 0;
     try {
       const bloatRes = await client.query<{
@@ -6519,7 +7078,7 @@ export async function runPostgresHealthAudit(
       }
     } catch {}
 
-    // 9. Unused Indexes
+    // 11. Unused Indexes
     let unusedIdxCount = 0;
     try {
       const unusedIdxRes = await client.query<{
@@ -6557,24 +7116,48 @@ export async function runPostgresHealthAudit(
       }
     } catch {}
 
-    // Calculate score
-    let score = 100;
+    // Granular Category Scoring
+    let secScore = 100;
+    let perfScore = 100;
+    let maintScore = 100;
+    let storScore = 100;
+
     let criticalCount = 0;
     let warningCount = 0;
     let passedCount = 0;
 
     for (const item of items) {
       if (item.severity === 'critical') {
-        score -= 18;
         criticalCount++;
+        if (item.category === 'security') secScore -= 28;
+        else if (item.category === 'performance') perfScore -= 25;
+        else if (item.category === 'maintenance') maintScore -= 25;
+        else if (item.category === 'storage') storScore -= 30;
+        else secScore -= 20;
       } else if (item.severity === 'warning') {
-        score -= 7;
         warningCount++;
+        if (item.category === 'security') secScore -= 12;
+        else if (item.category === 'performance') perfScore -= 10;
+        else if (item.category === 'maintenance') maintScore -= 10;
+        else if (item.category === 'storage') storScore -= 12;
+        else secScore -= 8;
       } else if (item.severity === 'good') {
         passedCount++;
       }
     }
-    const overallScore = Math.max(0, Math.min(100, Math.round(score)));
+
+    const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
+    const securityScore = clamp(secScore);
+    const performanceScore = clamp(perfScore);
+    const maintenanceScore = clamp(maintScore);
+    const storageScore = clamp(storScore);
+
+    const overallScore = clamp(
+      securityScore * 0.35 +
+      performanceScore * 0.25 +
+      maintenanceScore * 0.20 +
+      storageScore * 0.20
+    );
 
     const summary: PostgresHealthAuditSummary = {
       cacheHitRatio,
@@ -6587,10 +7170,29 @@ export async function runPostgresHealthAudit(
       bloatedTablesCount: bloatedCount,
       unusedIndexesCount: unusedIdxCount,
       idleInTxCount: idleInTx,
+      // Phase 19 extensions:
+      securityScore,
+      performanceScore,
+      maintenanceScore,
+      storageScore,
+      passwordlessRolesCount: passwordlessRoles.length,
+      openTrustRulesCount,
+      wraparoundMaxAge: maxFrozenAge,
+      wraparoundPercent: Math.round((maxFrozenAge / 2000000000) * 100),
+      totalDatabaseSizeBytes: totalClusterBytes,
+      totalDatabaseSizePretty: formatBytes(totalClusterBytes),
+      walArchiverFailing,
+      vulnerableSettingsCount,
+      superuserNames: superusers,
+      passwordlessNames: passwordlessRoles,
     };
 
     return {
       overallScore,
+      securityScore,
+      performanceScore,
+      maintenanceScore,
+      storageScore,
       generatedAt: new Date().toISOString(),
       database: targetDb,
       serverVersion,

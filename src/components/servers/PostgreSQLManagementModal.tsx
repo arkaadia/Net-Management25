@@ -525,7 +525,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               <span>{isEn ? 'Extensions' : 'افزونه‌ها'}</span>
             </button>
 
-            {/* TAB: HEALTH CHECK & SECURITY AUDIT (Phase 15) */}
+            {/* TAB: HEALTH CHECK & SECURITY AUDIT (Phase 19) */}
             <button
               type="button"
               onClick={() => setActiveTab('health')}
@@ -1154,7 +1154,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             />
           )}
 
-          {/* TAB: HEALTH CHECK & SECURITY AUDIT (Phase 15) */}
+          {/* TAB: HEALTH CHECK & SECURITY AUDIT (Phase 19) */}
           {activeTab === 'health' && (
             <PostgresHealthAuditTab
               server={server}
@@ -1162,6 +1162,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               isEn={isEn}
               initialDatabase={server.postgres_database || 'postgres'}
               onNavigateToSqlStudio={(sql) => {
+                setSqlEditorInitialQuery(sql);
                 setActiveTab('sql');
               }}
             />

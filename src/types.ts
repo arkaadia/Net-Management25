@@ -2399,11 +2399,11 @@ export interface PostgresExtensionOperationResult {
 }
 
 // ==========================================
-// Phase 15: PostgreSQL Health Check & Security Audit
+// Phase 19: PostgreSQL Comprehensive Health Check & Security Audit Hub
 // ==========================================
 
 export type PostgresAuditSeverity = 'critical' | 'warning' | 'good' | 'info';
-export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration';
+export type PostgresAuditCategory = 'security' | 'performance' | 'maintenance' | 'configuration' | 'storage';
 
 export interface PostgresHealthCheckItem {
   id: string;
@@ -2430,10 +2430,29 @@ export interface PostgresHealthAuditSummary {
   bloatedTablesCount: number;
   unusedIndexesCount: number;
   idleInTxCount: number;
+  // Phase 19 extensions:
+  securityScore: number;
+  performanceScore: number;
+  maintenanceScore: number;
+  storageScore: number;
+  passwordlessRolesCount: number;
+  openTrustRulesCount: number;
+  wraparoundMaxAge: number;
+  wraparoundPercent: number;
+  totalDatabaseSizeBytes: number;
+  totalDatabaseSizePretty: string;
+  walArchiverFailing: boolean;
+  vulnerableSettingsCount: number;
+  superuserNames?: string[];
+  passwordlessNames?: string[];
 }
 
 export interface PostgresHealthAuditReport {
   overallScore: number;
+  securityScore: number;
+  performanceScore: number;
+  maintenanceScore: number;
+  storageScore: number;
   generatedAt: string;
   database: string;
   serverVersion: string;
