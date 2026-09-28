@@ -50,6 +50,11 @@ import {
   MysqlDatabaseItem,
   MysqlDatabaseDetails,
   MysqlDatabaseTableSummary,
+  MysqlViewSummary,
+  MysqlRoutineSummary,
+  MysqlTriggerSummary,
+  MysqlEventSummary,
+  MysqlSequenceSummary,
   MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
@@ -60,6 +65,7 @@ import {
   fetchRemoteServerMysqlOverview,
   fetchRemoteServerMysqlDatabases,
   fetchRemoteServerMysqlDatabaseDetails,
+  fetchRemoteServerMysqlDatabaseObjects,
   fetchRemoteServerMysqlUsers,
   executeRemoteServerMysqlQuery,
   fetchRemoteServerMysqlProcesslist,
@@ -123,13 +129,41 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [isExecutingSql, setIsExecutingSql] = useState(false);
   const [queryResult, setQueryResult] = useState<MysqlQueryResult | null>(null);
 
-  // Database browser tree navigation state (Phase 3)
+  // Database browser tree navigation state (Phase 3 & Phase 4)
+  type TreeNodeType =
+    | 'root'
+    | 'databases_folder'
+    | 'database'
+    | 'tables_folder'
+    | 'table'
+    | 'views_folder'
+    | 'view'
+    | 'procedures_folder'
+    | 'procedure'
+    | 'functions_folder'
+    | 'function'
+    | 'triggers_folder'
+    | 'trigger'
+    | 'events_folder'
+    | 'event'
+    | 'sequences_folder'
+    | 'sequence'
+    | 'users_folder'
+    | 'user'
+    | 'server_folder';
+
   const [selectedTreeNode, setSelectedTreeNode] = useState<{
-    type: 'root' | 'databases_folder' | 'database' | 'table' | 'users_folder' | 'user' | 'server_folder';
+    type: TreeNodeType;
     id: string;
     name: string;
     dbName?: string;
     tableName?: string;
+    viewName?: string;
+    procedureName?: string;
+    functionName?: string;
+    triggerName?: string;
+    eventName?: string;
+    sequenceName?: string;
     userName?: string;
   }>({
     type: 'root',
@@ -141,6 +175,10 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   );
   const [treeSearch, setTreeSearch] = useState('');
   const [tableSearch, setTableSearch] = useState('');
+  const [objectSearch, setObjectSearch] = useState('');
+  const [dbActiveObjectTab, setDbActiveObjectTab] = useState<
+    'tables' | 'views' | 'procedures' | 'functions' | 'triggers' | 'events' | 'sequences'
+  >('tables');
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
   // Database details cache: dbName -> MysqlDatabaseDetails
@@ -270,10 +308,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     setTimeout(() => setCopiedSnippet(null), 2000);
   };
 
-  const handleOpenSqlForDatabase = (dbName: string, table?: string) => {
-    const query = table
-      ? `USE \`${dbName}\`;\nSELECT * FROM \`${table}\` LIMIT 50;`
-      : `USE \`${dbName}\`;\nSHOW TABLES;`;
+  const handleOpenSqlForDatabase = (dbName: string, table?: string, customQuery?: string) => {
+    let query = '';
+    if (customQuery) {
+      query = customQuery;
+    } else if (table) {
+      query = `USE \`${dbName}\`;\nSELECT * FROM \`${table}\` LIMIT 50;`;
+    } else {
+      query = `USE \`${dbName}\`;\nSHOW TABLES;`;
+    }
     setSqlQuery(query);
     setActiveTab('sql');
   };
@@ -972,57 +1015,582 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                           )}
                                         </div>
 
-                                        {/* Tables sub-branch under database */}
+                                        {/* Schema Objects sub-branches under database (Phase 4) */}
                                         {isExpanded && (
-                                          <div className="pl-4 mt-0.5 space-y-0.5 border-l border-slate-700/20 ml-2">
+                                          <div className="pl-3 mt-0.5 space-y-0.5 border-l border-slate-700/20 ml-2">
                                             {isLoadingDetails ? (
                                               <div className="py-1 text-[11px] text-slate-400 flex items-center gap-1.5">
                                                 <RefreshCw className="w-3 h-3 animate-spin text-orange-400" />
-                                                <span>{isEn ? 'Loading tables...' : 'در حال خواندن جداول...'}</span>
+                                                <span>{isEn ? 'Loading schema objects...' : 'در حال خواندن اجزای دیتابیس...'}</span>
                                               </div>
-                                            ) : details?.tables && details.tables.length > 0 ? (
-                                              details.tables
-                                                .filter((t) => !treeSearch || t.name.toLowerCase().includes(treeSearch.toLowerCase()))
-                                                .slice(0, 100)
-                                                .map((table) => {
-                                                  const isTableSelected =
-                                                    selectedTreeNode.type === 'table' &&
-                                                    selectedTreeNode.dbName === db.name &&
-                                                    selectedTreeNode.tableName === table.name;
-                                                  return (
+                                            ) : (
+                                              <>
+                                                {/* 1. TABLES FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'tables_folder',
+                                                        id: `db:${db.name}:tables`,
+                                                        name: isEn ? 'Tables' : 'جداول',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('tables');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'tables_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-orange-500/20 text-orange-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:tables`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:tables`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Table className="w-3 h-3 text-cyan-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Tables' : 'جداول'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.tables?.length ?? details?.tableCount ?? db.tableCount}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:tables`) && details?.tables && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.tables
+                                                        .filter((t) => !treeSearch || t.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .slice(0, 100)
+                                                        .map((table) => {
+                                                          const isTableSelected =
+                                                            selectedTreeNode.type === 'table' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.tableName === table.name;
+                                                          return (
+                                                            <div
+                                                              key={table.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'table',
+                                                                  id: `table:${db.name}:${table.name}`,
+                                                                  name: table.name,
+                                                                  dbName: db.name,
+                                                                  tableName: table.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isTableSelected
+                                                                  ? 'bg-orange-500/20 text-orange-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Table className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={table.name}>
+                                                                {table.name}
+                                                              </span>
+                                                              <span className="text-[9px] text-slate-500 font-mono">
+                                                                {table.approxRows > 0 ? table.approxRows.toLocaleString() : '0'}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 2. VIEWS FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'views_folder',
+                                                        id: `db:${db.name}:views`,
+                                                        name: isEn ? 'Views' : 'نماها',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('views');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'views_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-purple-500/20 text-purple-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:views`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:views`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Eye className="w-3 h-3 text-purple-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Views' : 'نماها'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.views?.length ?? details?.viewsCount ?? 0}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:views`) && details?.views && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.views
+                                                        .filter((v) => !treeSearch || v.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .map((view) => {
+                                                          const isViewSelected =
+                                                            selectedTreeNode.type === 'view' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.viewName === view.name;
+                                                          return (
+                                                            <div
+                                                              key={view.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'view',
+                                                                  id: `view:${db.name}:${view.name}`,
+                                                                  name: view.name,
+                                                                  dbName: db.name,
+                                                                  viewName: view.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isViewSelected
+                                                                  ? 'bg-purple-500/25 text-purple-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Eye className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={view.name}>
+                                                                {view.name}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 3. STORED PROCEDURES FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'procedures_folder',
+                                                        id: `db:${db.name}:procedures`,
+                                                        name: isEn ? 'Stored Procedures' : 'رویه‌های ذخیره‌شده',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('procedures');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'procedures_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:procedures`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:procedures`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Code className="w-3 h-3 text-emerald-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Procedures' : 'رویه‌ها'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.procedures?.length ?? details?.proceduresCount ?? 0}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:procedures`) && details?.procedures && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.procedures
+                                                        .filter((p) => !treeSearch || p.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .map((proc) => {
+                                                          const isProcSelected =
+                                                            selectedTreeNode.type === 'procedure' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.procedureName === proc.name;
+                                                          return (
+                                                            <div
+                                                              key={proc.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'procedure',
+                                                                  id: `procedure:${db.name}:${proc.name}`,
+                                                                  name: proc.name,
+                                                                  dbName: db.name,
+                                                                  procedureName: proc.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isProcSelected
+                                                                  ? 'bg-emerald-500/25 text-emerald-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Code className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={proc.name}>
+                                                                {proc.name}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 4. STORED FUNCTIONS FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'functions_folder',
+                                                        id: `db:${db.name}:functions`,
+                                                        name: isEn ? 'Stored Functions' : 'توابع ذخیره‌شده',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('functions');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'functions_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-amber-500/20 text-amber-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:functions`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:functions`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Functions' : 'توابع'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.functions?.length ?? details?.functionsCount ?? 0}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:functions`) && details?.functions && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.functions
+                                                        .filter((f) => !treeSearch || f.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .map((func) => {
+                                                          const isFuncSelected =
+                                                            selectedTreeNode.type === 'function' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.functionName === func.name;
+                                                          return (
+                                                            <div
+                                                              key={func.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'function',
+                                                                  id: `function:${db.name}:${func.name}`,
+                                                                  name: func.name,
+                                                                  dbName: db.name,
+                                                                  functionName: func.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isFuncSelected
+                                                                  ? 'bg-amber-500/25 text-amber-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={func.name}>
+                                                                {func.name}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 5. TRIGGERS FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'triggers_folder',
+                                                        id: `db:${db.name}:triggers`,
+                                                        name: isEn ? 'Triggers' : 'تریگرها',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('triggers');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'triggers_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-rose-500/20 text-rose-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:triggers`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:triggers`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Activity className="w-3 h-3 text-rose-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Triggers' : 'تریگرها'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.triggers?.length ?? details?.triggersCount ?? 0}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:triggers`) && details?.triggers && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.triggers
+                                                        .filter((tr) => !treeSearch || tr.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .map((trig) => {
+                                                          const isTrigSelected =
+                                                            selectedTreeNode.type === 'trigger' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.triggerName === trig.name;
+                                                          return (
+                                                            <div
+                                                              key={trig.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'trigger',
+                                                                  id: `trigger:${db.name}:${trig.name}`,
+                                                                  name: trig.name,
+                                                                  dbName: db.name,
+                                                                  triggerName: trig.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isTrigSelected
+                                                                  ? 'bg-rose-500/25 text-rose-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Activity className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={trig.name}>
+                                                                {trig.name}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 6. EVENTS FOLDER */}
+                                                <div>
+                                                  <div
+                                                    onClick={() => {
+                                                      setSelectedTreeNode({
+                                                        type: 'events_folder',
+                                                        id: `db:${db.name}:events`,
+                                                        name: isEn ? 'Scheduled Events' : 'رویدادها',
+                                                        dbName: db.name,
+                                                      });
+                                                      setDbActiveObjectTab('events');
+                                                    }}
+                                                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                      selectedTreeNode.type === 'events_folder' && selectedTreeNode.dbName === db.name
+                                                        ? 'bg-blue-500/20 text-blue-300 font-bold'
+                                                        : isLightMode
+                                                        ? 'hover:bg-slate-200 text-slate-700'
+                                                        : 'hover:bg-white/5 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeNode(`db:${db.name}:events`);
+                                                      }}
+                                                      className="p-0.5 hover:text-white"
+                                                    >
+                                                      {expandedTreeNodes.has(`db:${db.name}:events`) ? (
+                                                        <ChevronDown className="w-2.5 h-2.5" />
+                                                      ) : (
+                                                        <ChevronRight className="w-2.5 h-2.5" />
+                                                      )}
+                                                    </button>
+                                                    <Clock className="w-3 h-3 text-blue-400 shrink-0" />
+                                                    <span className="truncate flex-1">{isEn ? 'Events' : 'رویدادها'}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                      {details?.events?.length ?? details?.eventsCount ?? 0}
+                                                    </span>
+                                                  </div>
+                                                  {expandedTreeNodes.has(`db:${db.name}:events`) && details?.events && (
+                                                    <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                      {details.events
+                                                        .filter((ev) => !treeSearch || ev.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                        .map((event) => {
+                                                          const isEventSelected =
+                                                            selectedTreeNode.type === 'event' &&
+                                                            selectedTreeNode.dbName === db.name &&
+                                                            selectedTreeNode.eventName === event.name;
+                                                          return (
+                                                            <div
+                                                              key={event.name}
+                                                              onClick={() => {
+                                                                setSelectedTreeNode({
+                                                                  type: 'event',
+                                                                  id: `event:${db.name}:${event.name}`,
+                                                                  name: event.name,
+                                                                  dbName: db.name,
+                                                                  eventName: event.name,
+                                                                });
+                                                              }}
+                                                              className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                isEventSelected
+                                                                  ? 'bg-blue-500/25 text-blue-300 font-bold'
+                                                                  : isLightMode
+                                                                  ? 'hover:bg-slate-200 text-slate-600'
+                                                                  : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                              }`}
+                                                            >
+                                                              <Clock className="w-2.5 h-2.5 text-blue-400 shrink-0" />
+                                                              <span className="truncate flex-1" title={event.name}>
+                                                                {event.name}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+
+                                                {/* 7. SEQUENCES FOLDER (if supported) */}
+                                                {details?.sequences && details.sequences.length > 0 && (
+                                                  <div>
                                                     <div
-                                                      key={table.name}
                                                       onClick={() => {
                                                         setSelectedTreeNode({
-                                                          type: 'table',
-                                                          id: `table:${db.name}:${table.name}`,
-                                                          name: table.name,
+                                                          type: 'sequences_folder',
+                                                          id: `db:${db.name}:sequences`,
+                                                          name: isEn ? 'Sequences' : 'دنباله‌ها',
                                                           dbName: db.name,
-                                                          tableName: table.name,
                                                         });
+                                                        setDbActiveObjectTab('sequences');
                                                       }}
-                                                      className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
-                                                        isTableSelected
-                                                          ? 'bg-orange-500/20 text-orange-300 font-bold'
+                                                      className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-sans ${
+                                                        selectedTreeNode.type === 'sequences_folder' && selectedTreeNode.dbName === db.name
+                                                          ? 'bg-teal-500/20 text-teal-300 font-bold'
                                                           : isLightMode
-                                                          ? 'hover:bg-slate-200 text-slate-600'
-                                                          : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                          ? 'hover:bg-slate-200 text-slate-700'
+                                                          : 'hover:bg-white/5 text-slate-300'
                                                       }`}
                                                     >
-                                                      <Table className="w-3 h-3 text-cyan-400 shrink-0" />
-                                                      <span className="truncate flex-1" title={table.name}>
-                                                        {table.name}
-                                                      </span>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          toggleTreeNode(`db:${db.name}:sequences`);
+                                                        }}
+                                                        className="p-0.5 hover:text-white"
+                                                      >
+                                                        {expandedTreeNodes.has(`db:${db.name}:sequences`) ? (
+                                                          <ChevronDown className="w-2.5 h-2.5" />
+                                                        ) : (
+                                                          <ChevronRight className="w-2.5 h-2.5" />
+                                                        )}
+                                                      </button>
+                                                      <Hash className="w-3 h-3 text-teal-400 shrink-0" />
+                                                      <span className="truncate flex-1">{isEn ? 'Sequences' : 'دنباله‌ها'}</span>
                                                       <span className="text-[10px] text-slate-500 font-mono">
-                                                        {table.approxRows > 0 ? table.approxRows.toLocaleString() : '0'}
+                                                        {details.sequences.length}
                                                       </span>
                                                     </div>
-                                                  );
-                                                })
-                                            ) : (
-                                              <div className="py-0.5 text-[10px] text-slate-500 italic">
-                                                {isEn ? 'No tables' : 'بدون جدول'}
-                                              </div>
+                                                    {expandedTreeNodes.has(`db:${db.name}:sequences`) && (
+                                                      <div className="pl-3 space-y-0.5 border-l border-slate-700/20 ml-2 mt-0.5">
+                                                        {details.sequences
+                                                          .filter((s) => !treeSearch || s.name.toLowerCase().includes(treeSearch.toLowerCase()))
+                                                          .map((seq) => {
+                                                            const isSeqSelected =
+                                                              selectedTreeNode.type === 'sequence' &&
+                                                              selectedTreeNode.dbName === db.name &&
+                                                              selectedTreeNode.sequenceName === seq.name;
+                                                            return (
+                                                              <div
+                                                                key={seq.name}
+                                                                onClick={() => {
+                                                                  setSelectedTreeNode({
+                                                                    type: 'sequence',
+                                                                    id: `sequence:${db.name}:${seq.name}`,
+                                                                    name: seq.name,
+                                                                    dbName: db.name,
+                                                                    sequenceName: seq.name,
+                                                                  });
+                                                                }}
+                                                                className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded cursor-pointer text-[11px] transition font-mono ${
+                                                                  isSeqSelected
+                                                                    ? 'bg-teal-500/25 text-teal-300 font-bold'
+                                                                    : isLightMode
+                                                                    ? 'hover:bg-slate-200 text-slate-600'
+                                                                    : 'hover:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                                }`}
+                                                              >
+                                                                <Hash className="w-2.5 h-2.5 text-teal-400 shrink-0" />
+                                                                <span className="truncate flex-1" title={seq.name}>
+                                                                  {seq.name}
+                                                                </span>
+                                                              </div>
+                                                            );
+                                                          })}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </>
                                             )}
                                           </div>
                                         )}
@@ -1174,24 +1742,78 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                       )}
                       {selectedTreeNode.type === 'database' && (
                         <>
-                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}
+                          >
                             {isEn ? 'Databases' : 'پایگاه‌های داده'}
                           </span>
                           <span>/</span>
                           <span className="text-orange-400 font-bold">{selectedTreeNode.dbName}</span>
                         </>
                       )}
-                      {selectedTreeNode.type === 'table' && (
+                      {(selectedTreeNode.type === 'tables_folder' ||
+                        selectedTreeNode.type === 'views_folder' ||
+                        selectedTreeNode.type === 'procedures_folder' ||
+                        selectedTreeNode.type === 'functions_folder' ||
+                        selectedTreeNode.type === 'triggers_folder' ||
+                        selectedTreeNode.type === 'events_folder' ||
+                        selectedTreeNode.type === 'sequences_folder') && (
                         <>
-                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}
+                          >
                             {isEn ? 'Databases' : 'پایگاه‌های داده'}
                           </span>
                           <span>/</span>
-                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'database', id: `db:${selectedTreeNode.dbName}`, name: selectedTreeNode.dbName!, dbName: selectedTreeNode.dbName })}>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() =>
+                              setSelectedTreeNode({
+                                type: 'database',
+                                id: `db:${selectedTreeNode.dbName}`,
+                                name: selectedTreeNode.dbName!,
+                                dbName: selectedTreeNode.dbName,
+                              })
+                            }
+                          >
                             {selectedTreeNode.dbName}
                           </span>
                           <span>/</span>
-                          <span className="text-cyan-400 font-bold">{selectedTreeNode.tableName}</span>
+                          <span className="text-orange-400 font-bold">{selectedTreeNode.name}</span>
+                        </>
+                      )}
+                      {(selectedTreeNode.type === 'table' ||
+                        selectedTreeNode.type === 'view' ||
+                        selectedTreeNode.type === 'procedure' ||
+                        selectedTreeNode.type === 'function' ||
+                        selectedTreeNode.type === 'trigger' ||
+                        selectedTreeNode.type === 'event' ||
+                        selectedTreeNode.type === 'sequence') && (
+                        <>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() => setSelectedTreeNode({ type: 'databases_folder', id: 'databases_folder', name: 'Databases' })}
+                          >
+                            {isEn ? 'Databases' : 'پایگاه‌های داده'}
+                          </span>
+                          <span>/</span>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() =>
+                              setSelectedTreeNode({
+                                type: 'database',
+                                id: `db:${selectedTreeNode.dbName}`,
+                                name: selectedTreeNode.dbName!,
+                                dbName: selectedTreeNode.dbName,
+                              })
+                            }
+                          >
+                            {selectedTreeNode.dbName}
+                          </span>
+                          <span>/</span>
+                          <span className="text-cyan-400 font-bold">{selectedTreeNode.name}</span>
                         </>
                       )}
                       {selectedTreeNode.type === 'users_folder' && (
@@ -1199,7 +1821,10 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                       )}
                       {selectedTreeNode.type === 'user' && (
                         <>
-                          <span className="hover:underline cursor-pointer" onClick={() => setSelectedTreeNode({ type: 'users_folder', id: 'users_folder', name: 'Users' })}>
+                          <span
+                            className="hover:underline cursor-pointer"
+                            onClick={() => setSelectedTreeNode({ type: 'users_folder', id: 'users_folder', name: 'Users' })}
+                          >
                             {isEn ? 'Users' : 'کاربران'}
                           </span>
                           <span>/</span>
@@ -1399,74 +2024,875 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                   )}
 
                   {/* ---------------------------------------------------- */}
-                  {/* VIEW C: INDIVIDUAL DATABASE DETAILS & TABLES LIST     */}
+                  {/* VIEW C: INDIVIDUAL DATABASE SCHEMA & OBJECT EXPLORER */}
                   {/* ---------------------------------------------------- */}
-                  {(selectedTreeNode.type === 'database' || selectedTreeNode.type === 'table') && selectedTreeNode.dbName && (
-                    <div className="space-y-4">
-                      {/* Database Header Card */}
-                      {(() => {
-                        const dbName = selectedTreeNode.dbName!;
-                        const details = dbDetailsCache[dbName];
-                        const dbMeta = databases.find((d) => d.name === dbName);
-                        const isLoading = loadingDbDetails.has(dbName);
+                  {selectedTreeNode.dbName &&
+                    (selectedTreeNode.type === 'database' ||
+                      selectedTreeNode.type === 'tables_folder' ||
+                      selectedTreeNode.type === 'views_folder' ||
+                      selectedTreeNode.type === 'procedures_folder' ||
+                      selectedTreeNode.type === 'functions_folder' ||
+                      selectedTreeNode.type === 'triggers_folder' ||
+                      selectedTreeNode.type === 'events_folder' ||
+                      selectedTreeNode.type === 'sequences_folder' ||
+                      selectedTreeNode.type === 'table' ||
+                      selectedTreeNode.type === 'view' ||
+                      selectedTreeNode.type === 'procedure' ||
+                      selectedTreeNode.type === 'function' ||
+                      selectedTreeNode.type === 'trigger' ||
+                      selectedTreeNode.type === 'event' ||
+                      selectedTreeNode.type === 'sequence') && (
+                      <div className="space-y-4">
+                        {(() => {
+                          const dbName = selectedTreeNode.dbName!;
+                          const details = dbDetailsCache[dbName];
+                          const dbMeta = databases.find((d) => d.name === dbName);
+                          const isLoading = loadingDbDetails.has(dbName);
 
-                        return (
-                          <>
-                            <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                                  <Database className="w-5 h-5" />
-                                </div>
-                                <div>
+                          // ========================================================
+                          // SUB-VIEW 1: INDIVIDUAL VIEW INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'view') {
+                            const currentView = details?.views?.find(
+                              (v) => v.name === selectedTreeNode.viewName || v.name === selectedTreeNode.name
+                            );
+                            const viewDef = currentView?.definition
+                              ? `CREATE OR REPLACE ALGORITHM = UNDEFINED\nVIEW \`${dbName}\`.\`${currentView.name}\` AS\n${currentView.definition};`
+                              : `-- No definition retrieved for view \`${dbName}\`.\`${selectedTreeNode.name}\``;
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
                                   <div className="flex items-center gap-2">
-                                    <h3 className="font-bold text-base text-slate-100 font-mono">{dbName}</h3>
-                                    {dbMeta?.isSystem && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-sans font-bold">
-                                        SYSTEM CATALOG
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'views_folder',
+                                          id: `db:${dbName}:views`,
+                                          name: isEn ? 'Views' : 'نماها',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('views');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Views' : 'بازگشت به نماها'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Eye className="w-4 h-4 text-purple-400" />
+                                      <span className="font-bold text-sm font-mono text-purple-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-sans font-bold">
+                                        VIEW
                                       </span>
-                                    )}
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
-                                    <span>{details?.defaultCharacterSet || dbMeta?.defaultCharacterSet || 'utf8mb4'}</span>
-                                    <span>•</span>
-                                    <span>{details?.defaultCollation || dbMeta?.defaultCollation}</span>
-                                    <span>•</span>
-                                    <span className="text-emerald-400 font-bold">{details?.sizePretty || dbMeta?.sizePretty || '0 B'}</span>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(viewDef, `view-def-${selectedTreeNode.name}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `view-def-${selectedTreeNode.name}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {copiedSnippet === `view-def-${selectedTreeNode.name}`
+                                          ? isEn ? 'Copied SQL' : 'کپی شد'
+                                          : isEn ? 'Copy View SQL' : 'کپی SQL نما'}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenSqlForDatabase(dbName, selectedTreeNode.name)}
+                                      className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Terminal className="w-3.5 h-3.5" />
+                                      <span>{isEn ? 'Query View' : 'اجرای کوئری'}</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Updatable' : 'قابل ویرایش'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono mt-1">
+                                      {currentView?.isUpdatable ? (
+                                        <span className="text-emerald-400">YES</span>
+                                      ) : (
+                                        <span className="text-slate-400">NO</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Check Option' : 'بررسی محدودیت'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-cyan-300 mt-1">
+                                      {currentView?.checkOption || 'NONE'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Security Type' : 'نوع امنیت'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-purple-300 mt-1">
+                                      {currentView?.securityType || 'DEFINER'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Created At' : 'تاریخ ساخت'}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-300 mt-1 truncate">
+                                      {currentView?.createTime ? new Date(currentView.createTime).toLocaleDateString() : '—'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Definition Code Viewer */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-slate-400">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      <Code className="w-3.5 h-3.5 text-purple-400" />
+                                      <span>{isEn ? 'View Definition (SQL DDL)' : 'تعریف SQL نما (DDL)'}</span>
+                                    </span>
+                                  </div>
+                                  <div className="p-4 rounded-xl border border-purple-500/20 bg-slate-950 font-mono text-xs text-purple-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                    {viewDef}
                                   </div>
                                 </div>
                               </div>
+                            );
+                          }
 
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => loadDatabaseDetails(dbName, true)}
-                                  disabled={isLoading}
-                                  className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 text-xs flex items-center gap-1 cursor-pointer"
-                                  title={isEn ? 'Refresh Tables' : 'بروزرسانی جداول'}
-                                >
-                                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-orange-400' : ''}`} />
-                                  <span className="hidden sm:inline">{isEn ? 'Reload' : 'تازه‌سازی'}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenSqlForDatabase(dbName)}
-                                  className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Terminal className="w-3.5 h-3.5" />
-                                  <span>{isEn ? 'Open in Console' : 'کنسول SQL'}</span>
-                                </button>
+                          // ========================================================
+                          // SUB-VIEW 2: INDIVIDUAL STORED PROCEDURE INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'procedure') {
+                            const proc = details?.procedures?.find(
+                              (p) => p.name === selectedTreeNode.procedureName || p.name === selectedTreeNode.name
+                            );
+                            const procDef = proc?.definition || proc?.body || `-- Routine body not available or empty`;
+                            const callStmt = `CALL \`${dbName}\`.\`${selectedTreeNode.name}\`();`;
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'procedures_folder',
+                                          id: `db:${dbName}:procedures`,
+                                          name: isEn ? 'Stored Procedures' : 'رویه‌های ذخیره‌شده',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('procedures');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Procedures' : 'بازگشت به رویه‌ها'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Code className="w-4 h-4 text-emerald-400" />
+                                      <span className="font-bold text-sm font-mono text-emerald-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-sans font-bold">
+                                        PROCEDURE
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(callStmt, `call-${selectedTreeNode.name}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `call-${selectedTreeNode.name}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {copiedSnippet === `call-${selectedTreeNode.name}`
+                                          ? isEn ? 'Copied' : 'کپی شد'
+                                          : isEn ? 'Copy CALL' : 'کپی دستور CALL'}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenSqlForDatabase(dbName, undefined, callStmt)}
+                                      className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Terminal className="w-3.5 h-3.5" />
+                                      <span>{isEn ? 'Open in Console' : 'کنسول SQL'}</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Definer' : 'مالک/تعریف‌کننده'}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-300 mt-1 truncate" title={proc?.definer}>
+                                      {proc?.definer || 'root@localhost'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Security Context' : 'زمینه امنیتی'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-cyan-300 mt-1">
+                                      {proc?.securityType || 'DEFINER'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Deterministic' : 'قطعی/تکرارپذیر'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono mt-1">
+                                      {proc?.isDeterministic ? (
+                                        <span className="text-emerald-400">YES</span>
+                                      ) : (
+                                        <span className="text-slate-400">NO</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Data Access' : 'سطح دسترسی داده'}
+                                    </div>
+                                    <div className="text-xs font-mono text-amber-300 mt-1 truncate">
+                                      {proc?.sqlDataAccess || 'CONTAINS SQL'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Definition Code Viewer */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-slate-400">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      <Code className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span>{isEn ? 'Procedure Routine Definition' : 'متن و کدهای رویه ذخیره‌شده'}</span>
+                                    </span>
+                                  </div>
+                                  <div className="p-4 rounded-xl border border-emerald-500/20 bg-slate-950 font-mono text-xs text-emerald-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                    {procDef}
+                                  </div>
+                                </div>
                               </div>
-                            </div>
+                            );
+                          }
 
-                            {/* Tables Explorer Section */}
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-3">
+                          // ========================================================
+                          // SUB-VIEW 3: INDIVIDUAL STORED FUNCTION INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'function') {
+                            const func = details?.functions?.find(
+                              (f) => f.name === selectedTreeNode.functionName || f.name === selectedTreeNode.name
+                            );
+                            const funcDef = func?.definition || func?.body || `-- Function body not available or empty`;
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'functions_folder',
+                                          id: `db:${dbName}:functions`,
+                                          name: isEn ? 'Stored Functions' : 'توابع ذخیره‌شده',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('functions');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Functions' : 'بازگشت به توابع'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Zap className="w-4 h-4 text-amber-400" />
+                                      <span className="font-bold text-sm font-mono text-amber-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-sans font-bold">
+                                        FUNCTION
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(funcDef, `func-def-${selectedTreeNode.name}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `func-def-${selectedTreeNode.name}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {copiedSnippet === `func-def-${selectedTreeNode.name}`
+                                          ? isEn ? 'Copied' : 'کپی شد'
+                                          : isEn ? 'Copy Function SQL' : 'کپی متن تابع'}
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Return Type' : 'نوع بازگشتی'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-amber-300 mt-1">
+                                      {func?.returnType || 'text'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Definer' : 'مالک'}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-300 mt-1 truncate" title={func?.definer}>
+                                      {func?.definer || 'root@localhost'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Security Type' : 'نوع امنیت'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-cyan-300 mt-1">
+                                      {func?.securityType || 'DEFINER'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Deterministic' : 'قطعی'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono mt-1">
+                                      {func?.isDeterministic ? (
+                                        <span className="text-emerald-400">YES</span>
+                                      ) : (
+                                        <span className="text-slate-400">NO</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Definition Code Viewer */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-slate-400">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>{isEn ? 'Function Routine Body' : 'کدهای بدنه تابع'}</span>
+                                    </span>
+                                  </div>
+                                  <div className="p-4 rounded-xl border border-amber-500/20 bg-slate-950 font-mono text-xs text-amber-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                    {funcDef}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // ========================================================
+                          // SUB-VIEW 4: INDIVIDUAL TRIGGER INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'trigger') {
+                            const trig = details?.triggers?.find(
+                              (tr) => tr.name === selectedTreeNode.triggerName || tr.name === selectedTreeNode.name
+                            );
+                            const trigDef = trig?.statement
+                              ? `CREATE TRIGGER \`${trig.name}\`\n${trig.timing} ${trig.event} ON \`${trig.tableName}\`\nFOR EACH ROW\n${trig.statement};`
+                              : `-- Trigger statement not available`;
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'triggers_folder',
+                                          id: `db:${dbName}:triggers`,
+                                          name: isEn ? 'Triggers' : 'تریگرها',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('triggers');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Triggers' : 'بازگشت به تریگرها'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Activity className="w-4 h-4 text-rose-400" />
+                                      <span className="font-bold text-sm font-mono text-rose-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300 font-sans font-bold">
+                                        TRIGGER
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(trigDef, `trig-${selectedTreeNode.name}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `trig-${selectedTreeNode.name}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {copiedSnippet === `trig-${selectedTreeNode.name}`
+                                          ? isEn ? 'Copied' : 'کپی شد'
+                                          : isEn ? 'Copy Trigger SQL' : 'کپی متن تریگر'}
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Target Table' : 'جدول هدف'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-cyan-300 mt-1 truncate">
+                                      {trig?.tableName || '—'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Timing' : 'زمان اجرا'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-rose-300 mt-1">
+                                      {trig?.timing || 'BEFORE'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Event' : 'عملیات عامل'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-amber-300 mt-1">
+                                      {trig?.event || 'INSERT'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Definer' : 'مالک'}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-300 mt-1 truncate" title={trig?.definer}>
+                                      {trig?.definer || 'root@localhost'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Statement Code Viewer */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-slate-400">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      <Activity className="w-3.5 h-3.5 text-rose-400" />
+                                      <span>{isEn ? 'Trigger Action Statement' : 'دستورات اجرایی تریگر'}</span>
+                                    </span>
+                                  </div>
+                                  <div className="p-4 rounded-xl border border-rose-500/20 bg-slate-950 font-mono text-xs text-rose-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                    {trigDef}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // ========================================================
+                          // SUB-VIEW 5: INDIVIDUAL SCHEDULED EVENT INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'event') {
+                            const ev = details?.events?.find(
+                              (e) => e.name === selectedTreeNode.eventName || e.name === selectedTreeNode.name
+                            );
+                            const evDef = ev?.definition || `-- Scheduled event body not available`;
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'events_folder',
+                                          id: `db:${dbName}:events`,
+                                          name: isEn ? 'Scheduled Events' : 'رویدادها',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('events');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Events' : 'بازگشت به رویدادها'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="w-4 h-4 text-blue-400" />
+                                      <span className="font-bold text-sm font-mono text-blue-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-sans font-bold">
+                                        EVENT
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(evDef, `ev-def-${selectedTreeNode.name}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `ev-def-${selectedTreeNode.name}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {copiedSnippet === `ev-def-${selectedTreeNode.name}`
+                                          ? isEn ? 'Copied' : 'کپی شد'
+                                          : isEn ? 'Copy Event SQL' : 'کپی متن رویداد'}
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Status' : 'وضعیت'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono mt-1">
+                                      {ev?.status === 'ENABLED' ? (
+                                        <span className="text-emerald-400">ENABLED</span>
+                                      ) : (
+                                        <span className="text-rose-400">{ev?.status || 'DISABLED'}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Schedule Type' : 'نوع زمان‌بندی'}
+                                    </div>
+                                    <div className="text-sm font-bold font-mono text-cyan-300 mt-1">
+                                      {ev?.type || 'RECURRING'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Interval' : 'دوره تکرار'}
+                                    </div>
+                                    <div className="text-xs font-mono text-amber-300 mt-1">
+                                      {ev?.intervalValue ? `${ev.intervalValue} ${ev.intervalField || ''}` : 'One-time'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Definer' : 'مالک'}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-300 mt-1 truncate" title={ev?.definer}>
+                                      {ev?.definer || 'root@localhost'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Event Definition Code Viewer */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs text-slate-400">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5 text-blue-400" />
+                                      <span>{isEn ? 'Event Scheduler Body' : 'کدهای رویداد زمان‌بندی‌شده'}</span>
+                                    </span>
+                                  </div>
+                                  <div className="p-4 rounded-xl border border-blue-500/20 bg-slate-950 font-mono text-xs text-blue-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                    {evDef}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // ========================================================
+                          // SUB-VIEW 6: INDIVIDUAL SEQUENCE INSPECTOR
+                          // ========================================================
+                          if (selectedTreeNode.type === 'sequence') {
+                            const seq = details?.sequences?.find(
+                              (s) => s.name === selectedTreeNode.sequenceName || s.name === selectedTreeNode.name
+                            );
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'sequences_folder',
+                                          id: `db:${dbName}:sequences`,
+                                          name: isEn ? 'Sequences' : 'دنباله‌ها',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('sequences');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Sequences' : 'بازگشت به دنباله‌ها'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <Hash className="w-4 h-4 text-teal-400" />
+                                      <span className="font-bold text-sm font-mono text-teal-200">{selectedTreeNode.name}</span>
+                                      <span className="px-2 py-0.5 rounded text-[10px] bg-teal-500/20 text-teal-300 font-sans font-bold">
+                                        SEQUENCE
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Metadata Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Start Value' : 'مقدار شروع'}
+                                    </div>
+                                    <div className="text-sm font-bold text-teal-300 mt-1">{seq?.startValue ?? '1'}</div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Minimum Value' : 'حداقل مقدار'}
+                                    </div>
+                                    <div className="text-sm font-bold text-slate-300 mt-1">{seq?.minimumValue ?? '1'}</div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Maximum Value' : 'حداکثر مقدار'}
+                                    </div>
+                                    <div className="text-sm font-bold text-slate-300 mt-1">{seq?.maximumValue ?? '—'}</div>
+                                  </div>
+                                  <div className="p-3 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                                      {isEn ? 'Increment' : 'گام افزایش'}
+                                    </div>
+                                    <div className="text-sm font-bold text-emerald-400 mt-1">{seq?.increment ?? '1'}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // ========================================================
+                          // DEFAULT VIEW: DATABASE SCHEMA & OBJECTS CATEGORY TABS
+                          // ========================================================
+                          const tablesList = details?.tables || [];
+                          const viewsList = details?.views || [];
+                          const proceduresList = details?.procedures || [];
+                          const functionsList = details?.functions || [];
+                          const triggersList = details?.triggers || [];
+                          const eventsList = details?.events || [];
+                          const sequencesList = details?.sequences || [];
+
+                          return (
+                            <>
+                              {/* Database Header Card */}
+                              <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                                    <Database className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <h3 className="font-bold text-base text-slate-100 font-mono">{dbName}</h3>
+                                      {dbMeta?.isSystem && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-sans font-bold">
+                                          SYSTEM CATALOG
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
+                                      <span>{details?.defaultCharacterSet || dbMeta?.defaultCharacterSet || 'utf8mb4'}</span>
+                                      <span>•</span>
+                                      <span>{details?.defaultCollation || dbMeta?.defaultCollation}</span>
+                                      <span>•</span>
+                                      <span className="text-emerald-400 font-bold">{details?.sizePretty || dbMeta?.sizePretty || '0 B'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
                                 <div className="flex items-center gap-2">
-                                  <Table className="w-4 h-4 text-cyan-400" />
-                                  <span className="font-bold text-xs">
-                                    {isEn ? 'Tables & Views' : 'جداول و نماها'} ({details?.tables?.length ?? dbMeta?.tableCount ?? 0})
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => loadDatabaseDetails(dbName, true)}
+                                    disabled={isLoading}
+                                    className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 text-xs flex items-center gap-1 cursor-pointer"
+                                    title={isEn ? 'Reload Schema Objects' : 'بروزرسانی اجزا'}
+                                  >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-orange-400' : ''}`} />
+                                    <span className="hidden sm:inline">{isEn ? 'Reload' : 'تازه‌سازی'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSqlForDatabase(dbName)}
+                                    className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Terminal className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Open in Console' : 'کنسول SQL'}</span>
+                                  </button>
                                 </div>
+                              </div>
+
+                              {/* Schema Objects Category Selector Tabs */}
+                              <div className="flex items-center gap-1.5 border-b border-white/10 pb-2 overflow-x-auto custom-scrollbar">
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('tables')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'tables'
+                                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Table className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>{isEn ? 'Tables' : 'جداول'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {tablesList.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('views')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'views'
+                                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-purple-400" />
+                                  <span>{isEn ? 'Views' : 'نماها'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {viewsList.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('procedures')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'procedures'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Code className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>{isEn ? 'Procedures' : 'رویه‌ها'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {proceduresList.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('functions')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'functions'
+                                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>{isEn ? 'Functions' : 'توابع'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {functionsList.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('triggers')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'triggers'
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Activity className="w-3.5 h-3.5 text-rose-400" />
+                                  <span>{isEn ? 'Triggers' : 'تریگرها'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {triggersList.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDbActiveObjectTab('events')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                    dbActiveObjectTab === 'events'
+                                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold'
+                                      : 'hover:bg-white/5 text-slate-400'
+                                  }`}
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>{isEn ? 'Events' : 'رویدادها'}</span>
+                                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                    {eventsList.length}
+                                  </span>
+                                </button>
+
+                                {sequencesList.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDbActiveObjectTab('sequences')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                                      dbActiveObjectTab === 'sequences'
+                                        ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30 font-bold'
+                                        : 'hover:bg-white/5 text-slate-400'
+                                    }`}
+                                  >
+                                    <Hash className="w-3.5 h-3.5 text-teal-400" />
+                                    <span>{isEn ? 'Sequences' : 'دنباله‌ها'}</span>
+                                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono">
+                                      {sequencesList.length}
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Search bar inside category */}
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-xs text-slate-400 font-bold">
+                                  {dbActiveObjectTab === 'tables' && `${isEn ? 'Base Tables' : 'جداول پایه'} (${tablesList.length})`}
+                                  {dbActiveObjectTab === 'views' && `${isEn ? 'Database Views' : 'نماهای دیتابیس'} (${viewsList.length})`}
+                                  {dbActiveObjectTab === 'procedures' && `${isEn ? 'Stored Procedures' : 'رویه‌های ذخیره‌شده'} (${proceduresList.length})`}
+                                  {dbActiveObjectTab === 'functions' && `${isEn ? 'Stored Functions' : 'توابع ذخیره‌شده'} (${functionsList.length})`}
+                                  {dbActiveObjectTab === 'triggers' && `${isEn ? 'Database Triggers' : 'تریگرهای دیتابیس'} (${triggersList.length})`}
+                                  {dbActiveObjectTab === 'events' && `${isEn ? 'Scheduled Events' : 'رویدادهای زمان‌بندی‌شده'} (${eventsList.length})`}
+                                  {dbActiveObjectTab === 'sequences' && `${isEn ? 'Database Sequences' : 'دنباله‌ها'} (${sequencesList.length})`}
+                                </span>
 
                                 <div className="relative w-48 sm:w-64">
                                   <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1474,41 +2900,41 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                     type="text"
                                     value={tableSearch}
                                     onChange={(e) => setTableSearch(e.target.value)}
-                                    placeholder={isEn ? 'Filter tables...' : 'فیلتر جداول...'}
+                                    placeholder={isEn ? `Search in ${dbActiveObjectTab}...` : `جستجو در ${dbActiveObjectTab}...`}
                                     className="w-full pl-8 pr-2.5 py-1 rounded-lg border border-white/10 bg-black/20 text-xs focus:outline-hidden"
                                   />
                                 </div>
                               </div>
 
-                              {/* Tables Table Grid */}
-                              <div className="rounded-xl border border-white/10 overflow-hidden">
-                                <table className="w-full text-xs text-left">
-                                  <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
-                                    <tr className="border-b border-white/10 text-slate-400 font-semibold">
-                                      <th className="p-2.5">{isEn ? 'Table' : 'نام جدول'}</th>
-                                      <th className="p-2.5">{isEn ? 'Type' : 'نوع'}</th>
-                                      <th className="p-2.5">{isEn ? 'Engine' : 'موتور'}</th>
-                                      <th className="p-2.5 text-right">{isEn ? 'Rows' : 'تعداد سطرها'}</th>
-                                      <th className="p-2.5 text-right">{isEn ? 'Data Size' : 'حجم داده'}</th>
-                                      <th className="p-2.5 text-right">{isEn ? 'Index Size' : 'حجم ایندکس'}</th>
-                                      <th className="p-2.5 text-right">{isEn ? 'Total Size' : 'حجم کل'}</th>
-                                      <th className="p-2.5 text-center">{isEn ? 'Query' : 'کوئری'}</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-white/5 font-mono">
-                                    {isLoading ? (
-                                      <tr>
-                                        <td colSpan={8} className="p-8 text-center text-slate-400">
-                                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-orange-400 mb-2" />
-                                          <span>{isEn ? 'Fetching table metadata from information_schema...' : 'در حال خواندن متادیتا از information_schema...'}</span>
-                                        </td>
+                              {/* ---------------------------------------------- */}
+                              {/* 1. TABLES GRID                                  */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'tables' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Table' : 'نام جدول'}</th>
+                                        <th className="p-2.5">{isEn ? 'Engine' : 'موتور'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Approx Rows' : 'تعداد سطرها'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Data Size' : 'حجم داده'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Index Size' : 'حجم ایندکس'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Total Size' : 'حجم کل'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Query' : 'کوئری'}</th>
                                       </tr>
-                                    ) : details?.tables && details.tables.length > 0 ? (
-                                      details.tables
-                                        .filter((t) => !tableSearch || t.name.toLowerCase().includes(tableSearch.toLowerCase()))
-                                        .map((t) => {
-                                          const isSelected = selectedTreeNode.type === 'table' && selectedTreeNode.tableName === t.name;
-                                          return (
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {isLoading ? (
+                                        <tr>
+                                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                                            <RefreshCw className="w-5 h-5 animate-spin mx-auto text-orange-400 mb-2" />
+                                            <span>{isEn ? 'Fetching tables...' : 'در حال خواندن جداول...'}</span>
+                                          </td>
+                                        </tr>
+                                      ) : tablesList.length > 0 ? (
+                                        tablesList
+                                          .filter((t) => !tableSearch || t.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((t) => (
                                             <tr
                                               key={t.name}
                                               onClick={() => {
@@ -1521,25 +2947,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 });
                                               }}
                                               className={`transition cursor-pointer ${
-                                                isSelected
-                                                  ? 'bg-orange-500/15 text-orange-200'
-                                                  : isLightMode
-                                                  ? 'hover:bg-slate-100'
-                                                  : 'hover:bg-white/5'
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
                                               }`}
                                             >
                                               <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
                                                 <Table className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                                                 <span className="truncate max-w-xs">{t.name}</span>
                                               </td>
-                                              <td className="p-2.5 text-slate-400 text-[11px] font-sans">
-                                                {t.type === 'VIEW' ? (
-                                                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">VIEW</span>
-                                                ) : (
-                                                  'TABLE'
-                                                )}
-                                              </td>
-                                              <td className="p-2.5 text-slate-300 font-sans text-[11px]">{t.engine || '—'}</td>
+                                              <td className="p-2.5 text-slate-300 font-sans text-[11px]">{t.engine || 'InnoDB'}</td>
                                               <td className="p-2.5 text-right text-cyan-400 font-bold">
                                                 {t.approxRows.toLocaleString()}
                                               </td>
@@ -1557,24 +2972,489 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 </button>
                                               </td>
                                             </tr>
-                                          );
-                                        })
-                                    ) : (
-                                      <tr>
-                                        <td colSpan={8} className="p-8 text-center text-slate-400 font-sans">
-                                          {isEn ? 'No tables found in this database.' : 'هیچ جدولی در این پایگاه داده یافت نشد.'}
-                                        </td>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={7} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No base tables found.' : 'هیچ جدول پایه‌ای در این دیتابیس یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 2. VIEWS GRID                                   */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'views' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'View Name' : 'نام نما'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Updatable' : 'قابل ویرایش'}</th>
+                                        <th className="p-2.5">{isEn ? 'Check Option' : 'محدودیت'}</th>
+                                        <th className="p-2.5">{isEn ? 'Security Type' : 'زمینه امنیتی'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Inspect' : 'مشاهده'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Query' : 'کوئری'}</th>
                                       </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {viewsList.length > 0 ? (
+                                        viewsList
+                                          .filter((v) => !tableSearch || v.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((v) => (
+                                            <tr
+                                              key={v.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'view',
+                                                  id: `view:${dbName}:${v.name}`,
+                                                  name: v.name,
+                                                  dbName,
+                                                  viewName: v.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Eye className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{v.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-center font-sans text-[11px]">
+                                                {v.isUpdatable ? (
+                                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold">YES</span>
+                                                ) : (
+                                                  <span className="text-slate-500">NO</span>
+                                                )}
+                                              </td>
+                                              <td className="p-2.5 text-slate-300 text-[11px]">{v.checkOption || 'NONE'}</td>
+                                              <td className="p-2.5 text-purple-300 text-[11px]">{v.securityType || 'DEFINER'}</td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedTreeNode({
+                                                      type: 'view',
+                                                      id: `view:${dbName}:${v.name}`,
+                                                      name: v.name,
+                                                      dbName,
+                                                      viewName: v.name,
+                                                    });
+                                                  }}
+                                                  className="p-1 rounded hover:bg-purple-500/20 text-purple-300"
+                                                  title={isEn ? 'Inspect DDL' : 'مشاهده تعریف'}
+                                                >
+                                                  <Eye className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenSqlForDatabase(dbName, v.name)}
+                                                  className="p-1 rounded hover:bg-orange-500/20 text-slate-400 hover:text-orange-300"
+                                                  title={`SELECT * FROM \`${dbName}\`.\`${v.name}\` LIMIT 50`}
+                                                >
+                                                  <Play className="w-3 h-3" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={6} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No views found in this database.' : 'هیچ نمایی (View) در این دیتابیس یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 3. STORED PROCEDURES GRID                       */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'procedures' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Procedure' : 'نام رویه'}</th>
+                                        <th className="p-2.5">{isEn ? 'Definer' : 'مالک'}</th>
+                                        <th className="p-2.5">{isEn ? 'Security' : 'امنیت'}</th>
+                                        <th className="p-2.5">{isEn ? 'Data Access' : 'سطح دسترسی'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Deterministic' : 'تکرارپذیر'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {proceduresList.length > 0 ? (
+                                        proceduresList
+                                          .filter((p) => !tableSearch || p.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((p) => (
+                                            <tr
+                                              key={p.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'procedure',
+                                                  id: `procedure:${dbName}:${p.name}`,
+                                                  name: p.name,
+                                                  dbName,
+                                                  procedureName: p.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Code className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{p.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-slate-300 text-[11px] truncate max-w-xs" title={p.definer}>
+                                                {p.definer || 'root@localhost'}
+                                              </td>
+                                              <td className="p-2.5 text-cyan-300 text-[11px]">{p.securityType || 'DEFINER'}</td>
+                                              <td className="p-2.5 text-amber-300 text-[11px]">{p.sqlDataAccess || 'CONTAINS SQL'}</td>
+                                              <td className="p-2.5 text-center font-sans text-[11px]">
+                                                {p.isDeterministic ? (
+                                                  <span className="text-emerald-400 font-bold">YES</span>
+                                                ) : (
+                                                  <span className="text-slate-500">NO</span>
+                                                )}
+                                              </td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => copyToClipboard(`CALL \`${dbName}\`.\`${p.name}\`();`, `call-${p.name}`)}
+                                                  className="p-1 rounded hover:bg-emerald-500/20 text-emerald-300"
+                                                  title={isEn ? 'Copy CALL command' : 'کپی دستور فراخوانی'}
+                                                >
+                                                  <Copy className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={6} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No stored procedures found.' : 'هیچ رویه ذخیره‌شده‌ای (Procedure) یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 4. STORED FUNCTIONS GRID                        */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'functions' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Function' : 'نام تابع'}</th>
+                                        <th className="p-2.5">{isEn ? 'Return Type' : 'نوع بازگشتی'}</th>
+                                        <th className="p-2.5">{isEn ? 'Definer' : 'مالک'}</th>
+                                        <th className="p-2.5">{isEn ? 'Security' : 'امنیت'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Deterministic' : 'تکرارپذیر'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Inspect' : 'مشاهده'}</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {functionsList.length > 0 ? (
+                                        functionsList
+                                          .filter((f) => !tableSearch || f.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((f) => (
+                                            <tr
+                                              key={f.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'function',
+                                                  id: `function:${dbName}:${f.name}`,
+                                                  name: f.name,
+                                                  dbName,
+                                                  functionName: f.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{f.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-amber-300 font-bold text-[11px]">{f.returnType || 'text'}</td>
+                                              <td className="p-2.5 text-slate-300 text-[11px] truncate max-w-xs">{f.definer || 'root@localhost'}</td>
+                                              <td className="p-2.5 text-cyan-300 text-[11px]">{f.securityType || 'DEFINER'}</td>
+                                              <td className="p-2.5 text-center font-sans text-[11px]">
+                                                {f.isDeterministic ? (
+                                                  <span className="text-emerald-400 font-bold">YES</span>
+                                                ) : (
+                                                  <span className="text-slate-500">NO</span>
+                                                )}
+                                              </td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedTreeNode({
+                                                      type: 'function',
+                                                      id: `function:${dbName}:${f.name}`,
+                                                      name: f.name,
+                                                      dbName,
+                                                      functionName: f.name,
+                                                    });
+                                                  }}
+                                                  className="p-1 rounded hover:bg-amber-500/20 text-amber-300"
+                                                  title={isEn ? 'Inspect Function' : 'مشاهده تابع'}
+                                                >
+                                                  <Zap className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={6} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No stored functions found.' : 'هیچ تابع ذخیره‌شده‌ای (Function) یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 5. TRIGGERS GRID                                */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'triggers' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Trigger' : 'نام تریگر'}</th>
+                                        <th className="p-2.5">{isEn ? 'Target Table' : 'جدول هدف'}</th>
+                                        <th className="p-2.5">{isEn ? 'Timing' : 'زمان'}</th>
+                                        <th className="p-2.5">{isEn ? 'Event' : 'رویداد'}</th>
+                                        <th className="p-2.5">{isEn ? 'Definer' : 'مالک'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Inspect' : 'مشاهده'}</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {triggersList.length > 0 ? (
+                                        triggersList
+                                          .filter((tr) => !tableSearch || tr.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((tr) => (
+                                            <tr
+                                              key={tr.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'trigger',
+                                                  id: `trigger:${dbName}:${tr.name}`,
+                                                  name: tr.name,
+                                                  dbName,
+                                                  triggerName: tr.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Activity className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{tr.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-cyan-300 font-bold text-[11px]">{tr.tableName}</td>
+                                              <td className="p-2.5 text-rose-300 text-[11px]">{tr.timing}</td>
+                                              <td className="p-2.5 text-amber-300 text-[11px]">{tr.event}</td>
+                                              <td className="p-2.5 text-slate-300 text-[11px] truncate max-w-xs">{tr.definer || 'root@localhost'}</td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedTreeNode({
+                                                      type: 'trigger',
+                                                      id: `trigger:${dbName}:${tr.name}`,
+                                                      name: tr.name,
+                                                      dbName,
+                                                      triggerName: tr.name,
+                                                    });
+                                                  }}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-rose-300"
+                                                  title={isEn ? 'Inspect Trigger' : 'مشاهده تریگر'}
+                                                >
+                                                  <Activity className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={6} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No triggers found in this database.' : 'هیچ تریگری در این دیتابیس یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 6. SCHEDULED EVENTS GRID                        */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'events' && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Event Name' : 'نام رویداد'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Status' : 'وضعیت'}</th>
+                                        <th className="p-2.5">{isEn ? 'Type' : 'نوع زمان‌بندی'}</th>
+                                        <th className="p-2.5">{isEn ? 'Interval' : 'دوره'}</th>
+                                        <th className="p-2.5">{isEn ? 'Definer' : 'مالک'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Inspect' : 'مشاهده'}</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {eventsList.length > 0 ? (
+                                        eventsList
+                                          .filter((ev) => !tableSearch || ev.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                          .map((ev) => (
+                                            <tr
+                                              key={ev.name}
+                                              onClick={() => {
+                                                setSelectedTreeNode({
+                                                  type: 'event',
+                                                  id: `event:${dbName}:${ev.name}`,
+                                                  name: ev.name,
+                                                  dbName,
+                                                  eventName: ev.name,
+                                                });
+                                              }}
+                                              className={`transition cursor-pointer ${
+                                                isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                              }`}
+                                            >
+                                              <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                                <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                                <span className="truncate max-w-xs">{ev.name}</span>
+                                              </td>
+                                              <td className="p-2.5 text-center font-sans text-[11px]">
+                                                {ev.status === 'ENABLED' ? (
+                                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold">ENABLED</span>
+                                                ) : (
+                                                  <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-bold">{ev.status}</span>
+                                                )}
+                                              </td>
+                                              <td className="p-2.5 text-cyan-300 text-[11px]">{ev.type}</td>
+                                              <td className="p-2.5 text-amber-300 text-[11px]">
+                                                {ev.intervalValue ? `${ev.intervalValue} ${ev.intervalField || ''}` : 'One-time'}
+                                              </td>
+                                              <td className="p-2.5 text-slate-300 text-[11px] truncate max-w-xs">{ev.definer || 'root@localhost'}</td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedTreeNode({
+                                                      type: 'event',
+                                                      id: `event:${dbName}:${ev.name}`,
+                                                      name: ev.name,
+                                                      dbName,
+                                                      eventName: ev.name,
+                                                    });
+                                                  }}
+                                                  className="p-1 rounded hover:bg-blue-500/20 text-blue-300"
+                                                  title={isEn ? 'Inspect Event' : 'مشاهده رویداد'}
+                                                >
+                                                  <Clock className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={6} className="p-8 text-center text-slate-400 font-sans">
+                                            {isEn ? 'No scheduled events found.' : 'هیچ رویداد زمان‌بندی‌شده‌ای (Event) یافت نشد.'}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* ---------------------------------------------- */}
+                              {/* 7. SEQUENCES GRID (if available)                */}
+                              {/* ---------------------------------------------- */}
+                              {dbActiveObjectTab === 'sequences' && sequencesList.length > 0 && (
+                                <div className="rounded-xl border border-white/10 overflow-hidden">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/30'}>
+                                      <tr className="border-b border-white/10 text-slate-400 font-semibold">
+                                        <th className="p-2.5">{isEn ? 'Sequence Name' : 'نام دنباله'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Start' : 'شروع'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Min' : 'حداقل'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Max' : 'حداکثر'}</th>
+                                        <th className="p-2.5 text-right">{isEn ? 'Increment' : 'افزایش'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? 'Cycle' : 'چرخه'}</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5 font-mono">
+                                      {sequencesList
+                                        .filter((s) => !tableSearch || s.name.toLowerCase().includes(tableSearch.toLowerCase()))
+                                        .map((s) => (
+                                          <tr
+                                            key={s.name}
+                                            onClick={() => {
+                                              setSelectedTreeNode({
+                                                type: 'sequence',
+                                                id: `sequence:${dbName}:${s.name}`,
+                                                name: s.name,
+                                                dbName,
+                                                sequenceName: s.name,
+                                              });
+                                            }}
+                                            className={`transition cursor-pointer ${
+                                              isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5'
+                                            }`}
+                                          >
+                                            <td className="p-2.5 flex items-center gap-2 font-bold text-slate-200">
+                                              <Hash className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                                              <span className="truncate max-w-xs">{s.name}</span>
+                                            </td>
+                                            <td className="p-2.5 text-right text-teal-300 font-bold">{s.startValue ?? '1'}</td>
+                                            <td className="p-2.5 text-right text-slate-300">{s.minimumValue ?? '1'}</td>
+                                            <td className="p-2.5 text-right text-slate-300">{s.maximumValue ?? '—'}</td>
+                                            <td className="p-2.5 text-right text-emerald-400 font-bold">{s.increment ?? '1'}</td>
+                                            <td className="p-2.5 text-center font-sans text-[11px]">
+                                              {s.cycleOption ? (
+                                                <span className="text-emerald-400 font-bold">YES</span>
+                                              ) : (
+                                                <span className="text-slate-500">NO</span>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
 
                   {/* ---------------------------------------------------- */}
                   {/* VIEW D: USERS & ACCOUNTS LIST                        */}

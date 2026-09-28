@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.210.0';
+export const APP_VERSION = '1.211.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.211.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۴ مدیریت پایگاه‌داده MySQL: کاوشگر جامع ساختار و اشیاء طرح‌واره (نماها، پروسیجرها، توابع، تریگرها، ایونت‌ها و سکوئنس‌ها)',
+    title_en: 'Phase 4 MySQL Management: Comprehensive Schema & Object Explorer (Views, Procedures, Functions, Triggers, Events & Sequences)',
+    changes: [
+      'پیاده‌سازی کامل فاز ۴ نقشه راه ۲۰ مرحله‌ای مدیریت MySQL (Phase 4 — MySQL Schema & Object Explorer): گسترش کاوشگر درختی و نماهای تفصیلی برای تمام اشیاء بومی MySQL.',
+      'افزودن دسته‌بندی و ناوبری درختی مجزا برای نماها (Views)، روال‌های ذخیره‌شده (Stored Procedures)، توابع (Functions)، تریگرها (Triggers)، رخدادهای زمان‌بندی‌شده (Events) و دنباله‌ها (Sequences) در هر دیتابیس.',
+      'واکشی امن و بهینه متادیتای اشیاء از جداول information_schema.views, information_schema.routines, information_schema.triggers, information_schema.events و information_schema.sequences.',
+      'پنل‌های اختصاصی نمایش مشخصات فنی هر شیء: تعریف SQL و بدنه کُد، Definer، الگوریتم و حالت امنیتی (Security Type)، زمان‌بندی اجرای رویدادها، زمان‌بندی تریگر (BEFORE/AFTER)، جداول هدف و رویدادهای DML.',
+      'امکان کپی سریع کدهای ایجاد/فراخوانی (CREATE VIEW/ROUTINE/TRIGGER یا دستور CALL) و انتقال مستقیم کُد به کنسول کوئری SQL جهت اجرای آنی.',
+      'افزودن تب‌های فیلتر و جستجوی اختصاصی به تفکیک نوع شیء (Tables, Views, Procedures, Functions, Triggers, Events, Sequences) در نمای دیتابیس.',
+      'همگام‌سازی کامل با استانداردهای چندزبانگی (فارسی و انگلیسی)، تم‌های تیره و روشن، و حفظ فاصله و دسترس‌پذیری کامل نوار ابزار فوتر.',
+    ],
+    changes_en: [
+      'Implemented Phase 4 of the MySQL Management 20-Phase Roadmap (Phase 4 — MySQL Schema & Object Explorer): Comprehensive schema object inspection matching genuine MySQL capabilities.',
+      'Added dedicated hierarchical tree nodes and detail inspection views for Views, Stored Procedures, Stored Functions, Triggers, Scheduled Events, and Sequences within each database.',
+      'Efficient and secure metadata extraction from information_schema.views, routines, triggers, events, and sequences with fallback handling for legacy engines.',
+      'Rich object inspector panels: SQL definition, routine bodies, Definer, Algorithm, Security Type (DEFINER/INVOKER), event schedules, trigger timing (BEFORE/AFTER) & target tables, and DML event tracking.',
+      'Quick-action utilities: One-click copy for SQL definition & CALL statements, plus immediate one-click injection into the interactive SQL Query Console.',
+      'Comprehensive database-level filtering and search tabs partitioned by object type (Tables, Views, Procedures, Functions, Triggers, Events, Sequences).',
+      'Strict adherence to bilingual i18n standards (English/Persian), dark/light theme ergonomics, and non-blocking footer boundary clearance.',
+    ],
+  },
   {
     version: '1.210.0',
     releaseDate: '2026-09-28',

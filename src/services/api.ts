@@ -19,6 +19,7 @@ import {
   MysqlOverview,
   MysqlDatabaseItem,
   MysqlDatabaseDetails,
+  MysqlDatabaseObjects,
   MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
@@ -1310,6 +1311,14 @@ export async function fetchRemoteServerMysqlDatabaseDetails(
   databaseName: string
 ): Promise<{ success: boolean; details?: MysqlDatabaseDetails; error?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlDatabaseObjects(
+  id: string,
+  databaseName: string
+): Promise<{ success: boolean; objects?: MysqlDatabaseObjects; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}/objects`);
   return res.json();
 }
 

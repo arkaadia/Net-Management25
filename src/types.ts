@@ -1518,15 +1518,108 @@ export interface MysqlDatabaseTableSummary {
   comment?: string;
 }
 
+export interface MysqlViewSummary {
+  name: string;
+  definition?: string;
+  checkOption?: string;
+  isUpdatable?: boolean;
+  securityType?: string;
+  createTime?: string;
+  comment?: string;
+}
+
+export interface MysqlRoutineSummary {
+  name: string;
+  type: 'PROCEDURE' | 'FUNCTION';
+  returnType?: string;
+  body?: string;
+  definition?: string;
+  isDeterministic?: boolean;
+  sqlDataAccess?: string;
+  securityType?: string;
+  definer?: string;
+  created?: string;
+  lastAltered?: string;
+  comment?: string;
+}
+
+export interface MysqlTriggerSummary {
+  name: string;
+  event: string;
+  tableName: string;
+  timing: string;
+  statement?: string;
+  actionOrientation?: string;
+  definer?: string;
+  created?: string;
+}
+
+export interface MysqlEventSummary {
+  name: string;
+  type: string;
+  status: string;
+  timeZone?: string;
+  executeAt?: string;
+  intervalValue?: string;
+  intervalField?: string;
+  starts?: string;
+  ends?: string;
+  definition?: string;
+  definer?: string;
+  created?: string;
+  lastAltered?: string;
+  onCompletion?: string;
+  comment?: string;
+}
+
+export interface MysqlSequenceSummary {
+  name: string;
+  startValue?: number | string;
+  minimumValue?: number | string;
+  maximumValue?: number | string;
+  increment?: number | string;
+  cycleOption?: boolean;
+}
+
+export interface MysqlDatabaseObjects {
+  database: string;
+  tablesCount: number;
+  viewsCount: number;
+  proceduresCount: number;
+  functionsCount: number;
+  triggersCount: number;
+  eventsCount: number;
+  sequencesCount: number;
+  tables: MysqlDatabaseTableSummary[];
+  views: MysqlViewSummary[];
+  procedures: MysqlRoutineSummary[];
+  functions: MysqlRoutineSummary[];
+  triggers: MysqlTriggerSummary[];
+  events: MysqlEventSummary[];
+  sequences: MysqlSequenceSummary[];
+}
+
 export interface MysqlDatabaseDetails {
   name: string;
   defaultCollation: string;
   defaultCharacterSet: string;
   tableCount: number;
+  viewsCount: number;
+  proceduresCount: number;
+  functionsCount: number;
+  triggersCount: number;
+  eventsCount: number;
+  sequencesCount: number;
   sizeBytes: number;
   sizePretty: string;
   isSystem: boolean;
   tables: MysqlDatabaseTableSummary[];
+  views: MysqlViewSummary[];
+  procedures: MysqlRoutineSummary[];
+  functions: MysqlRoutineSummary[];
+  triggers: MysqlTriggerSummary[];
+  events: MysqlEventSummary[];
+  sequences: MysqlSequenceSummary[];
 }
 
 export interface MysqlUserItem {

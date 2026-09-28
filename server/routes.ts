@@ -63,6 +63,7 @@ import {
   getMysqlOverview,
   getMysqlDatabases,
   getMysqlDatabaseDetails,
+  getMysqlDatabaseObjects,
   getMysqlUsers,
   executeMysqlQuery,
   getMysqlProcesslist,
@@ -4300,6 +4301,21 @@ apiRouter.get('/remote-servers/:id/mysql/databases/:databaseName', async (req: R
     }
     const details = await getMysqlDatabaseDetails(server, databaseName);
     return res.json({ success: true, details });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/databases/:databaseName/objects - Get full MySQL schema objects explorer payload
+apiRouter.get('/remote-servers/:id/mysql/databases/:databaseName/objects', async (req: Request, res: Response) => {
+  try {
+    const { id, databaseName } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const objects = await getMysqlDatabaseObjects(server, databaseName);
+    return res.json({ success: true, objects });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

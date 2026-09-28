@@ -8,6 +8,12 @@ import {
   MysqlDatabaseItem,
   MysqlDatabaseDetails,
   MysqlDatabaseTableSummary,
+  MysqlViewSummary,
+  MysqlRoutineSummary,
+  MysqlTriggerSummary,
+  MysqlEventSummary,
+  MysqlSequenceSummary,
+  MysqlDatabaseObjects,
   MysqlUserItem,
   MysqlProcessItem,
   MysqlVariableItem,
@@ -320,7 +326,8 @@ export async function getMysqlDatabases(server: RemoteServer): Promise<MysqlData
 }
 
 /**
- * Retrieves detailed metadata and table list for a specific database in MySQL.
+ * Retrieves detailed metadata, tables, views, stored procedures, stored functions,
+ * triggers, scheduled events, and sequences for a specific database in MySQL.
  */
 export async function getMysqlDatabaseDetails(
   server: RemoteServer,
@@ -336,7 +343,7 @@ export async function getMysqlDatabaseDetails(
       user: config.user,
       password: config.password,
       database: 'information_schema',
-      connectTimeout: 7000,
+      connectTimeout: 8000,
     });
 
     // 1. Fetch Database Metadata
@@ -351,29 +358,162 @@ export async function getMysqlDatabaseDetails(
     const defaultCharacterSet = schemaRow?.defaultCharacterSet || 'utf8mb4';
     const defaultCollation = schemaRow?.defaultCollation || 'utf8mb4_general_ci';
 
-    // 2. Fetch Tables in Database
-    const [tableRows]: any = await conn.query(
-      `SELECT 
-         table_name AS name,
-         table_type AS type,
-         engine,
-         table_collation AS collation,
-         COALESCE(table_rows, 0) AS approxRows,
-         COALESCE(data_length, 0) AS dataLength,
-         COALESCE(index_length, 0) AS indexLength,
-         create_time AS createTime,
-         update_time AS updateTime,
-         table_comment AS comment
-       FROM information_schema.tables 
-       WHERE table_schema = ?
-       ORDER BY table_name ASC`,
-      [databaseName]
-    );
+    // 2. Fetch Base Tables in Database
+    let tableRows: any[] = [];
+    try {
+      const [tRows]: any = await conn.query(
+        `SELECT 
+           table_name AS name,
+           table_type AS type,
+           engine,
+           table_collation AS collation,
+           COALESCE(table_rows, 0) AS approxRows,
+           COALESCE(data_length, 0) AS dataLength,
+           COALESCE(index_length, 0) AS indexLength,
+           create_time AS createTime,
+           update_time AS updateTime,
+           table_comment AS comment
+         FROM information_schema.tables 
+         WHERE table_schema = ? AND table_type = 'BASE TABLE'
+         ORDER BY table_name ASC`,
+        [databaseName]
+      );
+      tableRows = tRows || [];
+    } catch (err: any) {
+      console.warn(`[MySQL Manager] Failed to query tables for ${databaseName}:`, err.message);
+    }
+
+    // 3. Fetch Views in Database
+    let viewRows: any[] = [];
+    try {
+      const [vRows]: any = await conn.query(
+        `SELECT 
+           t.table_name AS name,
+           v.view_definition AS definition,
+           v.check_option AS checkOption,
+           v.is_updatable AS isUpdatable,
+           v.security_type AS securityType,
+           t.create_time AS createTime,
+           t.table_comment AS comment
+         FROM information_schema.tables t
+         LEFT JOIN information_schema.views v 
+           ON t.table_schema = v.table_schema AND t.table_name = v.table_name
+         WHERE t.table_schema = ? AND t.table_type = 'VIEW'
+         ORDER BY t.table_name ASC`,
+        [databaseName]
+      );
+      viewRows = vRows || [];
+    } catch (err: any) {
+      console.warn(`[MySQL Manager] Failed to query views for ${databaseName}:`, err.message);
+    }
+
+    // 4. Fetch Stored Procedures & Stored Functions (Routines)
+    let routineRows: any[] = [];
+    try {
+      const [rRows]: any = await conn.query(
+        `SELECT 
+           routine_name AS name,
+           routine_type AS type,
+           dtd_identifier AS returnType,
+           routine_body AS body,
+           routine_definition AS definition,
+           is_deterministic AS isDeterministic,
+           sql_data_access AS sqlDataAccess,
+           security_type AS securityType,
+           definer,
+           created,
+           last_altered AS lastAltered,
+           routine_comment AS comment
+         FROM information_schema.routines 
+         WHERE routine_schema = ?
+         ORDER BY routine_name ASC`,
+        [databaseName]
+      );
+      routineRows = rRows || [];
+    } catch (err: any) {
+      console.warn(`[MySQL Manager] Failed to query routines for ${databaseName}:`, err.message);
+    }
+
+    // 5. Fetch Triggers in Database
+    let triggerRows: any[] = [];
+    try {
+      const [trRows]: any = await conn.query(
+        `SELECT 
+           trigger_name AS name,
+           event_manipulation AS event,
+           event_object_table AS tableName,
+           action_timing AS timing,
+           action_statement AS statement,
+           action_orientation AS actionOrientation,
+           definer,
+           created
+         FROM information_schema.triggers 
+         WHERE trigger_schema = ?
+         ORDER BY trigger_name ASC`,
+        [databaseName]
+      );
+      triggerRows = trRows || [];
+    } catch (err: any) {
+      console.warn(`[MySQL Manager] Failed to query triggers for ${databaseName}:`, err.message);
+    }
+
+    // 6. Fetch Scheduled Events in Database
+    let eventRows: any[] = [];
+    try {
+      const [evRows]: any = await conn.query(
+        `SELECT 
+           event_name AS name,
+           definer,
+           time_zone AS timeZone,
+           event_body AS body,
+           event_definition AS definition,
+           event_type AS type,
+           execute_at AS executeAt,
+           interval_value AS intervalValue,
+           interval_field AS intervalField,
+           starts,
+           ends,
+           status,
+           on_completion AS onCompletion,
+           created,
+           last_altered AS lastAltered,
+           event_comment AS comment
+         FROM information_schema.events 
+         WHERE event_schema = ?
+         ORDER BY event_name ASC`,
+        [databaseName]
+      );
+      eventRows = evRows || [];
+    } catch (err: any) {
+      console.warn(`[MySQL Manager] Failed to query events for ${databaseName}:`, err.message);
+    }
+
+    // 7. Fetch Sequences where supported (MariaDB 10.3+)
+    let sequenceRows: any[] = [];
+    try {
+      const [seqRows]: any = await conn.query(
+        `SELECT 
+           table_name AS name,
+           start_value AS startValue,
+           minimum_value AS minimumValue,
+           maximum_value AS maximumValue,
+           increment,
+           cycle_option AS cycleOption
+         FROM information_schema.sequences 
+         WHERE sequence_schema = ?
+         ORDER BY table_name ASC`,
+        [databaseName]
+      );
+      sequenceRows = seqRows || [];
+    } catch {
+      // Standard MySQL 8 does not have information_schema.sequences — this is expected
+    }
 
     await conn.end();
 
+    // Map Base Tables
     let totalSizeBytes = 0;
-    const tables: MysqlDatabaseTableSummary[] = (tableRows || []).map((t: any) => {
+    const tables: MysqlDatabaseTableSummary[] = tableRows.map((t: any) => {
       const dataLen = Number(t.dataLength) || 0;
       const indexLen = Number(t.indexLength) || 0;
       const total = dataLen + indexLen;
@@ -381,7 +521,7 @@ export async function getMysqlDatabaseDetails(
 
       return {
         name: t.name,
-        type: t.type || 'BASE TABLE',
+        type: 'BASE TABLE',
         engine: t.engine || 'InnoDB',
         collation: t.collation || defaultCollation,
         approxRows: Number(t.approxRows) || 0,
@@ -397,6 +537,85 @@ export async function getMysqlDatabaseDetails(
       };
     });
 
+    // Map Views
+    const views: MysqlViewSummary[] = viewRows.map((v: any) => ({
+      name: v.name,
+      definition: v.definition || undefined,
+      checkOption: v.checkOption || 'NONE',
+      isUpdatable: v.isUpdatable === 'YES',
+      securityType: v.securityType || 'DEFINER',
+      createTime: v.createTime ? new Date(v.createTime).toISOString() : undefined,
+      comment: v.comment || undefined,
+    }));
+
+    // Partition Routines into Procedures and Functions
+    const procedures: MysqlRoutineSummary[] = [];
+    const functions: MysqlRoutineSummary[] = [];
+
+    for (const r of routineRows) {
+      const isProc = r.type === 'PROCEDURE';
+      const item: MysqlRoutineSummary = {
+        name: r.name,
+        type: isProc ? 'PROCEDURE' : 'FUNCTION',
+        returnType: isProc ? undefined : r.returnType || undefined,
+        body: r.body || undefined,
+        definition: r.definition || undefined,
+        isDeterministic: r.isDeterministic === 'YES',
+        sqlDataAccess: r.sqlDataAccess || undefined,
+        securityType: r.securityType || 'DEFINER',
+        definer: r.definer || undefined,
+        created: r.created ? new Date(r.created).toISOString() : undefined,
+        lastAltered: r.lastAltered ? new Date(r.lastAltered).toISOString() : undefined,
+        comment: r.comment || undefined,
+      };
+      if (isProc) {
+        procedures.push(item);
+      } else {
+        functions.push(item);
+      }
+    }
+
+    // Map Triggers
+    const triggers: MysqlTriggerSummary[] = triggerRows.map((tr: any) => ({
+      name: tr.name,
+      event: tr.event || 'INSERT',
+      tableName: tr.tableName || '',
+      timing: tr.timing || 'BEFORE',
+      statement: tr.statement || undefined,
+      actionOrientation: tr.actionOrientation || 'ROW',
+      definer: tr.definer || undefined,
+      created: tr.created ? new Date(tr.created).toISOString() : undefined,
+    }));
+
+    // Map Scheduled Events
+    const events: MysqlEventSummary[] = eventRows.map((ev: any) => ({
+      name: ev.name,
+      type: ev.type || 'RECURRING',
+      status: ev.status || 'ENABLED',
+      timeZone: ev.timeZone || undefined,
+      executeAt: ev.executeAt ? new Date(ev.executeAt).toISOString() : undefined,
+      intervalValue: ev.intervalValue || undefined,
+      intervalField: ev.intervalField || undefined,
+      starts: ev.starts ? new Date(ev.starts).toISOString() : undefined,
+      ends: ev.ends ? new Date(ev.ends).toISOString() : undefined,
+      definition: ev.definition || undefined,
+      definer: ev.definer || undefined,
+      created: ev.created ? new Date(ev.created).toISOString() : undefined,
+      lastAltered: ev.lastAltered ? new Date(ev.lastAltered).toISOString() : undefined,
+      onCompletion: ev.onCompletion || undefined,
+      comment: ev.comment || undefined,
+    }));
+
+    // Map Sequences
+    const sequences: MysqlSequenceSummary[] = sequenceRows.map((s: any) => ({
+      name: s.name,
+      startValue: s.startValue,
+      minimumValue: s.minimumValue,
+      maximumValue: s.maximumValue,
+      increment: s.increment,
+      cycleOption: s.cycleOption === 1 || s.cycleOption === 'Y',
+    }));
+
     const SYSTEM_DBS = new Set(['information_schema', 'mysql', 'performance_schema', 'sys']);
 
     return {
@@ -404,10 +623,22 @@ export async function getMysqlDatabaseDetails(
       defaultCollation,
       defaultCharacterSet,
       tableCount: tables.length,
+      viewsCount: views.length,
+      proceduresCount: procedures.length,
+      functionsCount: functions.length,
+      triggersCount: triggers.length,
+      eventsCount: events.length,
+      sequencesCount: sequences.length,
       sizeBytes: totalSizeBytes,
       sizePretty: formatBytes(totalSizeBytes),
       isSystem: SYSTEM_DBS.has(databaseName.toLowerCase()),
       tables,
+      views,
+      procedures,
+      functions,
+      triggers,
+      events,
+      sequences,
     };
   } catch (err: any) {
     if (conn) {
@@ -417,6 +648,33 @@ export async function getMysqlDatabaseDetails(
     }
     throw new Error(`Failed to fetch database details for "${databaseName}": ${err.message}`);
   }
+}
+
+/**
+ * Dedicated endpoint returning full MySQL schema objects explorer payload.
+ */
+export async function getMysqlDatabaseObjects(
+  server: RemoteServer,
+  databaseName: string
+): Promise<MysqlDatabaseObjects> {
+  const details = await getMysqlDatabaseDetails(server, databaseName);
+  return {
+    database: details.name,
+    tablesCount: details.tableCount,
+    viewsCount: details.viewsCount,
+    proceduresCount: details.proceduresCount,
+    functionsCount: details.functionsCount,
+    triggersCount: details.triggersCount,
+    eventsCount: details.eventsCount,
+    sequencesCount: details.sequencesCount,
+    tables: details.tables,
+    views: details.views,
+    procedures: details.procedures,
+    functions: details.functions,
+    triggers: details.triggers,
+    events: details.events,
+    sequences: details.sequences,
+  };
 }
 
 /**
