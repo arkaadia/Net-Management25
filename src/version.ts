@@ -10,9 +10,44 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.203.0';
+export const APP_VERSION = '1.204.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.204.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۲۳ مدیریت PostgreSQL: کاوشگر، آنالیز و پالایش لاگ‌های سرور (Server Logs Explorer & Log Analyzer)',
+    title_en: 'PostgreSQL Management Phase 23: Live Server Logs Explorer, Multi-Line Log Analyzer & SQLSTATE Diagnostics',
+    changes: [
+      'پیاده‌سازی جامع فاز ۲۳ نقشه راه مدیریت PostgreSQL: کاوشگر پیشرفته لاگ‌های سرور دیتابیس با قابلیت استخراج بلادرنگ رویدادها، خطاهای بحرانی، کدهای خطای SQLSTATE، خطاهای احراز هویت و کوئری‌های کند.',
+      'معماری تلفیقی چندمنبعی (Multi-Source Log Ingestion): پشتیبانی هوشمند از کاتالوگ داخلی PostgreSQL از طریق pg_ls_logdir و تابع رسمی pg_read_file به همراه سیستم پشتیبان امن SSH جهت خواندن فایل‌های لاگ پوشه استاندارد (/var/log/postgresql یا log_directory) و ژورنال سیستم‌دی (systemd journal).',
+      'موتور تجزیه چندخطی هوشمند (Multi-Line Log Parser): تشخیص دقیق سطر آغازین لاگ‌ها با فرمت‌های زمانی مختلف، تفکیک خودکار بخش‌های تکمیلی DETAIL، HINT، CONTEXT و STATEMENT از پیام اصلی و گروه‌بندی پیام‌های چندخطی.',
+      'شناسایی و استخراج کدهای استاندارد SQLSTATE: شناسایی خودکار کدهای خطای پایگاه‌داده (مانند 28P01 عدم تایید هویت، 42P01 جدول ناموجود، 40P01 تشخیص بن‌بست Deadlock، 57P01 خاموشی توسط ادمین و ...) و نمایش در قالب نشان‌های رنگی متمایز.',
+      'تفکیک پیشرفته بر اساس سطوح بحرانی (Severity Filtering): دسته‌بندی و پالایش رویدادها بر اساس سطوح PANIC، FATAL، ERROR، WARNING، LOG، INFO، NOTICE، DETAIL و HINT.',
+      'فیلترهای سریع و هوشمند (Smart Quick Filters): دسترسی تک‌کلیکه به "خطاها و بحرانی"، "خطاهای احراز هویت (Auth Failures)" و "کوئری‌های کند (Slow Queries)".',
+      'کارت‌های آماری بلادرنگ (Real-Time KPI Metrics): پایش زنده شمار کل رویدادها، خطاهای بحرانی (Fatal)، خطاهای استاندارد (Error)، هشدارها (Warning)، خطاهای ورود و کوئری‌های با مدت زمان بالا.',
+      'دیالوگ بازرسی عمیق رویداد (Log Event Inspector Modal): پنجره تفصیلی بررسی سطر خام، زمان رویداد، شناسه فرآیند (PID)، کاربر و پایگاه‌داده، پیام تکمیلی، راهنما و کوئری اجرا شده با امکان کپی و باز کردن مستقیم در SQL Studio.',
+      'مشاور و بازرس پارامترهای لاگینگ (Logging Configuration Drawer): نمایش وضعیت زنده پارامترهای پیکربندی شامل logging_collector، log_destination، log_directory، log_filename، log_min_messages، log_min_duration_statement و توصیه‌های پیکربندی بهینه سرورهای عملیاتی.',
+      'ابزارهای خروجی و صدور گزارش: امکان صدور کلیه لاگ‌های پالایش‌شده در قالب فایل‌های متنی استاندارد (.log) و فایل‌های ساختاریافته (.json) به همراه کپی خطی سریع.',
+      'پایش خودکار و پیوسته (Auto-Refresh): بروزرسانی بلادرنگ لاگ‌ها در فواصل انتخابی ۲، ۵، ۱۰ و ۳۰ ثانیه یا حالت دستی.',
+      'انطباق صددرصدی با استانداردهای طراحی مودال، کنتراست ارگونومیک تم تیره و روشن، و رعایت اکید قانون عدم نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 23: Advanced Live Server Logs Explorer and Multi-Line Log Analyzer with real-time SQLSTATE diagnostics, auth failure detection, and slow query inspection.',
+      'Multi-Source Ingestion Engine: Seamlessly queries database catalog via pg_ls_logdir and pg_read_file with automatic fallback to SSH filesystem streaming (/var/log/postgresql, log_directory) and systemd journalctl.',
+      'Intelligent Multi-Line Parser: Accurately reconstructs multi-line log events, correctly binding DETAIL, HINT, CONTEXT, and STATEMENT lines to their parent log entries.',
+      'SQLSTATE Code Extraction & Badging: Automatically extracts and highlights 5-character SQLSTATE codes (e.g., 28P01 password auth failure, 42P01 undefined table, 40P01 deadlock detected, 57P01 admin shutdown).',
+      'Granular Severity Categorization: Filters log events across PANIC, FATAL, ERROR, WARNING, LOG, INFO, NOTICE, DETAIL, and HINT.',
+      'Smart One-Click Quick Filters: Instant triage buttons for "Errors & Fatal", "Auth Failures (HBA/Password)", and "Slow Queries".',
+      'Live KPI Statistics: Real-time visual metrics for total entries, fatal/panic count, errors, warnings, auth rejections, and slow statement counts.',
+      'Log Event Deep Inspector Modal: Dedicated inspection drawer displaying raw records, timestamps, PID, user@db, primary message, hint/detail, and one-click query navigation to SQL Studio.',
+      'Logging Parameters & Production Advisor: Visual inspector for active postgresql.conf settings (logging_collector, log_destination, log_min_duration_statement, log_line_prefix) with production tuning recommendations.',
+      'Flexible Log Export: Download filtered log entries as plain text (.log) or structured JSON (.json) with copy-to-clipboard shortcuts.',
+      'Configurable Live Auto-Refresh: Polling intervals (2s, 5s, 10s, 30s) or manual trigger with active loading indicators.',
+      'Strict adherence to Universal Modal guidelines, high-contrast dark/light theme styling, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.203.0',
     releaseDate: '2026-09-28',

@@ -9725,8 +9725,460 @@ export async function controlPostgresWalReplay(
   }
 }
 
+// ============================================================================
+// PHASE 23: PostgreSQL Server Logs Explorer & Log Analyzer
+// ============================================================================
 
+import type {
+  PostgresLogEntry,
+  PostgresLogFileInfo,
+  PostgresLoggingSettings,
+  PostgresLogsOverview,
+  PostgresLogsFilterOptions,
+  PostgresLogSeverity,
+} from '../src/types';
 
+/**
+ * Phase 23: Retrieves PostgreSQL logging configuration parameters.
+ */
+export async function getPostgresLoggingSettings(
+  server: RemoteServer,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<PostgresLoggingSettings> {
+  const { client } = createPostgresClient(server, {
+    database: options?.database || server.postgres_database || 'postgres',
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
 
+  try {
+    await client.connect();
+    const res = await client.query(`
+      SELECT name, setting, unit
+      FROM pg_settings
+      WHERE name IN (
+        'logging_collector',
+        'log_destination',
+        'log_directory',
+        'log_filename',
+        'log_min_messages',
+        'log_min_error_statement',
+        'log_min_duration_statement',
+        'log_connections',
+        'log_disconnections',
+        'log_line_prefix',
+        'log_statement'
+      );
+    `);
 
+    const map: Record<string, string> = {};
+    for (const r of res.rows || []) {
+      map[r.name] = r.setting;
+    }
 
+    await client.end();
+
+    return {
+      loggingCollector: map['logging_collector'] === 'on',
+      logDestination: map['log_destination'] || 'stderr',
+      logDirectory: map['log_directory'] || 'log',
+      logFilename: map['log_filename'] || 'postgresql-%Y-%m-%d_%H%M%S.log',
+      logMinMessages: map['log_min_messages'] || 'warning',
+      logMinErrorStatement: map['log_min_error_statement'] || 'error',
+      logMinDurationStatement: parseInt(map['log_min_duration_statement'] || '-1', 10),
+      logConnections: map['log_connections'] === 'on',
+      logDisconnections: map['log_disconnections'] === 'on',
+      logLinePrefix: map['log_line_prefix'] || '%m [%p] ',
+      logStatement: map['log_statement'] || 'none',
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    throw new Error(`Failed to retrieve PostgreSQL logging parameters: ${err.message}`);
+  }
+}
+
+/**
+ * Helper to parse raw text lines from a PostgreSQL log file into structured PostgresLogEntry objects.
+ */
+function parsePostgresLogText(rawText: string): PostgresLogEntry[] {
+  if (!rawText || !rawText.trim()) return [];
+
+  const lines = rawText.split(/\r?\n/);
+  const entries: PostgresLogEntry[] = [];
+  let currentEntry: PostgresLogEntry | null = null;
+
+  // Patterns for detecting severity
+  const severityPattern = /\b(PANIC|FATAL|ERROR|WARNING|LOG|INFO|NOTICE|DETAIL|HINT|STATEMENT)\b/;
+
+  // Typical log line pattern:
+  // 2026-09-28 07:15:23.456 UTC [12345] user@db LOG:  statement: SELECT 1
+  // or: 2026-09-28 07:15:23 UTC [12345] ERROR:  42P01: relation "users" does not exist
+  // or: Sep 28 07:15:23 host postgres[12345]: [1-1] ERROR: ...
+  const startLineRegex =
+    /^(?:(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:\s+[A-Z]{3,4}|[+-]\d{2}:?\d{2})?)|(?:[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}))/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+
+    const isNewEntry = startLineRegex.test(line);
+
+    if (isNewEntry || !currentEntry) {
+      if (currentEntry) {
+        entries.push(currentEntry);
+      }
+
+      // Extract timestamp
+      const tsMatch = line.match(startLineRegex);
+      const timestamp = tsMatch ? tsMatch[0] : new Date().toISOString();
+
+      // Extract PID [12345] or postgres[12345]
+      const pidMatch = line.match(/\[(\d+)\]/) || line.match(/postgres\[(\d+)\]/);
+      const pid = pidMatch ? parseInt(pidMatch[1], 10) : undefined;
+
+      // Extract user and db (e.g. user@db or user=postgres,db=test)
+      let user: string | undefined;
+      let database: string | undefined;
+
+      const userDbMatch = line.match(/([a-zA-Z0-9_\-]+)@([a-zA-Z0-9_\-]+)/);
+      if (userDbMatch) {
+        user = userDbMatch[1];
+        database = userDbMatch[2];
+      } else {
+        const userParam = line.match(/user=([a-zA-Z0-9_\-]+)/);
+        const dbParam = line.match(/db=([a-zA-Z0-9_\-]+)/);
+        if (userParam) user = userParam[1];
+        if (dbParam) database = dbParam[1];
+      }
+
+      // Extract client IP (e.g. client=192.168.1.5 or host=...)
+      let client: string | undefined;
+      const clientMatch = line.match(/(?:client|host)=([0-9a-fA-F.:]+)/);
+      if (clientMatch) {
+        client = clientMatch[1];
+      }
+
+      // Extract severity
+      let severity: PostgresLogSeverity = 'LOG';
+      const sevMatch = line.match(severityPattern);
+      if (sevMatch) {
+        severity = sevMatch[1] as PostgresLogSeverity;
+      }
+
+      // Extract message portion (after severity: or rest of line)
+      let message = line;
+      if (sevMatch && sevMatch.index !== undefined) {
+        const afterSev = line.slice(sevMatch.index + sevMatch[1].length);
+        message = afterSev.replace(/^[:\s\-]+/, '').trim();
+      }
+
+      // Extract SQLSTATE error code (e.g., 42P01, 28P01, 40P01, 57P01, XX000)
+      let sqlstate: string | undefined;
+      const sqlstateMatch = message.match(/^([0-9A-Z]{5}):\s+(.+)$/);
+      if (sqlstateMatch) {
+        sqlstate = sqlstateMatch[1];
+        message = sqlstateMatch[2];
+      }
+
+      currentEntry = {
+        id: `log-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp,
+        pid,
+        user,
+        database,
+        client,
+        severity,
+        sqlstate,
+        message,
+        raw: line,
+      };
+    } else {
+      // Continuation line (DETAIL, HINT, CONTEXT, STATEMENT, or multi-line query)
+      currentEntry.raw += '\n' + line;
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('DETAIL:')) {
+        currentEntry.detail = (currentEntry.detail ? currentEntry.detail + '\n' : '') + trimmed.replace(/^DETAIL:\s*/, '');
+      } else if (trimmed.startsWith('HINT:')) {
+        currentEntry.hint = (currentEntry.hint ? currentEntry.hint + '\n' : '') + trimmed.replace(/^HINT:\s*/, '');
+      } else if (trimmed.startsWith('CONTEXT:')) {
+        currentEntry.context = (currentEntry.context ? currentEntry.context + '\n' : '') + trimmed.replace(/^CONTEXT:\s*/, '');
+      } else if (trimmed.startsWith('STATEMENT:')) {
+        currentEntry.query = (currentEntry.query ? currentEntry.query + '\n' : '') + trimmed.replace(/^STATEMENT:\s*/, '');
+      } else {
+        currentEntry.message += '\n' + trimmed;
+      }
+    }
+  }
+
+  if (currentEntry) {
+    entries.push(currentEntry);
+  }
+
+  return entries;
+}
+
+/**
+ * Phase 23: Inspects PostgreSQL server log files and returns structured log telemetry,
+ * real-time stats, and active logging parameters.
+ */
+export async function getPostgresLogsOverview(
+  server: RemoteServer,
+  options?: PostgresLogsFilterOptions
+): Promise<PostgresLogsOverview> {
+  // 1. Get logging settings
+  const settings = await getPostgresLoggingSettings(server, options);
+
+  const { client } = createPostgresClient(server, {
+    database: options?.database || server.postgres_database || 'postgres',
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
+
+  let source: PostgresLogsOverview['source'] = 'empty';
+  let currentLogFile: string | undefined;
+  const availableLogFiles: PostgresLogFileInfo[] = [];
+  let rawLogContent = '';
+  const maxLines = options?.maxLines || 500;
+
+  // 2. Attempt catalog inspection via SQL first (pg_ls_logdir and pg_read_file)
+  let sqlSuccess = false;
+  try {
+    await client.connect();
+
+    // Check pg_current_logfile() if available
+    try {
+      const curRes = await client.query('SELECT pg_current_logfile() AS cur;');
+      if (curRes.rows?.[0]?.cur) {
+        currentLogFile = curRes.rows[0].cur;
+      }
+    } catch {}
+
+    // Check pg_ls_logdir() for available files
+    try {
+      const filesRes = await client.query(`
+        SELECT name, size, modification
+        FROM pg_ls_logdir()
+        ORDER BY modification DESC
+        LIMIT 25;
+      `);
+
+      for (const r of filesRes.rows || []) {
+        const sizeBytes = parseInt(r.size || '0', 10);
+        let sizePretty = `${sizeBytes} B`;
+        if (sizeBytes >= 1024 * 1024) sizePretty = `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+        else if (sizeBytes >= 1024) sizePretty = `${(sizeBytes / 1024).toFixed(1)} KB`;
+
+        availableLogFiles.push({
+          filename: r.name,
+          sizeBytes,
+          sizePretty,
+          lastModified: r.modification ? new Date(r.modification).toISOString() : new Date().toISOString(),
+        });
+      }
+    } catch {}
+
+    // Determine target log file to read
+    const targetFile = options?.logFileName || currentLogFile || availableLogFiles[0]?.filename;
+
+    if (targetFile) {
+      try {
+        // Read tail of log file (up to 500 KB to avoid memory explosion)
+        const targetFileInfo = availableLogFiles.find((f) => f.filename === targetFile);
+        const fileSizeBytes = targetFileInfo ? targetFileInfo.sizeBytes : 0;
+        const readLength = Math.min(500 * 1024, fileSizeBytes > 0 ? fileSizeBytes : 500 * 1024);
+        const offset = fileSizeBytes > readLength ? fileSizeBytes - readLength : 0;
+
+        const readRes = await client.query(
+          'SELECT pg_read_file($1, $2, $3) AS content;',
+          [targetFile, offset, readLength]
+        );
+
+        if (readRes.rows?.[0]?.content) {
+          rawLogContent = readRes.rows[0].content;
+          currentLogFile = targetFile;
+          source = 'database_catalog';
+          sqlSuccess = true;
+        }
+      } catch {}
+    }
+
+    await client.end();
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+  }
+
+  // 3. Fallback to SSH filesystem inspection if SQL didn't provide log contents
+  if (!sqlSuccess) {
+    try {
+      // Determine log paths to check
+      const candidatePaths = [
+        settings.logDirectory,
+        '/var/log/postgresql',
+        '/var/log/postgres',
+      ];
+
+      const script = `export LC_ALL=C
+# Check candidate directories
+FOUND_DIR=""
+for d in "${candidatePaths[0]}" "${candidatePaths[1]}" "${candidatePaths[2]}"; do
+  if [ -d "$d" ]; then
+    FOUND_DIR="$d"
+    break
+  fi
+done
+
+if [ -n "$FOUND_DIR" ]; then
+  echo "===DIR_FOUND===$FOUND_DIR"
+  echo "===FILE_LIST==="
+  # List newest 15 log files with size and mtime
+  ls -1t "$FOUND_DIR"/*.log "$FOUND_DIR"/*.csv 2>/dev/null | head -n 15 | while read -r f; do
+    if [ -f "$f" ]; then
+      SZ=$(stat -c "%s" "$f" 2>/dev/null || stat -f "%z" "$f" 2>/dev/null || echo "0")
+      MT=$(stat -c "%Y" "$f" 2>/dev/null || stat -f "%m" "$f" 2>/dev/null || echo "0")
+      echo "$(basename "$f")|$SZ|$MT|$f"
+    fi
+  done
+  echo "===READ_CONTENT==="
+  TARGET="${options?.logFileName ? options.logFileName : ''}"
+  if [ -n "$TARGET" ] && [ -f "$FOUND_DIR/$TARGET" ]; then
+    tail -n ${maxLines} "$FOUND_DIR/$TARGET"
+  else
+    NEWEST=$(ls -1t "$FOUND_DIR"/*.log "$FOUND_DIR"/*.csv 2>/dev/null | head -n 1)
+    if [ -n "$NEWEST" ] && [ -f "$NEWEST" ]; then
+      echo "===CHOSEN_FILE===$(basename "$NEWEST")"
+      tail -n ${maxLines} "$NEWEST"
+    fi
+  fi
+else
+  # Check systemd journal for postgresql
+  echo "===JOURNAL_FALLBACK==="
+  journalctl -u "postgresql*" --no-pager -n ${maxLines} 2>/dev/null || journalctl -u "postgres*" --no-pager -n ${maxLines} 2>/dev/null || true
+fi
+`;
+
+      const sshOut = await runAdaptiveSshCommand(server, script, options?.password, 15000);
+
+      if (sshOut.includes('===DIR_FOUND===')) {
+        source = 'filesystem_ssh';
+        const fileListPart = sshOut.split('===FILE_LIST===')[1]?.split('===READ_CONTENT===')[0] || '';
+        const lines = fileListPart.trim().split('\n').filter(Boolean);
+
+        for (const l of lines) {
+          const parts = l.split('|');
+          if (parts.length >= 3) {
+            const fname = parts[0];
+            const sizeBytes = parseInt(parts[1], 10) || 0;
+            const mtimeSec = parseInt(parts[2], 10) || 0;
+
+            let sizePretty = `${sizeBytes} B`;
+            if (sizeBytes >= 1024 * 1024) sizePretty = `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+            else if (sizeBytes >= 1024) sizePretty = `${(sizeBytes / 1024).toFixed(1)} KB`;
+
+            if (!availableLogFiles.some((f) => f.filename === fname)) {
+              availableLogFiles.push({
+                filename: fname,
+                sizeBytes,
+                sizePretty,
+                lastModified: mtimeSec > 0 ? new Date(mtimeSec * 1000).toISOString() : new Date().toISOString(),
+              });
+            }
+          }
+        }
+
+        if (sshOut.includes('===CHOSEN_FILE===')) {
+          const chosen = sshOut.split('===CHOSEN_FILE===')[1]?.split('\n')[0]?.trim();
+          if (chosen) currentLogFile = chosen;
+        }
+
+        const readPart = sshOut.split('===READ_CONTENT===')[1] || '';
+        // Strip out CHOSEN_FILE line from actual text
+        rawLogContent = readPart.replace(/===CHOSEN_FILE===[^\n]*\n?/, '').trim();
+      } else if (sshOut.includes('===JOURNAL_FALLBACK===')) {
+        source = 'systemd_journal';
+        rawLogContent = sshOut.split('===JOURNAL_FALLBACK===')[1]?.trim() || '';
+      }
+    } catch (sshErr: any) {
+      // Non-fatal, keep what we have
+    }
+  }
+
+  // 4. Parse log lines into structured entries
+  const parsedEntries = parsePostgresLogText(rawLogContent);
+
+  // 5. Compute stats over parsed entries
+  let fatalCount = 0;
+  let errorCount = 0;
+  let warningCount = 0;
+  let authFailuresCount = 0;
+  let slowQueriesCount = 0;
+
+  for (const e of parsedEntries) {
+    if (e.severity === 'FATAL' || e.severity === 'PANIC') {
+      fatalCount++;
+    } else if (e.severity === 'ERROR') {
+      errorCount++;
+    } else if (e.severity === 'WARNING') {
+      warningCount++;
+    }
+
+    const lowerRaw = e.raw.toLowerCase();
+    if (
+      lowerRaw.includes('password authentication failed') ||
+      lowerRaw.includes('no pg_hba.conf entry') ||
+      e.sqlstate === '28P01' ||
+      e.sqlstate === '28000'
+    ) {
+      authFailuresCount++;
+    }
+
+    if (lowerRaw.includes('duration:') || lowerRaw.includes('statement:')) {
+      slowQueriesCount++;
+    }
+  }
+
+  // 6. Apply search and severity filters if requested
+  let filteredEntries = parsedEntries;
+
+  if (options?.severity && options.severity !== 'ALL') {
+    filteredEntries = filteredEntries.filter((e) => e.severity === options.severity);
+  }
+
+  if (options?.searchTerm && options.searchTerm.trim()) {
+    const q = options.searchTerm.toLowerCase();
+    filteredEntries = filteredEntries.filter(
+      (e) =>
+        e.message.toLowerCase().includes(q) ||
+        (e.sqlstate && e.sqlstate.toLowerCase().includes(q)) ||
+        (e.user && e.user.toLowerCase().includes(q)) ||
+        (e.database && e.database.toLowerCase().includes(q)) ||
+        (e.client && e.client.toLowerCase().includes(q)) ||
+        (e.query && e.query.toLowerCase().includes(q)) ||
+        (e.detail && e.detail.toLowerCase().includes(q))
+    );
+  }
+
+  return {
+    source,
+    currentLogFile,
+    availableLogFiles,
+    totalLinesParsed: parsedEntries.length,
+    entries: filteredEntries,
+    stats: {
+      total: parsedEntries.length,
+      fatalCount,
+      errorCount,
+      warningCount,
+      authFailuresCount,
+      slowQueriesCount,
+    },
+    settings,
+    retrievedAt: new Date().toISOString(),
+  };
+}

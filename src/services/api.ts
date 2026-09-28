@@ -1894,6 +1894,53 @@ export async function controlRemoteServerPostgresWalReplay(
   return res.json();
 }
 
+// ==========================================
+// Phase 23: Postgres Server Logs Explorer API
+// ==========================================
+export async function fetchRemoteServerPostgresLogs(
+  id: string,
+  options?: import('../types').PostgresLogsFilterOptions
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresLogsOverview;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+  if (options?.logFileName) params.append('logFileName', options.logFileName);
+  if (options?.maxLines) params.append('maxLines', String(options.maxLines));
+  if (options?.severity && options.severity !== 'ALL') params.append('severity', options.severity);
+  if (options?.searchTerm) params.append('searchTerm', options.searchTerm);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/logs${queryStr}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresLoggingSettings(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresLoggingSettings;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/logs/settings${queryStr}`);
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

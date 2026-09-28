@@ -111,6 +111,8 @@ import {
   getPostgresReplicationOverview,
   managePostgresReplicationSlot,
   controlPostgresWalReplay,
+  getPostgresLogsOverview,
+  getPostgresLoggingSettings,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -3065,6 +3067,94 @@ apiRouter.post('/remote-servers/:id/postgres/replication/replay', async (req: Re
       success: false,
       error: err.message || 'Failed to control WAL replay',
       errorFa: 'خطا در کنترل پخش مجدد WAL',
+    });
+  }
+});
+
+// ==========================================
+// Phase 23: Postgres Server Logs Explorer Routes
+// ==========================================
+
+// GET /api/remote-servers/:id/postgres/logs - Retrieve parsed logs, stats and file list
+apiRouter.get('/remote-servers/:id/postgres/logs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = (req.query.user as string) || server.postgres_user;
+    const password = req.query.password as string | undefined;
+    const logFileName = req.query.logFileName as string | undefined;
+    const maxLines = req.query.maxLines ? Number(req.query.maxLines) : 500;
+    const severity = (req.query.severity as any) || 'ALL';
+    const searchTerm = req.query.searchTerm as string | undefined;
+
+    const overview = await getPostgresLogsOverview(server, {
+      database,
+      port,
+      user,
+      password,
+      logFileName,
+      maxLines,
+      severity,
+      searchTerm,
+    });
+
+    return res.json({
+      success: true,
+      data: overview,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve PostgreSQL server logs',
+      errorFa: 'خطا در دریافت لاگ‌های سرور PostgreSQL',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/logs/settings - Retrieve logging parameters
+apiRouter.get('/remote-servers/:id/postgres/logs/settings', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = (req.query.user as string) || server.postgres_user;
+    const password = req.query.password as string | undefined;
+
+    const settings = await getPostgresLoggingSettings(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      data: settings,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve PostgreSQL logging settings',
+      errorFa: 'خطا در دریافت تنظیمات لاگینگ PostgreSQL',
     });
   }
 });

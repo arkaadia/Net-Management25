@@ -2936,6 +2936,89 @@ export interface PostgresReplicationReplayControlRequest {
   action: 'pause' | 'resume';
 }
 
+// ==========================================
+// Phase 23: Postgres Server Logs Explorer Types
+// ==========================================
+export type PostgresLogSeverity =
+  | 'PANIC'
+  | 'FATAL'
+  | 'ERROR'
+  | 'WARNING'
+  | 'LOG'
+  | 'INFO'
+  | 'NOTICE'
+  | 'DETAIL'
+  | 'HINT'
+  | 'STATEMENT'
+  | 'UNKNOWN';
+
+export interface PostgresLogEntry {
+  id: string;
+  timestamp: string;
+  user?: string;
+  database?: string;
+  pid?: number;
+  client?: string;
+  severity: PostgresLogSeverity;
+  sqlstate?: string;
+  message: string;
+  detail?: string;
+  hint?: string;
+  context?: string;
+  query?: string;
+  raw: string;
+}
+
+export interface PostgresLogFileInfo {
+  filename: string;
+  sizeBytes: number;
+  sizePretty: string;
+  lastModified: string;
+}
+
+export interface PostgresLoggingSettings {
+  loggingCollector: boolean;
+  logDestination: string;
+  logDirectory: string;
+  logFilename: string;
+  logMinMessages: string;
+  logMinErrorStatement: string;
+  logMinDurationStatement: number;
+  logConnections: boolean;
+  logDisconnections: boolean;
+  logLinePrefix: string;
+  logStatement: string;
+}
+
+export interface PostgresLogsOverview {
+  source: 'database_catalog' | 'filesystem_ssh' | 'systemd_journal' | 'empty';
+  currentLogFile?: string;
+  availableLogFiles: PostgresLogFileInfo[];
+  totalLinesParsed: number;
+  entries: PostgresLogEntry[];
+  stats: {
+    total: number;
+    fatalCount: number;
+    errorCount: number;
+    warningCount: number;
+    authFailuresCount: number;
+    slowQueriesCount: number;
+  };
+  settings: PostgresLoggingSettings;
+  retrievedAt: string;
+}
+
+export interface PostgresLogsFilterOptions {
+  database?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  logFileName?: string;
+  maxLines?: number;
+  severity?: PostgresLogSeverity | 'ALL';
+  searchTerm?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

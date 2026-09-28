@@ -34,6 +34,7 @@ import {
   Puzzle,
   Zap,
   GitFork,
+  ScrollText,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -60,6 +61,7 @@ import { PostgresHealthAuditTab } from './PostgresHealthAuditTab';
 import { PostgresLocksInspectorTab } from './PostgresLocksInspectorTab';
 import { PostgresPerformanceMonitorTab } from './PostgresPerformanceMonitorTab';
 import { PostgresReplicationTab } from './PostgresReplicationTab';
+import { PostgresLogsExplorerTab } from './PostgresLogsExplorerTab';
 import { PostgresHbaManagerTab } from './PostgresHbaManagerTab';
 import { PostgresMaintenanceModal } from './PostgresMaintenanceModal';
 
@@ -74,7 +76,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'locks' | 'performance' | 'replication' | 'hba' | 'overview' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'locks' | 'performance' | 'replication' | 'logs' | 'hba' | 'overview' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -591,6 +593,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             >
               <GitFork className="w-3.5 h-3.5 text-emerald-400" />
               <span>{isEn ? 'Replication & HA' : 'رپلیکیشن و پایداری (HA)'}</span>
+            </button>
+
+            {/* TAB: SERVER LOGS EXPLORER & ANALYZER (Phase 23) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('logs')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'logs'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <ScrollText className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Server Logs' : 'لاگ‌های سرور'}</span>
             </button>
 
             {/* TAB: CLIENT AUTHENTICATION (pg_hba.conf) (Phase 16) */}
@@ -1251,6 +1269,20 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
           {/* TAB: REPLICATION & HIGH AVAILABILITY (Phase 22) */}
           {activeTab === 'replication' && (
             <PostgresReplicationTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={server.postgres_database || 'postgres'}
+              onNavigateToSqlStudio={(sql) => {
+                setSqlEditorInitialQuery(sql);
+                setActiveTab('sql');
+              }}
+            />
+          )}
+
+          {/* TAB: SERVER LOGS EXPLORER & ANALYZER (Phase 23) */}
+          {activeTab === 'logs' && (
+            <PostgresLogsExplorerTab
               server={server}
               isLightMode={isLightMode}
               isEn={isEn}
