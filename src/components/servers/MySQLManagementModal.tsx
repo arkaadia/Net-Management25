@@ -263,7 +263,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold">
-                  {isEn ? 'MySQL / MariaDB Management' : 'مدیریت پایگاه داده MySQL / MariaDB'}
+                  {isEn ? 'MySQL Management' : 'مدیریت MySQL'}
                 </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">
                   Port {server.mysql_port || 3306}

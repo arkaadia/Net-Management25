@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.207.0';
+export const APP_VERSION = '1.208.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.208.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱ مدیریت پایگاه‌داده MySQL: تثبیت درگاه ورودی، فرم ثبت و اتصال به ناوگان سرورهای لینوکس',
+    title_en: 'Phase 1 MySQL Management Implementation: Dedicated Linux Fleet Entry Point & Configuration',
+    changes: [
+      'پیاده‌سازی رسمی فاز ۱ نقشه راه ۲۰ مرحله‌ای مدیریت MySQL (Phase 1 — MySQL Management Entry Point): استقرار کامل و استاندارد درگاه اتصال اختصاصی برای سرورهای لینوکس.',
+      'تجهیز فرم ثبت و ویرایش سرور (Register Remote Server → Installed Services & Engines): نمایش خودکار فیلدهای اختصاصی اتصال شامل نام‌کاربری (پیش‌فرض root)، پورت (پیش‌فرض ۳۳۰۶ و قابل ویرایش) و کلمه عبور با قابلیت انتخاب ایمن از والت.',
+      'استفاده مستقیم از آدرس IP ثبت‌شده سرور والد بدون درخواست مجدد از کاربر.',
+      'افزودن گزینه رسمی «MySQL Management» به منوی سه‌نقطه ناوگان سرورهای ریموت (Remote Servers & Automation Fleet) منحصراً برای سرورهای لینوکسی که MySQL روی آنها پیکربندی شده است.',
+      'تجهیز به مودال اختصاصی مدیریت MySQL (MySQLManagementModal) کاملاً تفکیک‌شده از مودال PostgreSQL با دکمه‌های سه‌گانه هدر (بستن، مینیمایز به داک، تمام‌صفحه)، مهار حریم فوتر با فاصله استاندارد bottom-8 و هماهنگی کامل دو زبانه و دو تم.',
+      'تضمین عدم رگرسیون و حفظ استقلال کامل ماژول‌های مدیریت سرور و ابزارهای شبکه موجود.',
+    ],
+    changes_en: [
+      'Implemented Phase 1 of the MySQL Management 20-Phase Roadmap: Established the dedicated Linux remote server entry point and configuration pipeline.',
+      'Enhanced Register/Edit Remote Server form under Installed Services & Engines: Displays dedicated connection parameters including Username (default root), Port (default 3306, fully editable), and password with secure vault picker.',
+      'Automatic reuse of the parent remote server IP address without asking the user to re-enter it.',
+      'Integrated dedicated "MySQL Management" action in the Remote Servers & Automation Fleet 3-dot menu, shown strictly for Linux servers with MySQL configured/enabled.',
+      'Configured dedicated MySQL Management Modal with triple header controls (Close, Minimize to ToolsDock, Maximize/Windowed), footer clearance constraint (bottom-8), and strict theme/i18n compliance.',
+      'Ensured zero regression on existing PostgreSQL management workflows and general server fleet tools.',
+    ],
+  },
   {
     version: '1.207.0',
     releaseDate: '2026-09-28',

@@ -2339,7 +2339,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                     PostgreSQL
                                   </button>
                                 )}
-                                {(server.has_mysql || server.server_type === 'mysql' || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
+                                {server.os_type !== 'windows' && (server.has_mysql || server.server_type === 'mysql' || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -3302,8 +3302,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </button>
                     )}
 
-                    {/* MySQL / MariaDB Management (shown if server has_mysql is true, server_type === 'mysql', or installed_databases includes 'mysql' or 'mariadb') */}
-                    {(menuAnchor.server.has_mysql || menuAnchor.server.server_type === 'mysql' || (Array.isArray(menuAnchor.server.installed_databases) && (menuAnchor.server.installed_databases.includes('mysql') || menuAnchor.server.installed_databases.includes('mariadb')))) && (
+                    {/* MySQL Management (shown ONLY for Linux servers where MySQL is configured) */}
+                    {menuAnchor.server.os_type !== 'windows' && (menuAnchor.server.has_mysql || menuAnchor.server.server_type === 'mysql' || (Array.isArray(menuAnchor.server.installed_databases) && (menuAnchor.server.installed_databases.includes('mysql') || menuAnchor.server.installed_databases.includes('mariadb')))) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3316,9 +3316,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       >
                         <Database className="w-4 h-4 text-amber-400 shrink-0" />
                         <div className="flex flex-col">
-                          <span>{isEn ? 'MySQL / MariaDB Management' : 'مدیریت MySQL / MariaDB'}</span>
+                          <span>{isEn ? 'MySQL Management' : 'مدیریت MySQL'}</span>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
-                            {isEn ? 'Databases, Processlist, Query Runner & Tuning' : 'پایگاه‌های داده، رشته‌ها، کوئری‌رانر و بهینه‌سازی'}
+                            {isEn ? `Port ${menuAnchor.server.mysql_port || 3306} • Database Management` : `پورت ${menuAnchor.server.mysql_port || 3306} • مدیریت پایگاه داده`}
                           </span>
                         </div>
                       </button>
