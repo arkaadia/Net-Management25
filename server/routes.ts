@@ -59,6 +59,15 @@ import {
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
 import {
+  testMysqlConnection,
+  getMysqlOverview,
+  getMysqlDatabases,
+  executeMysqlQuery,
+  getMysqlProcesslist,
+  killMysqlProcess,
+  getMysqlVariables,
+} from './mysqlManager';
+import {
   testPostgresConnection,
   getPostgresOverview,
   getPostgresDatabases,
@@ -4185,6 +4194,168 @@ apiRouter.post('/remote-servers/:id/postgres/query/analyze', async (req: Request
 });
 
 
+
+// ==========================================
+// MySQL / MariaDB Remote Database Endpoints
+// ==========================================
+
+// POST /api/remote-servers/test-mysql-connection - Test MySQL connection standalone for new server registration
+apiRouter.post('/remote-servers/test-mysql-connection', async (req: Request, res: Response) => {
+  try {
+    const { host, port, user, database, password } = req.body || {};
+    const dummyServer: any = {
+      ip: String(host || '').trim(),
+      mysql_port: port ? Number(port) : 3306,
+      mysql_user: user ? String(user).trim() : 'root',
+      mysql_database: database ? String(database).trim() : 'mysql',
+      mysql_password: password || '',
+    };
+    const result = await testMysqlConnection(dummyServer, {
+      port: port ? Number(port) : 3306,
+      user: user || 'root',
+      database: database || 'mysql',
+      password: password || '',
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      status: 'unknown_error',
+      message: err.message || 'Internal error while testing MySQL connection',
+      messageFa: 'خطای داخلی هنگام تست ارتباط با پایگاه‌داده MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/test-connection - Test MySQL connection on existing server
+apiRouter.post('/remote-servers/:id/mysql/test-connection', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        status: 'connection_failed',
+        message: 'Server not found in fleet',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد',
+      });
+    }
+    const { port, user, database, password } = req.body || {};
+    const result = await testMysqlConnection(server, {
+      port: port !== undefined && port !== '' ? Number(port) : undefined,
+      user: user || undefined,
+      database: database || undefined,
+      password: password || undefined,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      status: 'unknown_error',
+      message: err.message,
+      messageFa: 'خطای داخلی سرور هنگام آزمایش ارتباط MySQL',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/overview - Enumerate MySQL status and overview
+apiRouter.get('/remote-servers/:id/mysql/overview', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const overview = await getMysqlOverview(server);
+    return res.json({ success: true, overview });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/databases - List all databases in MySQL
+apiRouter.get('/remote-servers/:id/mysql/databases', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const databases = await getMysqlDatabases(server);
+    return res.json({ success: true, databases });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/query - Run SQL query on MySQL
+apiRouter.post('/remote-servers/:id/mysql/query', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const { query, database } = req.body || {};
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return res.status(400).json({ success: false, error: 'Query is required' });
+    }
+    const result = await executeMysqlQuery(server, query, database);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/processlist - List threads/connections in MySQL
+apiRouter.get('/remote-servers/:id/mysql/processlist', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const processes = await getMysqlProcesslist(server);
+    return res.json({ success: true, processes });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/kill-process - Kill connection by ID
+apiRouter.post('/remote-servers/:id/mysql/kill-process', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const { processId } = req.body || {};
+    if (!processId) {
+      return res.status(400).json({ success: false, error: 'processId is required' });
+    }
+    const result = await killMysqlProcess(server, Number(processId));
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/variables - Enumerate system variables
+apiRouter.get('/remote-servers/:id/mysql/variables', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const filter = typeof req.query.filter === 'string' ? req.query.filter : undefined;
+    const variables = await getMysqlVariables(server, filter);
+    return res.json({ success: true, variables });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // POST /api/remote-servers/:id/tags - Update tags only
 apiRouter.post('/remote-servers/:id/tags', async (req: Request, res: Response) => {

@@ -1410,17 +1410,25 @@ export interface RemoteServer {
   location?: string;
   notes?: string;
   watchdogs?: LinuxServiceWatchdogRule[];
+  server_type?: 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql';
   installed_web_servers?: ('apache' | 'nginx' | string)[];
   installed_databases?: ('postgresql' | 'mysql' | string)[];
   has_apache?: boolean;
   has_nginx?: boolean;
   has_postgresql?: boolean;
   has_mysql?: boolean;
+  web_http_port?: number;
+  web_https_port?: number;
   postgres_port?: number;
   postgres_user?: string;
   postgres_password?: string;
   postgres_password_set?: boolean;
   postgres_database?: string;
+  mysql_port?: number;
+  mysql_user?: string;
+  mysql_password?: string;
+  mysql_password_set?: boolean;
+  mysql_database?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -1434,6 +1442,85 @@ export type PostgresConnectionStatus =
   | 'permission_denied'
   | 'database_unavailable'
   | 'unknown_error';
+
+export type MysqlConnectionStatus =
+  | 'connected'
+  | 'connection_failed'
+  | 'authentication_failed'
+  | 'connection_refused'
+  | 'timeout'
+  | 'access_denied'
+  | 'database_unavailable'
+  | 'unknown_error';
+
+export interface MysqlConnectionTestResult {
+  success: boolean;
+  status: MysqlConnectionStatus;
+  message: string;
+  messageFa?: string;
+  serverAddress: string;
+  port: number;
+  username: string;
+  database?: string;
+  version?: string;
+  latencyMs?: number;
+  testedAt: string;
+  errorDetail?: string;
+}
+
+export interface MysqlOverview {
+  serverAddress: string;
+  port: number;
+  connectedUser: string;
+  connectedDatabase: string;
+  version: string;
+  versionComment: string;
+  uptimeSeconds: number;
+  uptimePretty: string;
+  threadsConnected: number;
+  threadsRunning: number;
+  maxConnections: number;
+  totalQueries: number;
+  slowQueries: number;
+  openTables: number;
+  bufferPoolSize: string;
+  fetchedAt: string;
+}
+
+export interface MysqlDatabaseItem {
+  name: string;
+  defaultCollation: string;
+  tableCount: number;
+  sizeBytes: number;
+  sizePretty: string;
+}
+
+export interface MysqlProcessItem {
+  id: number;
+  user: string;
+  host: string;
+  db: string | null;
+  command: string;
+  time: number;
+  state: string | null;
+  info: string | null;
+}
+
+export interface MysqlVariableItem {
+  name: string;
+  value: string;
+}
+
+export interface MysqlQueryResult {
+  success: boolean;
+  columns?: string[];
+  rows?: any[];
+  rowCount?: number;
+  affectedRows?: number;
+  durationMs?: number;
+  error?: string;
+  errorFa?: string;
+}
 
 export interface PostgresConnectionTestResult {
   success: boolean;

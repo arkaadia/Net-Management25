@@ -35,10 +35,12 @@ import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { VaultPasswordPickerModal } from '../vault/VaultPasswordPickerModal';
 import { useAuth } from '../../context/AuthContext';
+import { testStandaloneMysqlConnection } from '../../services/api';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
   serverToEdit?: RemoteServer | null;
+  initialServiceMode?: 'standard' | 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql';
   onClose: () => void;
   onMinimize: () => void;
   onSave: (serverData: Partial<RemoteServer>) => Promise<void>;
@@ -84,6 +86,7 @@ const ENVIRONMENTS = ['Production', 'Staging', 'Development', 'DMZ'];
 export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   isOpen,
   serverToEdit,
+  initialServiceMode = 'standard',
   onClose,
   onMinimize,
   onSave,
@@ -98,6 +101,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [name, setName] = useState('');
   const [hostname, setHostname] = useState('');
   const [ip, setIp] = useState('');
+  const [serverType, setServerType] = useState<'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql'>('linux');
   const [osType, setOsType] = useState<'linux' | 'windows'>('linux');
   const [osDistro, setOsDistro] = useState('Ubuntu 24.04 LTS');
   const [category, setCategory] = useState('Infrastructure');
@@ -128,11 +132,13 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [showSshPassword, setShowSshPassword] = useState(false);
   const [showWinPassword, setShowWinPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
-  const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'windows'>('ssh');
+  const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'windows' | 'postgres' | 'mysql'>('ssh');
 
   // Vault saving state
   const [saveSshToVault, setSaveSshToVault] = useState(false);
   const [saveWinToVault, setSaveWinToVault] = useState(false);
+  const [savePostgresToVault, setSavePostgresToVault] = useState(false);
+  const [saveMysqlToVault, setSaveMysqlToVault] = useState(false);
   const [vaultSaveSuccess, setVaultSaveSuccess] = useState<string | null>(null);
 
   // Linux-specific
@@ -147,11 +153,27 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [hasPostgres, setHasPostgres] = useState(false);
   const [hasMysql, setHasMysql] = useState(false);
 
-  // PostgreSQL-specific connection credentials (Phase 1)
+  // Web server ports
+  const [webHttpPort, setWebHttpPort] = useState<number | string>(80);
+  const [webHttpsPort, setWebHttpsPort] = useState<number | string>(443);
+
+  // PostgreSQL-specific connection credentials
   const [postgresPort, setPostgresPort] = useState<number | string>(5432);
   const [postgresUser, setPostgresUser] = useState('postgres');
   const [postgresPassword, setPostgresPassword] = useState('');
+  const [postgresDatabase, setPostgresDatabase] = useState('postgres');
   const [showPostgresPassword, setShowPostgresPassword] = useState(false);
+  const [isTestingPostgres, setIsTestingPostgres] = useState(false);
+  const [postgresTestFeedback, setPostgresTestFeedback] = useState<string | null>(null);
+
+  // MySQL-specific connection credentials
+  const [mysqlPort, setMysqlPort] = useState<number | string>(3306);
+  const [mysqlUser, setMysqlUser] = useState('root');
+  const [mysqlPassword, setMysqlPassword] = useState('');
+  const [mysqlDatabase, setMysqlDatabase] = useState('mysql');
+  const [showMysqlPassword, setShowMysqlPassword] = useState(false);
+  const [isTestingMysql, setIsTestingMysql] = useState(false);
+  const [mysqlTestFeedback, setMysqlTestFeedback] = useState<string | null>(null);
 
   // Windows-specific
   const [winProtocol, setWinProtocol] = useState<'rdp' | 'powershell' | 'winrm' | 'ssh'>('rdp');
@@ -216,28 +238,24 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setHasMysql(Boolean(serverToEdit.has_mysql || dbList.includes('mysql') || dbList.includes('mariadb')));
         setPostgresPort(serverToEdit.postgres_port || 5432);
         setPostgresUser(serverToEdit.postgres_user || 'postgres');
+        setPostgresDatabase(serverToEdit.postgres_database || 'postgres');
         setPostgresPassword('');
         setShowPostgresPassword(false);
+        setMysqlPort(serverToEdit.mysql_port || 3306);
+        setMysqlUser(serverToEdit.mysql_user || 'root');
+        setMysqlDatabase(serverToEdit.mysql_database || 'mysql');
+        setMysqlPassword('');
+        setShowMysqlPassword(false);
+        setWebHttpPort(serverToEdit.web_http_port || 80);
+        setWebHttpsPort(serverToEdit.web_https_port || 443);
+        setServerType(serverToEdit.server_type || (serverToEdit.has_postgresql ? 'postgresql' : serverToEdit.has_mysql ? 'mysql' : serverToEdit.has_nginx ? 'nginx' : serverToEdit.has_apache ? 'apache' : serverToEdit.os_type || 'linux'));
       } else {
-        // Defaults for new server
-        setName('');
+        // Defaults for new server or service based on initialServiceMode
         setHostname('');
         setIp('');
-        setOsType('linux');
-        setOsDistro('Ubuntu 24.04 LTS');
-        setCategory('Infrastructure');
         setEnvironment('Production');
         setDescription('');
-        setTags(['prod']);
         setPromptPasswordOnConnect(false);
-        setHasApache(false);
-        setHasNginx(false);
-        setHasPostgres(false);
-        setHasMysql(false);
-        setPostgresPort(5432);
-        setPostgresUser('postgres');
-        setPostgresPassword('');
-        setShowPostgresPassword(false);
         setSshPort(22);
         setSshUsername('root');
         setSshPassword('');
@@ -250,15 +268,99 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setCpuCores('');
         setRamGb('');
         setDiskGb('');
+        setPostgresPort(5432);
+        setPostgresUser('postgres');
+        setPostgresDatabase('postgres');
+        setPostgresPassword('');
+        setShowPostgresPassword(false);
+        setMysqlPort(3306);
+        setMysqlUser('root');
+        setMysqlDatabase('mysql');
+        setMysqlPassword('');
+        setShowMysqlPassword(false);
+        setWebHttpPort(80);
+        setWebHttpsPort(443);
+
+        if (initialServiceMode === 'nginx') {
+          setName(isEn ? 'Nginx Web Server' : 'وب‌سرور Nginx');
+          setOsType('linux');
+          setServerType('nginx');
+          setOsDistro('Ubuntu 24.04 LTS');
+          setCategory('Web / App');
+          setTags(['nginx', 'web-tier']);
+          setHasNginx(true);
+          setHasApache(false);
+          setHasPostgres(false);
+          setHasMysql(false);
+        } else if (initialServiceMode === 'apache') {
+          setName(isEn ? 'Apache HTTP Server' : 'وب‌سرور Apache');
+          setOsType('linux');
+          setServerType('apache');
+          setOsDistro('Ubuntu 24.04 LTS');
+          setCategory('Web / App');
+          setTags(['apache', 'web-tier']);
+          setHasApache(true);
+          setHasNginx(false);
+          setHasPostgres(false);
+          setHasMysql(false);
+        } else if (initialServiceMode === 'postgresql') {
+          setName(isEn ? 'PostgreSQL Database' : 'پایگاه داده PostgreSQL');
+          setOsType('linux');
+          setServerType('postgresql');
+          setOsDistro('Ubuntu 24.04 LTS');
+          setCategory('Database');
+          setTags(['postgres', 'database']);
+          setHasPostgres(true);
+          setHasMysql(false);
+          setHasApache(false);
+          setHasNginx(false);
+        } else if (initialServiceMode === 'mysql') {
+          setName(isEn ? 'MySQL Database' : 'پایگاه داده MySQL');
+          setOsType('linux');
+          setServerType('mysql');
+          setOsDistro('Ubuntu 24.04 LTS');
+          setCategory('Database');
+          setTags(['mysql', 'database']);
+          setHasMysql(true);
+          setHasPostgres(false);
+          setHasApache(false);
+          setHasNginx(false);
+        } else if (initialServiceMode === 'windows') {
+          setName('');
+          setOsType('windows');
+          setServerType('windows');
+          setOsDistro('Windows Server 2022');
+          setCategory('Infrastructure');
+          setTags(['windows']);
+          setHasApache(false);
+          setHasNginx(false);
+          setHasPostgres(false);
+          setHasMysql(false);
+        } else {
+          setName('');
+          setOsType('linux');
+          setServerType('linux');
+          setOsDistro('Ubuntu 24.04 LTS');
+          setCategory('Infrastructure');
+          setTags(['prod']);
+          setHasApache(false);
+          setHasNginx(false);
+          setHasPostgres(false);
+          setHasMysql(false);
+        }
       }
       setShowSshPassword(false);
       setShowWinPassword(false);
       setSaveSshToVault(false);
       setSaveWinToVault(false);
+      setSavePostgresToVault(false);
+      setSaveMysqlToVault(false);
+      setPostgresTestFeedback(null);
+      setMysqlTestFeedback(null);
       setVaultSaveSuccess(null);
       setError(null);
     }
-  }, [isOpen, serverToEdit?.id]);
+  }, [isOpen, serverToEdit?.id, initialServiceMode]);
 
   // Handle OS type switch defaults
   const handleOsChange = (type: 'linux' | 'windows') => {
@@ -329,9 +431,17 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         has_nginx: osType === 'linux' ? hasNginx : false,
         has_postgresql: osType === 'linux' ? hasPostgres : false,
         has_mysql: osType === 'linux' ? hasMysql : false,
+        server_type: serverType,
+        web_http_port: (hasNginx || hasApache) ? (Number(webHttpPort) || 80) : undefined,
+        web_https_port: (hasNginx || hasApache) ? (Number(webHttpsPort) || 443) : undefined,
         postgres_port: hasPostgres && osType === 'linux' ? (Number(postgresPort) || 5432) : undefined,
         postgres_user: hasPostgres && osType === 'linux' ? (postgresUser.trim() || 'postgres') : undefined,
         postgres_password: hasPostgres && osType === 'linux' && postgresPassword.trim() ? postgresPassword.trim() : undefined,
+        postgres_database: hasPostgres && osType === 'linux' ? (postgresDatabase.trim() || 'postgres') : undefined,
+        mysql_port: hasMysql && osType === 'linux' ? (Number(mysqlPort) || 3306) : undefined,
+        mysql_user: hasMysql && osType === 'linux' ? (mysqlUser.trim() || 'root') : undefined,
+        mysql_password: hasMysql && osType === 'linux' && mysqlPassword.trim() ? mysqlPassword.trim() : undefined,
+        mysql_database: hasMysql && osType === 'linux' ? (mysqlDatabase.trim() || 'mysql') : undefined,
         status: serverToEdit?.status || 'online',
         cpu_cores: cpuCores !== '' && Number(cpuCores) > 0 ? Number(cpuCores) : undefined,
         ram_gb: ramGb !== '' && Number(ramGb) > 0 ? Number(ramGb) : undefined,
@@ -386,6 +496,58 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save password to vault:', vaultErr);
+        }
+      }
+
+      // Save PostgreSQL credentials to vault if opted-in
+      if (hasPostgres && savePostgresToVault && postgresPassword.trim()) {
+        try {
+          await fetch('/api/vault', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              name: `${name.trim()} (PostgreSQL)`,
+              username: postgresUser.trim() || 'postgres',
+              password: postgresPassword.trim(),
+              category: 'database',
+              targetHost: ip.trim() || hostname.trim() || undefined,
+              notes: isEn
+                ? `Auto-saved from Database Registration: ${name.trim()} (Port ${postgresPort || 5432})`
+                : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${postgresPort || 5432})`,
+              tags: ['database', 'postgres', ...(tags.length > 0 ? tags : [])],
+            }),
+          });
+        } catch (vaultErr) {
+          console.warn('Could not auto-save postgres password to vault:', vaultErr);
+        }
+      }
+
+      // Save MySQL credentials to vault if opted-in
+      if (hasMysql && saveMysqlToVault && mysqlPassword.trim()) {
+        try {
+          await fetch('/api/vault', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              name: `${name.trim()} (MySQL)`,
+              username: mysqlUser.trim() || 'root',
+              password: mysqlPassword.trim(),
+              category: 'database',
+              targetHost: ip.trim() || hostname.trim() || undefined,
+              notes: isEn
+                ? `Auto-saved from Database Registration: ${name.trim()} (Port ${mysqlPort || 3306})`
+                : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${mysqlPort || 3306})`,
+              tags: ['database', 'mysql', ...(tags.length > 0 ? tags : [])],
+            }),
+          });
+        } catch (vaultErr) {
+          console.warn('Could not auto-save mysql password to vault:', vaultErr);
         }
       }
 
@@ -845,7 +1007,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-1">
                       {/* Username */}
                       <div className="space-y-1">
                         <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -863,9 +1025,8 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                           }`}
                         />
                       </div>
-
                       {/* Password */}
-                      <div className="space-y-1">
+                      <div className="space-y-1 sm:col-span-2">
                         <div className="flex items-center justify-between">
                           <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                             {isEn ? 'Password' : 'رمز عبور'}
@@ -876,33 +1037,46 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="relative">
-                          <input
-                            type={showPostgresPassword ? 'text' : 'password'}
-                            value={postgresPassword}
-                            onChange={(e) => setPostgresPassword(e.target.value)}
-                            placeholder={
-                              serverToEdit?.postgres_password_set
-                                ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
-                                : (isEn ? 'Enter password' : 'رمز عبور را وارد کنید')
-                            }
-                            className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
-                              isLightMode
-                                ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
-                                : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
-                            }`}
-                          />
+                        <div className="flex items-center gap-1.5">
+                          <div className="relative flex-1">
+                            <input
+                              type={showPostgresPassword ? 'text' : 'password'}
+                              value={postgresPassword}
+                              onChange={(e) => setPostgresPassword(e.target.value)}
+                              placeholder={
+                                serverToEdit?.postgres_password_set
+                                  ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
+                                  : (isEn ? 'Enter password' : 'رمز عبور را وارد کنید')
+                              }
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
+                                isLightMode
+                                  ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPostgresPassword(!showPostgresPassword)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                              title={showPostgresPassword ? (isEn ? 'Hide' : 'مخفی کردن') : (isEn ? 'Show' : 'نمایش')}
+                            >
+                              {showPostgresPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
                           <button
                             type="button"
-                            onClick={() => setShowPostgresPassword(!showPostgresPassword)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
-                            title={showPostgresPassword ? (isEn ? 'Hide' : 'مخفی کردن') : (isEn ? 'Show' : 'نمایش')}
+                            onClick={() => {
+                              setVaultPickerTarget('postgres');
+                              setIsVaultPickerOpen(true);
+                            }}
+                            className="px-2 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
+                            title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
                           >
-                            {showPostgresPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            <KeyRound className="w-3.5 h-3.5" />
+                            <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
                           </button>
                         </div>
                       </div>
-
                       {/* Port */}
                       <div className="space-y-1">
                         <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
@@ -917,6 +1091,248 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                             isLightMode
                               ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
                               : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] font-semibold text-slate-300">
+                          {isEn ? 'Database Name:' : 'نام پایگاه‌داده:'}
+                        </label>
+                        <input
+                          type="text"
+                          value={postgresDatabase}
+                          onChange={(e) => setPostgresDatabase(e.target.value)}
+                          placeholder="postgres"
+                          className={`w-28 px-2 py-1 rounded border text-xs font-mono ${
+                            isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
+                          }`}
+                        />
+                      </div>
+
+                      {postgresPassword.trim().length > 0 && (
+                        <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-blue-400">
+                          <input
+                            type="checkbox"
+                            checked={savePostgresToVault}
+                            onChange={(e) => setSavePostgresToVault(e.target.checked)}
+                            className="rounded accent-blue-500"
+                          />
+                          <BookmarkPlus className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Save password to Vault?' : 'ذخیره این رمز در والت شخصی؟'}</span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* MySQL / MariaDB Specific Connection Parameters */}
+                {hasMysql && (
+                  <div
+                    className={`p-3 rounded-xl border space-y-2 mt-2 transition-all ${
+                      isLightMode
+                        ? 'bg-amber-50/80 border-amber-200 text-slate-800'
+                        : 'bg-amber-950/25 border-amber-500/30 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-amber-400" />
+                        <span className={`text-[11px] font-bold ${isLightMode ? 'text-amber-950' : 'text-amber-300'}`}>
+                          {isEn ? 'MySQL / MariaDB Connection Parameters' : 'تنظیمات اتصال به MySQL / MariaDB'}
+                        </span>
+                        <FieldInfoTooltip
+                          title={isEn ? 'MySQL Credentials & Port' : 'مشخصات اتصال و پورت MySQL'}
+                          whatIsIt={
+                            isEn
+                              ? 'Credentials (username, password, port 3306) used to connect directly to the MySQL database engine.'
+                              : 'مشخصات احراز هویت (نام کاربری، کلمه عبور و پورت ۳۳۰۶) جهت اتصال مستقیم به موتور MySQL.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Required for database management, query execution, process list monitoring, and status overview.'
+                              : 'برای باز کردن پنل مدیریت MySQL، اجرای کوئری و پایش پروسس‌ها الزامی است.'
+                          }
+                          example={isEn ? 'User: root, Port: 3306, Database: mysql' : 'کاربر: root، پورت: ۳۳۰۶، دیتابیس: mysql'}
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-amber-400">
+                        {serverToEdit?.ip || ip || 'Host IP'}:{mysqlPort || 3306}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-1">
+                      {/* Username */}
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'Username' : 'نام کاربری'}
+                        </label>
+                        <input
+                          type="text"
+                          value={mysqlUser}
+                          onChange={(e) => setMysqlUser(e.target.value)}
+                          placeholder="root"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500'
+                              : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-amber-400'
+                          }`}
+                        />
+                      </div>
+
+                      {/* Password with Vault picker */}
+                      <div className="space-y-1 sm:col-span-2">
+                        <div className="flex items-center justify-between">
+                          <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                            {isEn ? 'Password' : 'رمز عبور'}
+                          </label>
+                          {serverToEdit?.mysql_password_set && (
+                            <span className="text-[10px] text-emerald-400 font-mono">
+                              ({isEn ? 'Saved' : 'ذخیره‌شده'})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="relative flex-1">
+                            <input
+                              type={showMysqlPassword ? 'text' : 'password'}
+                              value={mysqlPassword}
+                              onChange={(e) => setMysqlPassword(e.target.value)}
+                              placeholder={
+                                serverToEdit?.mysql_password_set
+                                  ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
+                                  : (isEn ? 'Enter MySQL password' : 'رمز عبور MySQL را وارد کنید')
+                              }
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
+                                isLightMode
+                                  ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-amber-400'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowMysqlPassword(!showMysqlPassword)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                              title={showMysqlPassword ? (isEn ? 'Hide' : 'مخفی') : (isEn ? 'Show' : 'نمایش')}
+                            >
+                              {showMysqlPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                          {/* Pick from Vault button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVaultPickerTarget('mysql');
+                              setIsVaultPickerOpen(true);
+                            }}
+                            className="px-2 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
+                            title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Port */}
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'Port' : 'پورت'}
+                        </label>
+                        <input
+                          type="number"
+                          value={mysqlPort}
+                          onChange={(e) => setMysqlPort(e.target.value)}
+                          placeholder="3306"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500'
+                              : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-amber-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Database & Save to Vault */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] font-semibold text-slate-300">
+                          {isEn ? 'Default DB:' : 'دیتابیس پیش‌فرض:'}
+                        </label>
+                        <input
+                          type="text"
+                          value={mysqlDatabase}
+                          onChange={(e) => setMysqlDatabase(e.target.value)}
+                          placeholder="mysql"
+                          className={`w-28 px-2 py-1 rounded border text-xs font-mono ${
+                            isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
+                          }`}
+                        />
+                      </div>
+
+                      {mysqlPassword.trim().length > 0 && (
+                        <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-amber-400">
+                          <input
+                            type="checkbox"
+                            checked={saveMysqlToVault}
+                            onChange={(e) => setSaveMysqlToVault(e.target.checked)}
+                            className="rounded accent-amber-500"
+                          />
+                          <BookmarkPlus className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Save password to Vault?' : 'ذخیره این رمز در والت شخصی؟'}</span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Web Server HTTP/HTTPS Ports if Nginx or Apache selected */}
+                {(hasNginx || hasApache) && (
+                  <div
+                    className={`p-3 rounded-xl border space-y-2 mt-2 transition-all ${
+                      isLightMode
+                        ? 'bg-emerald-50/80 border-emerald-200 text-slate-800'
+                        : 'bg-emerald-950/25 border-emerald-500/30 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className={`text-[11px] font-bold ${isLightMode ? 'text-emerald-950' : 'text-emerald-300'}`}>
+                          {isEn ? 'Web Server Ports Configuration' : 'پورت‌های سرویس وب‌سرور'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'HTTP Port' : 'پورت HTTP'}
+                        </label>
+                        <input
+                          type="number"
+                          value={webHttpPort}
+                          onChange={(e) => setWebHttpPort(e.target.value)}
+                          placeholder="80"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                            isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
+                          }`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'HTTPS (SSL) Port' : 'پورت HTTPS'}
+                        </label>
+                        <input
+                          type="number"
+                          value={webHttpsPort}
+                          onChange={(e) => setWebHttpsPort(e.target.value)}
+                          placeholder="443"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                            isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
                           }`}
                         />
                       </div>

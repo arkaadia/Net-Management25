@@ -133,17 +133,25 @@ export interface RemoteServer {
   vnc_username?: string;
   vnc_password?: string;
   prompt_password_on_connect?: boolean;
+  server_type?: 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql';
   installed_web_servers?: ('apache' | 'nginx' | string)[];
   installed_databases?: ('postgresql' | 'mysql' | string)[];
   has_apache?: boolean;
   has_nginx?: boolean;
   has_postgresql?: boolean;
   has_mysql?: boolean;
+  web_http_port?: number;
+  web_https_port?: number;
   postgres_port?: number;
   postgres_user?: string;
   postgres_password?: string;
   postgres_password_set?: boolean;
   postgres_database?: string;
+  mysql_port?: number;
+  mysql_user?: string;
+  mysql_password?: string;
+  mysql_password_set?: boolean;
+  mysql_database?: string;
   status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   cpu_cores?: number;
   ram_gb?: number;
@@ -1483,6 +1491,13 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_user VARCHAR(64) DEFAULT 'postgres'");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_password TEXT DEFAULT ''");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_database VARCHAR(64) DEFAULT 'postgres'");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS server_type VARCHAR(32) DEFAULT 'linux'");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS mysql_port INT DEFAULT 3306");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS mysql_user VARCHAR(64) DEFAULT 'root'");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS mysql_password TEXT DEFAULT ''");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS mysql_database VARCHAR(64) DEFAULT 'mysql'");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS web_http_port INT DEFAULT 80");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS web_https_port INT DEFAULT 443");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -3006,11 +3021,19 @@ function rowToRemoteServer(r: any): RemoteServer {
     has_nginx: Boolean(r.has_nginx ?? (Array.isArray(r.installed_web_servers) ? r.installed_web_servers.includes('nginx') : false)),
     has_postgresql: Boolean(r.has_postgresql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('postgresql') : false)),
     has_mysql: Boolean(r.has_mysql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('mysql') : false)),
+    server_type: r.server_type || (r.has_postgresql && !r.has_nginx && !r.has_apache ? 'postgresql' : r.has_mysql && !r.has_nginx && !r.has_apache ? 'mysql' : r.has_nginx && !r.has_apache ? 'nginx' : r.has_apache && !r.has_nginx ? 'apache' : r.os_type || 'linux'),
+    web_http_port: r.web_http_port ? Number(r.web_http_port) : 80,
+    web_https_port: r.web_https_port ? Number(r.web_https_port) : 443,
     postgres_port: r.postgres_port ? Number(r.postgres_port) : 5432,
     postgres_user: r.postgres_user || 'postgres',
     postgres_password: r.postgres_password || '',
     postgres_password_set: Boolean(r.postgres_password && String(r.postgres_password).trim().length > 0),
     postgres_database: r.postgres_database || 'postgres',
+    mysql_port: r.mysql_port ? Number(r.mysql_port) : 3306,
+    mysql_user: r.mysql_user || 'root',
+    mysql_password: r.mysql_password || '',
+    mysql_password_set: Boolean(r.mysql_password && String(r.mysql_password).trim().length > 0),
+    mysql_database: r.mysql_database || 'mysql',
     status: (r.status || 'untested') as 'online' | 'offline' | 'unreachable' | 'untested',
     cpu_cores: r.cpu_cores !== undefined && r.cpu_cores !== null && Number(r.cpu_cores) > 0 ? Number(r.cpu_cores) : undefined,
     ram_gb: r.ram_gb !== undefined && r.ram_gb !== null && Number(r.ram_gb) > 0 ? Number(r.ram_gb) : undefined,
@@ -3034,6 +3057,10 @@ export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
       s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
     ),
     postgres_password: '', // Stripped to ensure zero-leak credential confidentiality
+    mysql_password_set: Boolean(
+      s.mysql_password_set || (s.mysql_password && String(s.mysql_password).trim().length > 0)
+    ),
+    mysql_password: '', // Stripped to ensure zero-leak credential confidentiality
   };
 }
 
@@ -3159,11 +3186,19 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     has_nginx: Boolean(data.has_nginx ?? (Array.isArray(data.installed_web_servers) ? data.installed_web_servers.includes('nginx') : false)),
     has_postgresql: Boolean(data.has_postgresql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('postgresql') : false)),
     has_mysql: Boolean(data.has_mysql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('mysql') : false)),
+    server_type: data.server_type || (data.has_postgresql && !data.has_nginx && !data.has_apache ? 'postgresql' : data.has_mysql && !data.has_nginx && !data.has_apache ? 'mysql' : data.has_nginx && !data.has_apache ? 'nginx' : data.has_apache && !data.has_nginx ? 'apache' : data.os_type || 'linux'),
+    web_http_port: data.web_http_port ? Number(data.web_http_port) : 80,
+    web_https_port: data.web_https_port ? Number(data.web_https_port) : 443,
     postgres_port: data.postgres_port ? Number(data.postgres_port) : 5432,
     postgres_user: data.postgres_user?.trim() || 'postgres',
     postgres_password: data.postgres_password ? encryptServerSecret(data.postgres_password.trim()) : '',
     postgres_password_set: Boolean(data.postgres_password && data.postgres_password.trim().length > 0),
     postgres_database: data.postgres_database?.trim() || 'postgres',
+    mysql_port: data.mysql_port ? Number(data.mysql_port) : 3306,
+    mysql_user: data.mysql_user?.trim() || 'root',
+    mysql_password: data.mysql_password ? encryptServerSecret(data.mysql_password.trim()) : '',
+    mysql_password_set: Boolean(data.mysql_password && data.mysql_password.trim().length > 0),
+    mysql_database: data.mysql_database?.trim() || 'mysql',
     status: data.status || 'untested',
     cpu_cores: data.cpu_cores !== undefined && data.cpu_cores !== null && Number(data.cpu_cores) > 0 ? Number(data.cpu_cores) : undefined,
     ram_gb: data.ram_gb !== undefined && data.ram_gb !== null && Number(data.ram_gb) > 0 ? Number(data.ram_gb) : undefined,
@@ -3196,9 +3231,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           postgres_port, postgres_user, postgres_password, postgres_database,
+          server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3236,6 +3272,13 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           postgres_user = EXCLUDED.postgres_user,
           postgres_password = EXCLUDED.postgres_password,
           postgres_database = EXCLUDED.postgres_database,
+          server_type = EXCLUDED.server_type,
+          mysql_port = EXCLUDED.mysql_port,
+          mysql_user = EXCLUDED.mysql_user,
+          mysql_password = EXCLUDED.mysql_password,
+          mysql_database = EXCLUDED.mysql_database,
+          web_http_port = EXCLUDED.web_http_port,
+          web_https_port = EXCLUDED.web_https_port,
           updated_at = NOW()`,
         [
           newServer.id,
@@ -3275,6 +3318,13 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.postgres_user || 'postgres',
           newServer.postgres_password || '',
           newServer.postgres_database || 'postgres',
+          newServer.server_type || 'linux',
+          newServer.mysql_port || 3306,
+          newServer.mysql_user || 'root',
+          newServer.mysql_password || '',
+          newServer.mysql_database || 'mysql',
+          newServer.web_http_port || 80,
+          newServer.web_https_port || 443,
           newServer.created_at,
           newServer.updated_at,
         ]
@@ -3391,6 +3441,21 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
       (current.postgres_password && current.postgres_password.length > 0)
     ),
     postgres_database: updates.postgres_database !== undefined ? updates.postgres_database.trim() : (current.postgres_database || 'postgres'),
+    server_type: updates.server_type !== undefined
+      ? updates.server_type
+      : current.server_type,
+    web_http_port: updates.web_http_port !== undefined ? Number(updates.web_http_port) : current.web_http_port,
+    web_https_port: updates.web_https_port !== undefined ? Number(updates.web_https_port) : current.web_https_port,
+    mysql_port: updates.mysql_port !== undefined ? (Number(updates.mysql_port) || 3306) : (current.mysql_port || 3306),
+    mysql_user: updates.mysql_user !== undefined ? updates.mysql_user.trim() : (current.mysql_user || 'root'),
+    mysql_password: updates.mysql_password !== undefined && updates.mysql_password.trim() !== ''
+      ? encryptServerSecret(updates.mysql_password.trim())
+      : (current.mysql_password || ''),
+    mysql_password_set: Boolean(
+      (updates.mysql_password !== undefined && updates.mysql_password.trim().length > 0) ||
+      (current.mysql_password && current.mysql_password.length > 0)
+    ),
+    mysql_database: updates.mysql_database !== undefined ? updates.mysql_database.trim() : (current.mysql_database || 'mysql'),
     status: updates.status !== undefined ? updates.status : (current.status || 'untested'),
     cpu_cores: updates.cpu_cores !== undefined ? (updates.cpu_cores !== null && Number(updates.cpu_cores) > 0 ? Number(updates.cpu_cores) : undefined) : current.cpu_cores,
     ram_gb: updates.ram_gb !== undefined ? (updates.ram_gb !== null && Number(updates.ram_gb) > 0 ? Number(updates.ram_gb) : undefined) : current.ram_gb,
@@ -3428,9 +3493,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           postgres_port, postgres_user, postgres_password, postgres_database,
+          server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3468,6 +3534,13 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           postgres_user = EXCLUDED.postgres_user,
           postgres_password = EXCLUDED.postgres_password,
           postgres_database = EXCLUDED.postgres_database,
+          server_type = EXCLUDED.server_type,
+          mysql_port = EXCLUDED.mysql_port,
+          mysql_user = EXCLUDED.mysql_user,
+          mysql_password = EXCLUDED.mysql_password,
+          mysql_database = EXCLUDED.mysql_database,
+          web_http_port = EXCLUDED.web_http_port,
+          web_https_port = EXCLUDED.web_https_port,
           updated_at = NOW()`,
         [
           updated.id,
@@ -3507,6 +3580,13 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.postgres_user || 'postgres',
           updated.postgres_password || '',
           updated.postgres_database || 'postgres',
+          updated.server_type || 'linux',
+          updated.mysql_port || 3306,
+          updated.mysql_user || 'root',
+          updated.mysql_password || '',
+          updated.mysql_database || 'mysql',
+          updated.web_http_port || 80,
+          updated.web_https_port || 443,
           updated.created_at || new Date().toISOString(),
           updated.updated_at,
         ]

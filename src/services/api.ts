@@ -15,6 +15,12 @@ import {
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
   PostgresEngineOverview,
+  MysqlConnectionTestResult,
+  MysqlOverview,
+  MysqlDatabaseItem,
+  MysqlProcessItem,
+  MysqlVariableItem,
+  MysqlQueryResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1248,6 +1254,95 @@ export async function testRemoteServerPostgresConnection(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
   });
+  return res.json();
+}
+
+export async function testStandaloneMysqlConnection(data: {
+  host: string;
+  port?: number;
+  user?: string;
+  database?: string;
+  password?: string;
+}): Promise<MysqlConnectionTestResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/test-mysql-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function testRemoteServerMysqlConnection(
+  id: string,
+  data?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<MysqlConnectionTestResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlOverview(
+  id: string
+): Promise<{ success: boolean; overview?: MysqlOverview; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/overview`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlDatabases(
+  id: string
+): Promise<{ success: boolean; databases?: MysqlDatabaseItem[]; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases`);
+  return res.json();
+}
+
+export async function executeRemoteServerMysqlQuery(
+  id: string,
+  query: string,
+  database?: string
+): Promise<MysqlQueryResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, database }),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlProcesslist(
+  id: string
+): Promise<{ success: boolean; processes?: MysqlProcessItem[]; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/processlist`);
+  return res.json();
+}
+
+export async function killRemoteServerMysqlProcess(
+  id: string,
+  processId: number
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/kill-process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ processId }),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlVariables(
+  id: string,
+  filter?: string
+): Promise<{ success: boolean; variables?: MysqlVariableItem[]; error?: string }> {
+  const url = filter
+    ? `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/variables?filter=${encodeURIComponent(filter)}`
+    : `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/variables`;
+  const res = await fetch(url);
   return res.json();
 }
 

@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.205.0';
+export const APP_VERSION = '1.206.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.206.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'افزودن منوی ثبت سرویس‌های تفکیک‌شده (Nginx, Apache, PostgreSQL, MySQL) و ماژول مدیریت جامع MySQL / MariaDB',
+    title_en: 'Dedicated Services Registration Submenu (Nginx, Apache, PostgreSQL, MySQL) & Full MySQL / MariaDB Management Suite',
+    changes: [
+      'توسعه دکمه «Add Remote Server» به منوی آبشاری هوشمند: امکان ثبت سرور محاسباتی لینوکس/ویندوز یا افزودن سرویس‌های تفکیک‌شده و مستقل شامل وب‌سرور انجین‌ایکس (Nginx)، وب‌سرور آپاچی (Apache HTTP)، پایگاه‌داده پستگرس (PostgreSQL) و پایگاه‌داده مای‌اس‌کیوال (MySQL / MariaDB).',
+      'پیکربندی اختصاصی و خودکار پارامترهای اتصال در فرم ثبت سرور (AddEditServerModal): تنظیم پیش‌فرض نوع سرور (server_type)، برچسب‌ها و پورت‌های پیش‌فرض (پورت ۳۳۰۶ برای MySQL، پورت ۵۴۳۲ برای PostgreSQL، و پورت‌های ۸۰/۴۴۳ برای Nginx و Apache).',
+      'یکپارچه‌سازی جامع با خزانه‌دار رمز عبور (Personal Vault): امکان خواندن پسوردهای احراز هویت MySQL و PostgreSQL از ولت شخصی و همچنین ذخیره‌سازی خودکار رمزهای اتصال در ولت با تیک اختیاری کاربر.',
+      'آزمایش زنده و مستقیم ارتباط با دیتابیس MySQL: دکمه تست ارتباط اختصاصی در فرم ثبت سرور و پنل مدیریت جهت اعتبارسنجی پورت، نام کاربری، رمز عبور و دیتابیس با ارائه پیام‌های تشخیصی دو زبانه.',
+      'پیاده‌سازی ماژول و مودال کامل مدیریت MySQL / MariaDB (MySQLManagementModal): شامل پایش اجمالی (Overview)، وضعیت آپ‌تایم، لیست دیتابیس‌ها و جدول‌ها، کنسول اجرای کوئری‌های SQL با تایمر میلی‌ثانیه‌ای و خروجی جدولی، فهرست زنده پروسس‌ها و تِردهای فعال (Processlist) با امکان قطع فوری اتصال (Kill Process)، و کاوشگر و جستجوگر متغیرهای سیستمی (System Variables).',
+      'مسیریابی هوشمند در منوی سه‌نقطه (...) لیست سرورها: هدایت مستقیم به مودال مدیریت سرویس مربوطه (Nginx Management, Apache Management, PostgreSQL Management, MySQL Management) متناسب با نوع سرور و سرویس‌های فعال.',
+      'پشتیبانی کامل از استانداردهای پنج‌گانه مودال‌ها: دکمه‌های کنترل سه‌گانه (بستن، مینیمایز، تمام‌صفحه)، داک شدن در نوار ابزار پایین (ToolsDock)، رعایت حریم فوتر (bottom-8)، پشتیبانی از تم‌های تیره و روشن، عدم استفاده از داده‌های ساختگی و سازگاری کامل دو زبانه (فارسی و انگلیسی).',
+    ],
+    changes_en: [
+      'Enhanced "Add Remote Server" button with an intelligent submenu: ability to register full Linux/Windows nodes or standalone services including Nginx Web Server, Apache HTTP Server, PostgreSQL Database, and MySQL / MariaDB Database.',
+      'Automated service-specific pre-configuration in AddEditServerModal: pre-filling server_type, tags, categories, and default ports (3306 for MySQL, 5432 for Postgres, 80/443 for web servers).',
+      'Comprehensive Personal Vault integration: select passwords directly from Vault and auto-save new database credentials to the personal vault with opt-in checkboxes.',
+      'Live authentic connection test for MySQL / MariaDB engines: standalone endpoint verifying credentials, network reachability, and server version with dual-language diagnostic feedback.',
+      'Full MySQL / MariaDB Management Modal (MySQLManagementModal): comprehensive engine telemetry, databases/tables explorer, interactive SQL Query Console with millisecond execution timer, live processlist with thread termination (KILL), and system variables tuner.',
+      'Smart 3-dots action menu routing: priority placement and instant launching of dedicated management modals (Nginx, Apache, PostgreSQL, MySQL) tailored to the server role and installed services.',
+      'Full compliance with universal modal standards: triple header controls (Close, Minimize, Fullscreen), seamless docking in ToolsDock, strict footer clearance (bottom-8), dark/light theme ergonomics, zero fake data, and strict bilingual English/Persian localization.',
+    ],
+  },
   {
     version: '1.205.0',
     releaseDate: '2026-09-28',

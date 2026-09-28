@@ -1,7 +1,7 @@
 {
   "name": "nettopology",
   "private": true,
-  "version": "1.205.0",
+  "version": "1.206.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -25,6 +25,7 @@
     "guacamole-common-js": "^1.5.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "mysql2": "^3.24.4",
     "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",

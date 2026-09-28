@@ -34,6 +34,7 @@ import {
   Power,
   X,
   Database,
+  Flame,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory } from '../../types';
 import {
@@ -51,6 +52,7 @@ import { LinuxFileExplorerModal } from './LinuxFileExplorerModal';
 import { NginxManagementModal } from './NginxManagementModal';
 import { ApacheManagementModal } from './ApacheManagementModal';
 import { PostgreSQLManagementModal } from './PostgreSQLManagementModal';
+import { MySQLManagementModal } from './MySQLManagementModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -314,6 +316,17 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [postgresModalServer, setPostgresModalServer] = useState<RemoteServer | null>(null);
   const [isPostgresModalOpen, setIsPostgresModalOpen] = useState(false);
 
+  // Linux MySQL / MariaDB Database Management Modal
+  const [mysqlModalServer, setMysqlModalServer] = useState<RemoteServer | null>(null);
+  const [isMysqlModalOpen, setIsMysqlModalOpen] = useState(false);
+
+  // Add Server / Service Submenu Dropdown State
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [addServiceMode, setAddServiceMode] = useState<
+    'standard' | 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql'
+  >('standard');
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
 
@@ -354,6 +367,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Ref to the floating 3-dots action menu dropdown container
   const menuDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Close Add Server / Service dropdown on click outside
+  useEffect(() => {
+    if (!isAddMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setIsAddMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isAddMenuOpen]);
 
   // Close floating action menu on outside scroll or window resize
   useEffect(() => {
@@ -559,10 +584,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     return { total, linuxCount, winCount, prodCount, reachableCount, unreachableCount, untestedCount };
   }, [servers, reachabilityCache]);
 
-  // Handle open Add Modal
-  const handleOpenAdd = () => {
+  // Handle open Add Modal with optional service mode
+  const handleOpenAdd = (
+    serviceMode: 'standard' | 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql' = 'standard'
+  ) => {
     setServerToEdit(null);
+    setAddServiceMode(serviceMode);
     setIsAddEditModalOpen(true);
+    setIsAddMenuOpen(false);
     undockModal('add_edit_remote_server');
   };
 
@@ -658,6 +687,31 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setPostgresModalServer(server);
     setIsPostgresModalOpen(true);
     undockModal(`postgres_mgmt_${server.id}`);
+  };
+
+  // Handle Open MySQL / MariaDB Management
+  const handleOpenMysqlManagement = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setMysqlModalServer(server);
+    setIsMysqlModalOpen(true);
+    undockModal(`mysql_mgmt_${server.id}`);
+  };
+
+  // Handle Primary Server Action (smart routing based on server_type and installed services)
+  const handleOpenPrimaryServerAction = (server: RemoteServer) => {
+    if (server.server_type === 'apache' || (server.has_apache && !server.has_nginx && !server.has_postgresql && !server.has_mysql)) {
+      handleOpenApacheManagement(server);
+    } else if (server.server_type === 'nginx' || (server.has_nginx && !server.has_apache && !server.has_postgresql && !server.has_mysql)) {
+      handleOpenNginxManagement(server);
+    } else if (server.server_type === 'postgresql' || (server.has_postgresql && !server.has_nginx && !server.has_apache && !server.has_mysql)) {
+      handleOpenPostgresManagement(server);
+    } else if (server.server_type === 'mysql' || (server.has_mysql && !server.has_nginx && !server.has_apache && !server.has_postgresql)) {
+      handleOpenMysqlManagement(server);
+    } else if (server.os_type === 'linux') {
+      handleOpenLinuxMonitor(server);
+    } else {
+      handleOpenWindowsRemote(server);
+    }
   };
 
   // Handle Open Windows Remote
@@ -985,6 +1039,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
   };
 
+  const handleMinimizeMysqlManagement = () => {
+    setIsMysqlModalOpen(false);
+    if (mysqlModalServer) {
+      dockModal({
+        id: `mysql_mgmt_${mysqlModalServer.id}`,
+        labelEn: `${mysqlModalServer.name} - MySQL Management`,
+        labelFa: `مدیریت MySQL ${mysqlModalServer.name}`,
+        badge: 'MYSQL',
+        category: 'tools',
+        onRestore: () => setIsMysqlModalOpen(true),
+        onClose: () => {
+          setIsMysqlModalOpen(false);
+          undockModal(`mysql_mgmt_${mysqlModalServer.id}`);
+        },
+      });
+    }
+  };
+
   const handleMinimizeWindowsRemote = () => {
     setIsWindowsModalOpen(false);
     if (windowsModalServer) {
@@ -1204,16 +1276,138 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               <span>{isEn ? 'Bulk Server Config' : 'پیکربندی گروهی'}</span>
             </button>
 
-            {/* Add Server Button */}
-            <button
-              id="btn-add-server"
-              type="button"
-              onClick={handleOpenAdd}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Add Remote Server' : 'ثبت سرور جدید'}</span>
-            </button>
+            {/* Add Server & Standalone Services Dropdown Button */}
+            <div className="relative" ref={addMenuRef}>
+              <button
+                id="btn-add-server"
+                type="button"
+                onClick={() => setIsAddMenuOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
+                title={isEn ? 'Add remote server or standalone service' : 'ثبت سرور جدید یا سرویس مستقل'}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Add Remote Server' : 'ثبت سرور و سرویس'}</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isAddMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Submenu Dropdown */}
+              {isAddMenuOpen && (
+                <div
+                  className={`absolute top-full mt-2 w-72 sm:w-80 rounded-2xl border shadow-2xl p-1.5 z-50 transition-all animate-in fade-in zoom-in-95 ${
+                    isEn ? 'right-0' : 'left-0'
+                  } ${
+                    isLightMode
+                      ? 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-900/20'
+                      : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
+                  }`}
+                >
+                  <div
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b ${
+                      isLightMode ? 'text-slate-500 border-slate-200' : 'text-slate-400 border-white/10'
+                    }`}
+                  >
+                    {isEn ? 'Select Server / Service Type' : 'نوع سرور یا سرویس مورد نظر را انتخاب کنید'}
+                  </div>
+
+                  <div className="py-1 space-y-1">
+                    {/* Option 1: Standard Full Compute Node */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd('standard')}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-white/10 text-slate-200'}`}
+                    >
+                      <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shrink-0">
+                        <Server className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold">{isEn ? 'Compute Node (Linux / Windows)' : 'سرور محاسباتی لینوکس / ویندوز'}</span>
+                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'SSH, WinRM, RDP & Full OS Fleet' : 'مدیریت کامل سیستم‌عامل، ترمینال و فایل‌ها'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Option 2: Nginx Web Server */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd('nginx')}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-emerald-50 text-emerald-800' : 'hover:bg-emerald-950/40 text-emerald-200'}`}
+                    >
+                      <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-emerald-400">{isEn ? 'Nginx Web Server / Proxy' : 'وب‌سرور انجین‌ایکس (Nginx)'}</span>
+                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'HTTP/HTTPS, Reverse Proxy & Virtual Hosts' : 'پروکسی معکوس، پورت‌های وب و هاست مجازی'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Option 3: Apache HTTP Server */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd('apache')}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-rose-50 text-rose-800' : 'hover:bg-rose-950/40 text-rose-200'}`}
+                    >
+                      <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
+                        <Flame className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-rose-400">{isEn ? 'Apache HTTP Server' : 'وب‌سرور آپاچی (Apache)'}</span>
+                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'VirtualHosts, Modules, .htaccess & Ports' : 'هاست‌های مجازی، پورت‌ها و ماژول‌های وب'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Option 4: PostgreSQL Database */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd('postgresql')}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-blue-50 text-blue-800' : 'hover:bg-blue-950/40 text-blue-200'}`}
+                    >
+                      <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-blue-400">{isEn ? 'PostgreSQL Database' : 'پایگاه داده پستگرس (PostgreSQL)'}</span>
+                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Port 5432, Schemas, SQL Runner & Roles' : 'ارتباط پورت ۵۴۳۲، اسکیماها و کوئری‌رانر'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Option 5: MySQL / MariaDB Database */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd('mysql')}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-amber-50 text-amber-800' : 'hover:bg-amber-950/40 text-amber-200'}`}
+                    >
+                      <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-amber-400">{isEn ? 'MySQL / MariaDB Database' : 'پایگاه داده مای‌اس‌کیوال (MySQL / MariaDB)'}</span>
+                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Port 3306, Processlist, Query Runner & Tuning' : 'ارتباط پورت ۳۳۰۶، کوئری‌رانر و تلمتری'}
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -2013,25 +2207,57 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                     ? `Shell: /bin/${server.default_shell || 'bash'}`
                                     : `Protocol: ${(server.win_protocol || 'rdp').toUpperCase()}`}
                                 </span>
-                                {(server.has_apache || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('apache'))) && (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                {(server.has_apache || server.server_type === 'apache' || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('apache'))) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenApacheManagement(server);
+                                    }}
+                                    title={isEn ? 'Open Apache Management' : 'مدیریت وب‌سرور آپاچی'}
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-400 hover:bg-rose-500/30 border border-rose-500/30 transition cursor-pointer"
+                                  >
                                     Apache
-                                  </span>
+                                  </button>
                                 )}
-                                {(server.has_nginx || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('nginx'))) && (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                {(server.has_nginx || server.server_type === 'nginx' || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('nginx'))) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenNginxManagement(server);
+                                    }}
+                                    title={isEn ? 'Open Nginx Management' : 'مدیریت انجین‌ایکس'}
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 transition cursor-pointer"
+                                  >
                                     Nginx
-                                  </span>
+                                  </button>
                                 )}
-                                {(server.has_postgresql || (Array.isArray(server.installed_databases) && server.installed_databases.includes('postgresql'))) && (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                                    PG
-                                  </span>
+                                {(server.has_postgresql || server.server_type === 'postgresql' || (Array.isArray(server.installed_databases) && server.installed_databases.includes('postgresql'))) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenPostgresManagement(server);
+                                    }}
+                                    title={isEn ? 'Open PostgreSQL Management' : 'مدیریت پایگاه داده PostgreSQL'}
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-500/15 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 transition cursor-pointer"
+                                  >
+                                    PostgreSQL
+                                  </button>
                                 )}
-                                {(server.has_mysql || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                                {(server.has_mysql || server.server_type === 'mysql' || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenMysqlManagement(server);
+                                    }}
+                                    title={isEn ? 'Open MySQL Management' : 'مدیریت پایگاه داده MySQL'}
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30 transition cursor-pointer"
+                                  >
                                     MySQL
-                                  </span>
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -2477,7 +2703,95 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     )}
                   </div>
 
-                  {isLinux ? (
+                  {server.server_type === 'apache' || (server.has_apache && !server.has_nginx && !server.has_postgresql && !server.has_mysql) ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenApacheManagement(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open Apache Management' : 'مدیریت وب‌سرور آپاچی'}
+                      >
+                        <Flame className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Apache' : 'آپاچی'}</span>
+                      </button>
+                      {isLinux && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                          className="p-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
+                          title={isEn ? 'Terminal' : 'ترمینال'}
+                        >
+                          <Terminal className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : server.server_type === 'nginx' || (server.has_nginx && !server.has_apache && !server.has_postgresql && !server.has_mysql) ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenNginxManagement(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open Nginx Management' : 'مدیریت انجین‌ایکس'}
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Nginx' : 'انجین‌ایکس'}</span>
+                      </button>
+                      {isLinux && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                          className="p-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
+                          title={isEn ? 'Terminal' : 'ترمینال'}
+                        >
+                          <Terminal className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : server.server_type === 'postgresql' || (server.has_postgresql && !server.has_nginx && !server.has_apache && !server.has_mysql) ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPostgresManagement(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open PostgreSQL Management' : 'مدیریت پایگاه داده PostgreSQL'}
+                      >
+                        <Database className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'PostgreSQL' : 'پستگرس'}</span>
+                      </button>
+                      {isLinux && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                          className="p-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
+                          title={isEn ? 'Terminal' : 'ترمینال'}
+                        >
+                          <Terminal className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : server.server_type === 'mysql' || (server.has_mysql && !server.has_nginx && !server.has_apache && !server.has_postgresql) ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMysqlManagement(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open MySQL Management' : 'مدیریت پایگاه داده MySQL'}
+                      >
+                        <Database className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'MySQL' : 'مای‌اس‌کیوال'}</span>
+                      </button>
+                      {isLinux && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                          className="p-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
+                          title={isEn ? 'Terminal' : 'ترمینال'}
+                        >
+                          <Terminal className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : isLinux ? (
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
@@ -2829,8 +3143,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </div>
                     </button>
 
-                    {/* Nginx Management (shown if server has_nginx is true or installed_web_servers includes 'nginx') */}
-                    {(menuAnchor.server.has_nginx || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('nginx'))) && (
+                    {/* Nginx Management (shown if server has_nginx is true, server_type === 'nginx', or installed_web_servers includes 'nginx') */}
+                    {(menuAnchor.server.has_nginx || menuAnchor.server.server_type === 'nginx' || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('nginx'))) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2851,8 +3165,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </button>
                     )}
 
-                    {/* Apache Management (shown if server has_apache is true or installed_web_servers includes 'apache') */}
-                    {(menuAnchor.server.has_apache || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('apache'))) && (
+                    {/* Apache Management (shown if server has_apache is true, server_type === 'apache', or installed_web_servers includes 'apache') */}
+                    {(menuAnchor.server.has_apache || menuAnchor.server.server_type === 'apache' || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('apache'))) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2863,18 +3177,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           isEn ? 'text-left' : 'text-right'
                         } ${isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'}`}
                       >
-                        <Server className="w-4 h-4 text-amber-400 shrink-0" />
+                        <Flame className="w-4 h-4 text-rose-400 shrink-0" />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Apache Management' : 'مدیریت Apache'}</span>
-                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-rose-600/80' : 'text-rose-400/80'}`}>
                             {isEn ? 'HTTP Server, VirtualHosts & Modules' : 'وب‌سرور آپاچی، هاست‌های مجازی و ماژول‌ها'}
                           </span>
                         </div>
                       </button>
                     )}
 
-                    {/* PostgreSQL Management (shown if server has_postgresql is true or installed_databases includes 'postgresql') */}
-                    {(menuAnchor.server.has_postgresql || (Array.isArray(menuAnchor.server.installed_databases) && menuAnchor.server.installed_databases.includes('postgresql'))) && (
+                    {/* PostgreSQL Management (shown if server has_postgresql is true, server_type === 'postgresql', or installed_databases includes 'postgresql') */}
+                    {(menuAnchor.server.has_postgresql || menuAnchor.server.server_type === 'postgresql' || (Array.isArray(menuAnchor.server.installed_databases) && menuAnchor.server.installed_databases.includes('postgresql'))) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2890,6 +3204,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           <span>{isEn ? 'PostgreSQL Management' : 'مدیریت PostgreSQL'}</span>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-blue-600/80' : 'text-blue-400/80'}`}>
                             {isEn ? 'Database Engine, Telemetry & Status' : 'پایگاه داده، پایش وضعیت و تلمتری'}
+                          </span>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* MySQL / MariaDB Management (shown if server has_mysql is true, server_type === 'mysql', or installed_databases includes 'mysql' or 'mariadb') */}
+                    {(menuAnchor.server.has_mysql || menuAnchor.server.server_type === 'mysql' || (Array.isArray(menuAnchor.server.installed_databases) && (menuAnchor.server.installed_databases.includes('mysql') || menuAnchor.server.installed_databases.includes('mariadb')))) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = menuAnchor.server;
+                          handleOpenMysqlManagement(s);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                          isEn ? 'text-left' : 'text-right'
+                        } ${isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'}`}
+                      >
+                        <Database className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="flex flex-col">
+                          <span>{isEn ? 'MySQL / MariaDB Management' : 'مدیریت MySQL / MariaDB'}</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
+                            {isEn ? 'Databases, Processlist, Query Runner & Tuning' : 'پایگاه‌های داده، رشته‌ها، کوئری‌رانر و بهینه‌سازی'}
                           </span>
                         </div>
                       </button>
@@ -3128,6 +3464,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       <AddEditServerModal
         isOpen={isAddEditModalOpen}
         serverToEdit={serverToEdit}
+        initialServiceMode={addServiceMode}
         onClose={() => {
           setIsAddEditModalOpen(false);
           undockModal('add_edit_remote_server');
@@ -3231,6 +3568,26 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setPostgresModalServer(null);
         }}
         onMinimize={handleMinimizePostgresManagement}
+        onOpenTerminal={(s) => {
+          handleOpenLinuxTerminal(s, 'bash');
+        }}
+        onEditServer={(s) => {
+          handleOpenEdit(s);
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.10 Linux / Remote MySQL / MariaDB Management Modal */}
+      <MySQLManagementModal
+        isOpen={isMysqlModalOpen}
+        server={mysqlModalServer}
+        onClose={() => {
+          setIsMysqlModalOpen(false);
+          if (mysqlModalServer) undockModal(`mysql_mgmt_${mysqlModalServer.id}`);
+          setMysqlModalServer(null);
+        }}
+        onMinimize={handleMinimizeMysqlManagement}
         onOpenTerminal={(s) => {
           handleOpenLinuxTerminal(s, 'bash');
         }}
