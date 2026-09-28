@@ -3019,6 +3019,62 @@ export interface PostgresLogsFilterOptions {
   searchTerm?: string;
 }
 
+// ==========================================
+// Phase 24: Postgres Configuration Tuner & Hardware Sizing Advisor Types
+// ==========================================
+export type PostgresWorkloadType = 'web' | 'oltp' | 'dw' | 'desktop' | 'mixed';
+export type PostgresStorageType = 'ssd' | 'nvme' | 'hdd' | 'san';
+
+export interface PostgresTuningParameterRecommendation {
+  name: string;
+  category: 'memory' | 'checkpoint' | 'parallelism' | 'planner' | 'connections' | 'wal';
+  currentValue: string;
+  currentValuePretty?: string;
+  recommendedValue: string;
+  recommendedValuePretty?: string;
+  unit?: string;
+  restartRequired: boolean;
+  context: 'postmaster' | 'sighup' | 'user' | 'backend' | 'superuser';
+  descriptionEn: string;
+  descriptionFa: string;
+  rationaleEn: string;
+  rationaleFa: string;
+  isDiff: boolean;
+}
+
+export interface PostgresServerHardwareProfile {
+  totalRamBytes: number;
+  totalRamPretty: string;
+  cpuCores: number;
+  postgresVersion: number;
+  isVirtual: boolean;
+  detectedStorageType: PostgresStorageType;
+}
+
+export interface PostgresTuningRecommendationReport {
+  profile: PostgresServerHardwareProfile;
+  workload: PostgresWorkloadType;
+  storage: PostgresStorageType;
+  connectionCount: number;
+  recommendations: PostgresTuningParameterRecommendation[];
+  generatedConfigSnippet: string;
+  alterSystemCommands: string[];
+  requiresRestartCount: number;
+  immediateReloadCount: number;
+  retrievedAt: string;
+}
+
+export interface PostgresApplyTuningRequest {
+  workload: PostgresWorkloadType;
+  storage: PostgresStorageType;
+  customRamGb?: number;
+  customCores?: number;
+  maxConnections?: number;
+  method: 'alter_system' | 'append_conf';
+  sessionPassword?: string;
+  selectedParameters?: string[];
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

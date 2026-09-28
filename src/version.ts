@@ -10,9 +10,44 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.204.0';
+export const APP_VERSION = '1.205.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.205.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۲۴ مدیریت PostgreSQL: مشاور سایزینگ سخت‌افزاری و موتور تیونینگ پارامترها (Configuration Tuner & Hardware Sizing Advisor)',
+    title_en: 'PostgreSQL Management Phase 24: Core Configuration Tuner, Hardware Sizing Advisor & Automated Parameter Tuning',
+    changes: [
+      'پیاده‌سازی کامل و نهایی فاز ۲۴ نقشه راه جامع مدیریت PostgreSQL: موتور هوشمند محاسبه ریاضی و تیونینگ پارامترهای پایگاه‌داده متناسب با منابع پردازشی (CPU)، حافظه RAM، نوع دیسک ذخیره‌سازی و سناریوی کاربری سرور.',
+      'کاوش خودکار سخت‌افزار میزبان (Automated Hardware Discovery): استخراج خودکار و بلادرنگ مشخصات سرور شامل حجم واقعی RAM، تعداد هسته‌های فیزیکی/مجازی CPU، تشخیص محیط مجازی (VM/Container)، نوع دیسک ذخیره‌سازی (NVMe, SSD, SAN, HDD) و نسخه هسته PostgreSQL.',
+      'موتور محاسباتی پیشرفته بر پایه الگوهای برتر PGTune: محاسبه هوشمند پارامترهای حیاتی شامل shared_buffers (۲۵٪ تا ۴۰٪ رم)، effective_cache_size (۵۰٪ تا ۷۵٪ رم)، maintenance_work_mem، work_mem بر اساس تعداد اتصالات همزمان، wal_buffers، و checkpoint_completion_target روی 0.9 جهت حذف نوسانات دیسک.',
+      'تفکیک سناریوهای کاربری متنوع (Workload Profiles): پروفایل‌های بهینه‌سازی اختصاصی برای برنامه‌های تحت وب (Web Application)، سیستم‌های تراکنشی پرنوشتن (OLTP)، انبار داده و گزارش‌گیری تحلیلی (Data Warehouse/Analytics)، کاربری ترکیبی (Mixed) و محیط دسکتاپ/توسعه.',
+      'بهینه‌سازی هزینه‌های I/O و برنامه‌ریز کوئری بر اساس فناوری ذخیره‌سازی: تنظیم خودکار مقادیر random_page_cost (۱.۰ برای NVMe، ۱.۱ برای SSD، ۱.۵ برای SAN، ۴.۰ برای HDD) و effective_io_concurrency جهت پیش‌خوانی غیرهمگام دیسک.',
+      'تنظیم هوشمند پردازش موازی (Parallelism Tuning): همگام‌سازی متغیرهای max_worker_processes، max_parallel_workers_per_gather، max_parallel_workers و max_parallel_maintenance_workers با توان پردازشی هسته‌های CPU جهت شتاب‌بخشی به ساخت ایندکس و پردازش کوئری‌ها.',
+      'جدول تعاملی مقایسه وضعیت فعلی و مقادیر پیشنهادی: امکان فیلتر بر اساس دسته‌بندی‌ها (حافظه، چک‌پوینت، پردازش موازی، پلنر، لاگ‌های WAL، اتصالات) و فیلتر "نمایش تنها موارد دارای تغییر (Show Changes Only)".',
+      'روش‌های دوگانه اعمال پیکربندی (Deployment Methods): اعمال آنی پارامترها از طریق دستور استاندارد ALTER SYSTEM در پایگاه‌داده همراه با pg_reload_conf، یا افزودن مستقیم دستورات به انتهای فایل لینوکس postgresql.conf با پشتیبان‌گیری خودکار دارای برچسب زمانی از طریق SSH.',
+      'تفکیک هوشمند پارامترهای آنلاین و نیازمند ریستارت: تشخیص خودکار و تفکیک شفاف پارامترهایی که به صورت آنلاین بارگذاری می‌شوند (Hot Reload) از پارامترهایی که نیازمند راه‌اندازی مجدد سرویس در RAM هستند (مانند shared_buffers و max_connections).',
+      'صدور و انتقال مستقیم پیکربندی: امکان دانلود کامل فایل کانفیگ بهینه‌شده (postgresql.conf) با یک کلیک، کپی اسنیپت، و انتقال مستقیم دستورات ALTER SYSTEM به محیط SQL Studio.',
+      'تکمیل موفقیت‌آمیز هر ۲۴ فاز نقشه راه جامع مدیریت PostgreSQL در NetTopology.',
+      'رعایت صددرصدی الزامات Universal Modal، تم‌های تیره و روشن، و ممنوعیت اکید نمایش متن فارسی در حالت زبان انگلیسی.'
+    ],
+    changes_en: [
+      'Grand completion of PostgreSQL Management Phase 24: Intelligent hardware-aware sizing engine and parameter tuner based on PGTune algorithms and high-load production best practices.',
+      'Automated Hardware Probing: Real-time detection of host server RAM, CPU core count, virtualization status, drive media type (NVMe, SSD, SAN, HDD), and PostgreSQL server version.',
+      'Mathematical Parameter Sizing: Sizing of shared_buffers (25%-40% RAM), effective_cache_size (50%-75% RAM), maintenance_work_mem, work_mem based on concurrent connections, wal_buffers (3% shared_buffers), and checkpoint_completion_target (0.9 smooth I/O).',
+      'Workload Profile Modeling: Presets tailored for Web Applications (balanced), OLTP (high concurrent writes), Data Warehouse (DW analytical queries), Mixed systems, and Desktop/Dev environments.',
+      'Storage-Aware Planner & I/O Tuning: Automated calibration of random_page_cost (1.0 NVMe, 1.1 SSD, 1.5 SAN, 4.0 HDD) and effective_io_concurrency for aggressive asynchronous prefetching.',
+      'Parallelism & Worker Scaling: Synchronizes max_worker_processes, max_parallel_workers_per_gather, max_parallel_workers, and max_parallel_maintenance_workers with physical CPU core capacity.',
+      'Interactive Parameter Comparison Grid: Category filtering (Memory, Checkpoints, Parallelism, Planner, WAL, Connections) and "Show Changes Only" diff filter.',
+      'Dual Deployment Engine: Apply tuning parameters either via SQL ALTER SYSTEM with pg_reload_conf(), or append directly to postgresql.conf with timestamped backups via SSH.',
+      'Restart Advisory: Clear classification of online reloadable (SIGHUP) parameters versus parameters requiring a server daemon restart (POSTMASTER).',
+      'Export & Workflow Bridges: One-click download of tuned postgresql.conf, snippet copying, and direct command transfer into SQL Studio.',
+      'Marks the 100% completion of all 24 phases of the comprehensive PostgreSQL Management Suite in NetTopology.',
+      'Strict adherence to Universal Modal guidelines, high-contrast dark/light theme styling, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.204.0',
     releaseDate: '2026-09-28',

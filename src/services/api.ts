@@ -1941,6 +1941,69 @@ export async function fetchRemoteServerPostgresLoggingSettings(
   return res.json();
 }
 
+// ==========================================
+// Phase 24: Postgres Configuration Tuner API
+// ==========================================
+export async function fetchRemoteServerPostgresTuningReport(
+  id: string,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+    workload?: import('../types').PostgresWorkloadType;
+    storage?: import('../types').PostgresStorageType;
+    customRamGb?: number;
+    customCores?: number;
+    maxConnections?: number;
+  }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresTuningRecommendationReport;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+  if (options?.workload) params.append('workload', options.workload);
+  if (options?.storage) params.append('storage', options.storage);
+  if (options?.customRamGb) params.append('customRamGb', String(options.customRamGb));
+  if (options?.customCores) params.append('customCores', String(options.customCores));
+  if (options?.maxConnections) params.append('maxConnections', String(options.maxConnections));
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/tuning${queryStr}`);
+  return res.json();
+}
+
+export async function applyRemoteServerPostgresTuning(
+  id: string,
+  body: import('../types').PostgresApplyTuningRequest & {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{
+  success: boolean;
+  message: string;
+  messageFa: string;
+  appliedCount?: number;
+  requiresRestart?: boolean;
+  error?: string;
+  errorFa?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/tuning/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

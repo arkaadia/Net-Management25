@@ -113,6 +113,9 @@ import {
   controlPostgresWalReplay,
   getPostgresLogsOverview,
   getPostgresLoggingSettings,
+  getPostgresTuningReport,
+  applyPostgresTuningConfiguration,
+  getPostgresHardwareProfile,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -3155,6 +3158,126 @@ apiRouter.get('/remote-servers/:id/postgres/logs/settings', async (req: Request,
       success: false,
       error: err.message || 'Failed to retrieve PostgreSQL logging settings',
       errorFa: 'خطا در دریافت تنظیمات لاگینگ PostgreSQL',
+    });
+  }
+});
+
+// ==========================================
+// Phase 24: Postgres Configuration Tuner & Hardware Sizing Routes
+// ==========================================
+
+// GET /api/remote-servers/:id/postgres/tuning - Retrieve hardware profile and calculated recommendations
+apiRouter.get('/remote-servers/:id/postgres/tuning', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = (req.query.user as string) || server.postgres_user;
+    const password = req.query.password as string | undefined;
+
+    const workload = (req.query.workload as any) || 'web';
+    const storage = (req.query.storage as any) || undefined;
+    const customRamGb = req.query.customRamGb ? Number(req.query.customRamGb) : undefined;
+    const customCores = req.query.customCores ? Number(req.query.customCores) : undefined;
+    const maxConnections = req.query.maxConnections ? Number(req.query.maxConnections) : undefined;
+
+    const report = await getPostgresTuningReport(server, {
+      database,
+      port,
+      user,
+      password,
+      workload,
+      storage,
+      customRamGb,
+      customCores,
+      maxConnections,
+    });
+
+    return res.json({
+      success: true,
+      data: report,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to calculate tuning recommendations',
+      errorFa: 'خطا در محاسبه توصیه‌های تیونینگ سرور',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/tuning/apply - Apply tuning parameters (ALTER SYSTEM or append to postgresql.conf)
+apiRouter.post('/remote-servers/:id/postgres/tuning/apply', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      workload = 'web',
+      storage = 'ssd',
+      customRamGb,
+      customCores,
+      maxConnections,
+      method = 'alter_system',
+      sessionPassword,
+      selectedParameters,
+      database,
+      port,
+      user,
+      password,
+    } = req.body || {};
+
+    const result = await applyPostgresTuningConfiguration(
+      server,
+      {
+        workload,
+        storage,
+        customRamGb,
+        customCores,
+        maxConnections,
+        method,
+        sessionPassword,
+        selectedParameters,
+      },
+      {
+        database: database || server.postgres_database || 'postgres',
+        port: port ? Number(port) : undefined,
+        user: user || server.postgres_user,
+        password,
+      }
+    );
+
+    try {
+      await addAuditLog({
+        user: (req as any).user?.username || 'system',
+        action: 'POSTGRES_TUNING_APPLIED',
+        details: `Applied ${result.appliedCount} tuning parameters via ${method.toUpperCase()} on server ${server.name || server.ip}`,
+        status: result.success ? 'success' : 'failure',
+      });
+    } catch {}
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to apply PostgreSQL tuning configuration',
+      errorFa: 'خطا در اعمال تنظیمات تیونینگ PostgreSQL',
     });
   }
 });

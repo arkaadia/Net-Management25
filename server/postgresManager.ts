@@ -10182,3 +10182,728 @@ fi
     retrievedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// PHASE 24: PostgreSQL Configuration Tuner & Hardware Sizing Advisor
+// ============================================================================
+
+import type {
+  PostgresWorkloadType,
+  PostgresStorageType,
+  PostgresServerHardwareProfile,
+  PostgresTuningParameterRecommendation,
+  PostgresTuningRecommendationReport,
+  PostgresApplyTuningRequest,
+} from '../src/types';
+
+/**
+ * Phase 24: Detects host server hardware profile (RAM, CPU cores, PostgreSQL major version).
+ */
+export async function getPostgresHardwareProfile(
+  server: RemoteServer,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<PostgresServerHardwareProfile> {
+  let totalRamBytes = 4 * 1024 * 1024 * 1024; // 4 GB default fallback
+  let cpuCores = 2; // 2 cores default
+  let isVirtual = false;
+  let detectedStorageType: PostgresStorageType = 'ssd';
+
+  // 1. Try detecting via SSH host commands if remote server credentials are valid
+  try {
+    const memCmd = `export LC_ALL=C
+# Read total RAM in bytes
+awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || sysctl -n hw.memsize 2>/dev/null || echo "0"
+# Read CPU cores
+nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "2"
+# Check virtualization
+systemd-detect-virt 2>/dev/null || echo "none"
+# Check rotational disk (0 = SSD, 1 = HDD)
+cat /sys/block/sda/queue/rotational 2>/dev/null || cat /sys/block/vda/queue/rotational 2>/dev/null || cat /sys/block/nvme0n1/queue/rotational 2>/dev/null || echo "0"
+`;
+    const sshRes = await runAdaptiveSshCommand(server, memCmd, options?.password, 8000);
+    const lines = sshRes.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+
+    if (lines.length >= 2) {
+      const ramVal = parseInt(lines[0], 10);
+      if (ramVal > 256 * 1024 * 1024) totalRamBytes = ramVal;
+
+      const coresVal = parseInt(lines[1], 10);
+      if (coresVal >= 1) cpuCores = coresVal;
+
+      if (lines.length >= 3 && lines[2] !== 'none' && lines[2] !== 'NOT_FOUND') {
+        isVirtual = true;
+      }
+
+      if (lines.length >= 4) {
+        if (lines[3] === '1') {
+          detectedStorageType = 'hdd';
+        } else {
+          // Check if NVMe device exists
+          if (sshRes.includes('nvme')) {
+            detectedStorageType = 'nvme';
+          } else {
+            detectedStorageType = 'ssd';
+          }
+        }
+      }
+    }
+  } catch {
+    // If SSH is unavailable, default fallback is maintained
+  }
+
+  // 2. Query PostgreSQL server major version
+  let postgresVersion = 16;
+  const { client } = createPostgresClient(server, {
+    database: options?.database || server.postgres_database || 'postgres',
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
+
+  try {
+    await client.connect();
+    const verRes = await client.query('SHOW server_version_num;');
+    if (verRes.rows?.[0]?.server_version_num) {
+      const verNum = parseInt(verRes.rows[0].server_version_num, 10);
+      postgresVersion = Math.floor(verNum / 10000);
+    }
+    await client.end();
+  } catch {
+    try {
+      await client.end();
+    } catch {}
+  }
+
+  let totalRamPretty = `${(totalRamBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (totalRamBytes < 1024 * 1024 * 1024) {
+    totalRamPretty = `${(totalRamBytes / (1024 * 1024)).toFixed(0)} MB`;
+  }
+
+  return {
+    totalRamBytes,
+    totalRamPretty,
+    cpuCores,
+    postgresVersion,
+    isVirtual,
+    detectedStorageType,
+  };
+}
+
+/**
+ * Phase 24: Core Sizing Engine (PGTune & High-Performance Best Practices)
+ * Computes optimal settings based on Hardware + Workload Profile.
+ */
+export async function getPostgresTuningReport(
+  server: RemoteServer,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+    workload?: PostgresWorkloadType;
+    storage?: PostgresStorageType;
+    customRamGb?: number;
+    customCores?: number;
+    maxConnections?: number;
+  }
+): Promise<PostgresTuningRecommendationReport> {
+  const profile = await getPostgresHardwareProfile(server, options);
+
+  const ramGb = options?.customRamGb && options.customRamGb > 0
+    ? options.customRamGb
+    : profile.totalRamBytes / (1024 * 1024 * 1024);
+
+  const cores = options?.customCores && options.customCores > 0
+    ? options.customCores
+    : profile.cpuCores;
+
+  const workload: PostgresWorkloadType = options?.workload || 'web';
+  const storage: PostgresStorageType = options?.storage || profile.detectedStorageType || 'ssd';
+
+  // 1. Fetch current settings from pg_settings
+  const { client } = createPostgresClient(server, {
+    database: options?.database || server.postgres_database || 'postgres',
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+  });
+
+  const currentSettingsMap: Record<string, { setting: string; unit: string; context: string }> = {};
+
+  try {
+    await client.connect();
+    const curRes = await client.query(`
+      SELECT name, setting, unit, context
+      FROM pg_settings
+      WHERE name IN (
+        'max_connections',
+        'shared_buffers',
+        'effective_cache_size',
+        'maintenance_work_mem',
+        'checkpoint_completion_target',
+        'wal_buffers',
+        'default_statistics_target',
+        'random_page_cost',
+        'effective_io_concurrency',
+        'work_mem',
+        'min_wal_size',
+        'max_wal_size',
+        'max_worker_processes',
+        'max_parallel_workers_per_gather',
+        'max_parallel_workers',
+        'max_parallel_maintenance_workers'
+      );
+    `);
+
+    for (const r of curRes.rows || []) {
+      currentSettingsMap[r.name] = {
+        setting: r.setting,
+        unit: r.unit,
+        context: r.context,
+      };
+    }
+    await client.end();
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+  }
+
+  // 2. Compute Recommendations based on workload & hardware
+  // Recommended max_connections
+  let recommendedMaxConnections = 100;
+  if (options?.maxConnections && options.maxConnections > 0) {
+    recommendedMaxConnections = options.maxConnections;
+  } else {
+    switch (workload) {
+      case 'web':
+        recommendedMaxConnections = 200;
+        break;
+      case 'oltp':
+        recommendedMaxConnections = 300;
+        break;
+      case 'dw':
+        recommendedMaxConnections = 40;
+        break;
+      case 'desktop':
+        recommendedMaxConnections = 20;
+        break;
+      case 'mixed':
+      default:
+        recommendedMaxConnections = 150;
+        break;
+    }
+  }
+
+  // shared_buffers
+  // Web / OLTP: 25% of RAM
+  // DW: 40% of RAM
+  // Desktop: 10% of RAM
+  let sharedBuffersMb = Math.round(ramGb * 1024 * 0.25);
+  if (workload === 'dw') sharedBuffersMb = Math.round(ramGb * 1024 * 0.4);
+  else if (workload === 'desktop') sharedBuffersMb = Math.round(ramGb * 1024 * 0.1);
+  if (sharedBuffersMb < 128) sharedBuffersMb = 128;
+
+  // effective_cache_size
+  // Web / OLTP: 75% of RAM
+  // DW: 75% of RAM
+  // Desktop: 50% of RAM
+  let effectiveCacheMb = Math.round(ramGb * 1024 * 0.75);
+  if (workload === 'desktop') effectiveCacheMb = Math.round(ramGb * 1024 * 0.5);
+
+  // maintenance_work_mem
+  // Typically 5% to 10% of RAM, capped around 2 GB
+  let maintenanceWorkMemMb = Math.round(ramGb * 1024 * 0.05);
+  if (workload === 'dw') maintenanceWorkMemMb = Math.round(ramGb * 1024 * 0.1);
+  if (maintenanceWorkMemMb > 2048) maintenanceWorkMemMb = 2048;
+  if (maintenanceWorkMemMb < 64) maintenanceWorkMemMb = 64;
+
+  // checkpoint_completion_target = 0.9 (Standard modern default for smooth disk I/O)
+  const checkpointCompletionTarget = '0.9';
+
+  // wal_buffers: 3% of shared_buffers, capped at 16MB (or 64MB on very large systems)
+  let walBuffersMb = Math.round(sharedBuffersMb * 0.03);
+  if (walBuffersMb > 16) walBuffersMb = 16;
+  if (walBuffersMb < 4) walBuffersMb = 4;
+
+  // default_statistics_target
+  let defaultStatsTarget = '100';
+  if (workload === 'dw') defaultStatsTarget = '500';
+
+  // random_page_cost
+  let randomPageCost = '1.1';
+  if (storage === 'nvme') randomPageCost = '1.0';
+  else if (storage === 'ssd') randomPageCost = '1.1';
+  else if (storage === 'san') randomPageCost = '1.5';
+  else if (storage === 'hdd') randomPageCost = '4.0';
+
+  // effective_io_concurrency
+  let effectiveIoConcurrency = '200';
+  if (storage === 'nvme') effectiveIoConcurrency = '300';
+  else if (storage === 'ssd') effectiveIoConcurrency = '200';
+  else if (storage === 'hdd') effectiveIoConcurrency = '2';
+
+  // work_mem:
+  // RAM Available for queries = (Total RAM - shared_buffers) / (max_connections * 3)
+  const freeRamForWorkMb = (ramGb * 1024) - sharedBuffersMb;
+  let workMemMb = Math.floor(freeRamForWorkMb / (recommendedMaxConnections * (workload === 'dw' ? 1.5 : 3)));
+  if (workMemMb < 4) workMemMb = 4;
+  if (workload === 'dw' && workMemMb < 32) workMemMb = 32;
+
+  // min_wal_size / max_wal_size
+  let minWalSize = '1GB';
+  let maxWalSize = '4GB';
+  if (ramGb >= 32 || workload === 'dw' || workload === 'oltp') {
+    minWalSize = '2GB';
+    maxWalSize = '8GB';
+  }
+  if (ramGb >= 64) {
+    minWalSize = '4GB';
+    maxWalSize = '16GB';
+  }
+
+  // Parallel workers:
+  // max_worker_processes = cores
+  const maxWorkerProcesses = cores >= 1 ? String(cores) : '2';
+  // max_parallel_workers_per_gather = cores / 2 (min 1, max 4)
+  let maxParallelPerGather = Math.floor(cores / 2);
+  if (maxParallelPerGather < 1) maxParallelPerGather = 1;
+  if (maxParallelPerGather > 4) maxParallelPerGather = 4;
+  if (workload === 'desktop') maxParallelPerGather = 1;
+
+  // max_parallel_workers = cores
+  const maxParallelWorkers = cores >= 1 ? String(cores) : '2';
+
+  // max_parallel_maintenance_workers = min(cores / 2, 4)
+  let maxParallelMaintWorkers = Math.floor(cores / 2);
+  if (maxParallelMaintWorkers < 1) maxParallelMaintWorkers = 1;
+  if (maxParallelMaintWorkers > 4) maxParallelMaintWorkers = 4;
+
+  // Construct recommendations array
+  const rawRecs: Array<{
+    name: string;
+    category: PostgresTuningParameterRecommendation['category'];
+    recommended: string;
+    recommendedPretty?: string;
+    restartRequired: boolean;
+    context: PostgresTuningParameterRecommendation['context'];
+    descEn: string;
+    descFa: string;
+    rationaleEn: string;
+    rationaleFa: string;
+  }> = [
+    {
+      name: 'max_connections',
+      category: 'connections',
+      recommended: String(recommendedMaxConnections),
+      restartRequired: true,
+      context: 'postmaster',
+      descEn: 'Maximum concurrent client connections to the database.',
+      descFa: 'حداکثر تعداد اتصالات همزمان کلاینت‌ها به دیتابیس.',
+      rationaleEn: `Sized for ${workload.toUpperCase()} workload to avoid connection spikes exhausting RAM.`,
+      rationaleFa: `تنظیم شده برای بار کاری ${workload} جهت جلوگیری از پر شدن حافظه در زمان هجوم اتصالات.`,
+    },
+    {
+      name: 'shared_buffers',
+      category: 'memory',
+      recommended: `${sharedBuffersMb}MB`,
+      recommendedPretty: sharedBuffersMb >= 1024 ? `${(sharedBuffersMb / 1024).toFixed(1)} GB` : `${sharedBuffersMb} MB`,
+      restartRequired: true,
+      context: 'postmaster',
+      descEn: 'Dedicated shared memory buffer pool for caching database pages.',
+      descFa: 'فضای اشتراکی حافظه RAM برای کش کردن جداول و ایندکس‌های دیتابیس.',
+      rationaleEn: `Set to ~${workload === 'dw' ? '40%' : '25%'} of total system RAM (${ramGb} GB).`,
+      rationaleFa: `معادل حدود ${workload === 'dw' ? '۴۰٪' : '۲۵٪'} از کل رم سرور (${ramGb} گیگابایت).`,
+    },
+    {
+      name: 'effective_cache_size',
+      category: 'memory',
+      recommended: `${effectiveCacheMb}MB`,
+      recommendedPretty: `${(effectiveCacheMb / 1024).toFixed(1)} GB`,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: "Planner's estimate of memory available for disk caching (OS page cache + shared_buffers).",
+      descFa: 'برآورد بهینه‌ساز از کل حافظه در دسترس برای کش دیسک (کش سیستم‌عامل + shared_buffers).',
+      rationaleEn: `Informs planner that ~${workload === 'desktop' ? '50%' : '75%'} of RAM is available for caching.`,
+      rationaleFa: `به برنامه‌ریز کوئری اعلام می‌کند حدود ${workload === 'desktop' ? '۵۰٪' : '۷۵٪'} حافظه جهت کش در دسترس است.`,
+    },
+    {
+      name: 'maintenance_work_mem',
+      category: 'memory',
+      recommended: `${maintenanceWorkMemMb}MB`,
+      recommendedPretty: `${maintenanceWorkMemMb} MB`,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: 'Maximum memory used for maintenance operations (VACUUM, CREATE INDEX, ALTER TABLE).',
+      descFa: 'حداکثر حافظه اختصاص‌یافته به عملیات نگهداری (مانند VACUUM، ساخت ایندکس و ALTER TABLE).',
+      rationaleEn: 'Speeds up index builds and vacuum cycles without risking OOM.',
+      rationaleFa: 'افزایش چشمگیر سرعت ساخت ایندکس و پاکسازی جدول بدون ریسک کمبود حافظه.',
+    },
+    {
+      name: 'work_mem',
+      category: 'memory',
+      recommended: `${workMemMb}MB`,
+      recommendedPretty: `${workMemMb} MB`,
+      restartRequired: false,
+      context: 'user',
+      descEn: 'Memory amount used by internal sort operations and hash tables before writing to temporary disk files.',
+      descFa: 'حافظه اختصاصی برای عملیات مرتب‌سازی (ORDER BY) و جدول‌های هش پیش از نوشتن روی دیسک موقت.',
+      rationaleEn: `Calculated from available RAM divided by expected concurrent query nodes (~${recommendedMaxConnections} conns).`,
+      rationaleFa: `محاسبه شده بر اساس رم باقیمانده تقسیم بر نودهای اجرای همزمان برای ${recommendedMaxConnections} اتصال.`,
+    },
+    {
+      name: 'checkpoint_completion_target',
+      category: 'checkpoint',
+      recommended: checkpointCompletionTarget,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: 'Fraction of checkpoint interval over which checkpoints should be smoothed out.',
+      descFa: 'نسبت بازه چک‌پوینت که طی آن نوشتن اطلاعات بر روی دیسک به شکل یکنواخت توزیع می‌شود.',
+      rationaleEn: 'Spreads out checkpoint I/O spikes to eliminate disk stalls.',
+      rationaleFa: 'توزیع یکنواخت نوشتن چک‌پوینت جهت حذف نوسانات شدید دیسک و جلوگیری از قفل شدن سرور.',
+    },
+    {
+      name: 'wal_buffers',
+      category: 'wal',
+      recommended: `${walBuffersMb}MB`,
+      restartRequired: true,
+      context: 'postmaster',
+      descEn: 'Dedicated buffer space for WAL data that has not yet been written to disk.',
+      descFa: 'حافظه موقت برای داده‌های لاگ تراکنش WAL پیش از نوشتن قطعی بر روی دیسک.',
+      rationaleEn: 'Sized to 3% of shared_buffers for high-throughput write performance.',
+      rationaleFa: 'تنظیم بر اساس ۳ درصد از shared_buffers جهت حداکثر بازدهی در تراکنش‌های نوشتن.',
+    },
+    {
+      name: 'default_statistics_target',
+      category: 'planner',
+      recommended: defaultStatsTarget,
+      restartRequired: false,
+      context: 'user',
+      descEn: 'Sampling depth for ANALYZE when collecting column distribution statistics.',
+      descFa: 'عمق نمونه‌برداری دستور ANALYZE برای جمع‌آوری توزیع آماری داده‌های ستون‌ها.',
+      rationaleEn: workload === 'dw' ? 'Increased to 500 for complex analytical query plans.' : 'Standard 100 is optimal for fast OLTP planning.',
+      rationaleFa: workload === 'dw' ? 'افزایش به ۵۰۰ برای برنامه‌ریزی دقیق کوئری‌های پیچیده تحلیلی.' : 'مقدار ۱۰۰ برای تصمیم‌گیری سریع پلنر در بارهای وب استاندارد است.',
+    },
+    {
+      name: 'random_page_cost',
+      category: 'planner',
+      recommended: randomPageCost,
+      restartRequired: false,
+      context: 'user',
+      descEn: "Planner's estimate of the cost of a non-sequentially fetched disk page.",
+      descFa: 'تخمین بهینه‌ساز از هزینه خواندن تصادفی یک بلاک اطلاعات از دیسک نسبت به خواندن ترتیبی.',
+      rationaleEn: `Tuned to ${randomPageCost} to encourage index scans on high-speed ${storage.toUpperCase()} storage.`,
+      rationaleFa: `تنظیم به مقدار ${randomPageCost} برای تشویق پلنر به استفاده از ایندکس در حافظه پرسرعت ${storage.toUpperCase()}.`,
+    },
+    {
+      name: 'effective_io_concurrency',
+      category: 'planner',
+      recommended: effectiveIoConcurrency,
+      restartRequired: false,
+      context: 'user',
+      descEn: 'Number of simultaneous disk I/O operations that can be serviced concurrently.',
+      descFa: 'تعداد عملیات همزمان خواندن و نوشتن دیسک که توسط درایو فیزیکی پشتیبانی می‌شود.',
+      rationaleEn: `Optimized for ${storage.toUpperCase()} asynchronous prefetching.`,
+      rationaleFa: `بهینه‌سازی شده برای پیش‌خوانی غیرهمگام دیسک‌های ${storage.toUpperCase()}.`,
+    },
+    {
+      name: 'min_wal_size',
+      category: 'wal',
+      recommended: minWalSize,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: 'Minimum size of recycled WAL files kept on disk to prevent frequent allocations.',
+      descFa: 'حداقل اندازه فایل‌های WAL بازیافتی روی دیسک جهت جلوگیری از تخصیص مداوم فضا.',
+      rationaleEn: 'Prevents unnecessary disk reallocation under sustained write traffic.',
+      rationaleFa: 'جلوگیری از کاهش بازدهی ناشی از حذف و تخصیص مجدد سگمنت‌های لاگ در نوشتن مداوم.',
+    },
+    {
+      name: 'max_wal_size',
+      category: 'wal',
+      recommended: maxWalSize,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: 'Maximum size to let the WAL grow during automatic checkpoints.',
+      descFa: 'حداکثر حجم انباشت فایل‌های WAL پیش از اجرای یک چک‌پوینت خودکار.',
+      rationaleEn: 'Reduces checkpoint frequency during bulk inserts and heavy writes.',
+      rationaleFa: 'کاهش تعداد چک‌پوینت‌های غیرضروری در بارهای کاری با حجم درج بالا.',
+    },
+    {
+      name: 'max_worker_processes',
+      category: 'parallelism',
+      recommended: maxWorkerProcesses,
+      restartRequired: true,
+      context: 'postmaster',
+      descEn: 'Maximum number of background worker processes that the system can support.',
+      descFa: 'حداکثر تعداد فرآیندهای کارگر پس‌زمینه که سیستم می‌تواند پشتیبانی کند.',
+      rationaleEn: `Matches physical CPU core count (${cores} cores).`,
+      rationaleFa: `همگام با تعداد هسته‌های پردازنده سرور (${cores} هسته).`,
+    },
+    {
+      name: 'max_parallel_workers_per_gather',
+      category: 'parallelism',
+      recommended: String(maxParallelPerGather),
+      restartRequired: false,
+      context: 'user',
+      descEn: 'Maximum number of parallel workers that can be started by a single Gather node.',
+      descFa: 'حداکثر کارگرهای موازی قابل راه‌اندازی توسط یک نود Gather در اجرای کوئری.',
+      rationaleEn: `Allows up to ${maxParallelPerGather} CPU cores per single parallel query execution.`,
+      rationaleFa: `امکان استفاده همزمان تا ${maxParallelPerGather} هسته برای پردازش موازی یک کوئری.`,
+    },
+    {
+      name: 'max_parallel_workers',
+      category: 'parallelism',
+      recommended: maxParallelWorkers,
+      restartRequired: false,
+      context: 'sighup',
+      descEn: 'Maximum number of workers that can support parallel operations.',
+      descFa: 'حداکثر کارگرهای مجاز در کل سیستم برای اجرای عملیات موازی.',
+      rationaleEn: `Utilizes system processor capacity (${cores} cores).`,
+      rationaleFa: `بهره‌گیری کامل از ظرفیت پردازنده سیستم (${cores} هسته).`,
+    },
+    {
+      name: 'max_parallel_maintenance_workers',
+      category: 'parallelism',
+      recommended: String(maxParallelMaintWorkers),
+      restartRequired: false,
+      context: 'user',
+      descEn: 'Maximum number of parallel workers for utility commands like CREATE INDEX.',
+      descFa: 'حداکثر کارگرهای موازی برای دستورات نگهداری نظیر ساخت موازی ایندکس.',
+      rationaleEn: `Speeds up index creation by utilizing ${maxParallelMaintWorkers} concurrent worker threads.`,
+      rationaleFa: `شتاب‌بخشی چشمگیر به ساخت ایندکس با اختصاص ${maxParallelMaintWorkers} رشته پردازشی همزمان.`,
+    },
+  ];
+
+  const recommendations: PostgresTuningParameterRecommendation[] = [];
+  const alterSystemCommands: string[] = [];
+  let requiresRestartCount = 0;
+  let immediateReloadCount = 0;
+
+  for (const r of rawRecs) {
+    const curObj = currentSettingsMap[r.name];
+    let curVal = curObj?.setting || 'default';
+    const unit = curObj?.unit || '';
+
+    // Format current pretty
+    let curPretty = curVal;
+    if (unit === '8kB') {
+      const kb = parseInt(curVal, 10) * 8;
+      if (kb >= 1024 * 1024) curPretty = `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+      else if (kb >= 1024) curPretty = `${(kb / 1024).toFixed(0)} MB`;
+      else curPretty = `${kb} KB`;
+    } else if (unit === 'kB') {
+      const kb = parseInt(curVal, 10);
+      if (kb >= 1024 * 1024) curPretty = `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+      else if (kb >= 1024) curPretty = `${(kb / 1024).toFixed(0)} MB`;
+      else curPretty = `${kb} KB`;
+    }
+
+    // Check if different
+    let isDiff = true;
+    if (curVal === r.recommended || curPretty === r.recommended || curPretty === r.recommendedPretty) {
+      isDiff = false;
+    }
+
+    if (r.restartRequired) requiresRestartCount++;
+    else immediateReloadCount++;
+
+    // Generate ALTER SYSTEM command
+    const quotedVal = isNaN(Number(r.recommended)) ? `'${r.recommended}'` : r.recommended;
+    alterSystemCommands.push(`ALTER SYSTEM SET ${r.name} = ${quotedVal};`);
+
+    recommendations.push({
+      name: r.name,
+      category: r.category,
+      currentValue: curVal,
+      currentValuePretty: curPretty,
+      recommendedValue: r.recommended,
+      recommendedValuePretty: r.recommendedPretty || r.recommended,
+      unit,
+      restartRequired: r.restartRequired,
+      context: r.context,
+      descriptionEn: r.descEn,
+      descriptionFa: r.descFa,
+      rationaleEn: r.rationaleEn,
+      rationaleFa: r.rationaleFa,
+      isDiff,
+    });
+  }
+
+  // Generate clean postgresql.conf snippet
+  const configLines: string[] = [
+    `# ====================================================================`,
+    `# Optimized PostgreSQL Configuration by NetTopology Hardware Advisor`,
+    `# Hardware Profile: ${ramGb} GB RAM | ${cores} CPU Cores | Storage: ${storage.toUpperCase()}`,
+    `# Workload Profile: ${workload.toUpperCase()} | Generated: ${new Date().toISOString()}`,
+    `# ====================================================================`,
+    ``,
+    `# Memory Configuration`,
+    `shared_buffers = ${sharedBuffersMb}MB`,
+    `effective_cache_size = ${effectiveCacheMb}MB`,
+    `maintenance_work_mem = ${maintenanceWorkMemMb}MB`,
+    `work_mem = ${workMemMb}MB`,
+    `wal_buffers = ${walBuffersMb}MB`,
+    ``,
+    `# Checkpoint & WAL Tuning`,
+    `checkpoint_completion_target = ${checkpointCompletionTarget}`,
+    `min_wal_size = ${minWalSize}`,
+    `max_wal_size = ${maxWalSize}`,
+    ``,
+    `# Query Planner & Storage I/O Cost`,
+    `random_page_cost = ${randomPageCost}`,
+    `effective_io_concurrency = ${effectiveIoConcurrency}`,
+    `default_statistics_target = ${defaultStatsTarget}`,
+    ``,
+    `# Connection & Concurrency`,
+    `max_connections = ${recommendedMaxConnections}`,
+    ``,
+    `# Parallel Query Execution`,
+    `max_worker_processes = ${maxWorkerProcesses}`,
+    `max_parallel_workers_per_gather = ${maxParallelPerGather}`,
+    `max_parallel_workers = ${maxParallelWorkers}`,
+    `max_parallel_maintenance_workers = ${maxParallelMaintWorkers}`,
+  ];
+
+  return {
+    profile,
+    workload,
+    storage,
+    connectionCount: recommendedMaxConnections,
+    recommendations,
+    generatedConfigSnippet: configLines.join('\n'),
+    alterSystemCommands,
+    requiresRestartCount,
+    immediateReloadCount,
+    retrievedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Phase 24: Applies recommended configuration either via SQL "ALTER SYSTEM" or appending to postgresql.conf.
+ */
+export async function applyPostgresTuningConfiguration(
+  server: RemoteServer,
+  req: PostgresApplyTuningRequest,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  message: string;
+  messageFa: string;
+  appliedCount: number;
+  requiresRestart: boolean;
+}> {
+  // Generate the tuning report to get the exact commands
+  const report = await getPostgresTuningReport(server, {
+    database: options?.database,
+    port: options?.port,
+    user: options?.user,
+    password: options?.password,
+    workload: req.workload,
+    storage: req.storage,
+    customRamGb: req.customRamGb,
+    customCores: req.customCores,
+    maxConnections: req.maxConnections,
+  });
+
+  const selectedNames = new Set(req.selectedParameters || report.recommendations.map((r) => r.name));
+  const toApply = report.recommendations.filter((r) => selectedNames.has(r.name));
+
+  if (toApply.length === 0) {
+    throw new Error('No tuning parameters were selected for application.');
+  }
+
+  const requiresRestart = toApply.some((r) => r.restartRequired);
+
+  if (req.method === 'alter_system') {
+    // Apply via SQL ALTER SYSTEM
+    const { client } = createPostgresClient(server, {
+      database: options?.database || server.postgres_database || 'postgres',
+      port: options?.port,
+      user: options?.user,
+      password: options?.password,
+    });
+
+    try {
+      await client.connect();
+      for (const item of toApply) {
+        const val = isNaN(Number(item.recommendedValue))
+          ? `'${item.recommendedValue}'`
+          : item.recommendedValue;
+        await client.query(`ALTER SYSTEM SET ${item.name} = ${val};`);
+      }
+
+      // Reload config
+      await client.query('SELECT pg_reload_conf();');
+      await client.end();
+
+      return {
+        success: true,
+        appliedCount: toApply.length,
+        requiresRestart,
+        message: `Successfully applied ${toApply.length} parameters via ALTER SYSTEM. Config reloaded. ${
+          requiresRestart ? 'Note: Service restart is required for memory & connection parameters.' : ''
+        }`,
+        messageFa: `تعداد ${toApply.length} پارامتر با موفقیت با دستور ALTER SYSTEM اعمال شد. ${
+          requiresRestart ? 'توجه: جهت اعمال پارامترهای حافظه و اتصال، راه‌اندازی مجدد سرویس الزامی است.' : 'تنظیمات بلافاصله بارگذاری شدند.'
+        }`,
+      };
+    } catch (err: any) {
+      try {
+        await client.end();
+      } catch {}
+      throw new Error(`Failed to apply configuration via ALTER SYSTEM: ${err.message}`);
+    }
+  } else {
+    // Append to postgresql.conf via SSH
+    const confPath = '/etc/postgresql/postgresql.conf'; // will discover
+    const script = `export LC_ALL=C
+# Discover postgresql.conf location
+CONF_PATH=""
+for p in "${confPath}" "/etc/postgresql/*/*/postgresql.conf" "/var/lib/pgsql/data/postgresql.conf" "/var/lib/postgresql/data/postgresql.conf"; do
+  for f in $p; do
+    if [ -f "$f" ]; then
+      CONF_PATH="$f"
+      break 2
+    fi
+  done
+done
+
+if [ -z "$CONF_PATH" ]; then
+  echo "ERROR: postgresql.conf not found on host"
+  exit 1
+fi
+
+# Create backup before modifying
+cp "$CONF_PATH" "$CONF_PATH.bak.$(date +%s)"
+
+# Append tuning parameters
+cat << 'EOF' >> "$CONF_PATH"
+
+# --- NetTopology Hardware Advisor Auto-Tuned Parameters (${new Date().toISOString()}) ---
+${toApply.map((item) => `${item.name} = ${isNaN(Number(item.recommendedValue)) ? `'${item.recommendedValue}'` : item.recommendedValue}`).join('\n')}
+# --- End NetTopology Tuning ---
+EOF
+
+# Reload postgres service
+systemctl reload postgresql 2>/dev/null || systemctl reload postgres 2>/dev/null || true
+echo "SUCCESS:$CONF_PATH"
+`;
+
+    const sshRes = await runAdaptiveSshCommand(server, script, req.sessionPassword || options?.password, 15000);
+    if (!sshRes.includes('SUCCESS:')) {
+      throw new Error(`Failed to append parameters to postgresql.conf: ${sshRes}`);
+    }
+
+    return {
+      success: true,
+      appliedCount: toApply.length,
+      requiresRestart,
+      message: `Successfully appended ${toApply.length} parameters to postgresql.conf and created backup. ${
+        requiresRestart ? 'Service restart required for memory changes to take effect.' : 'Reload signal sent.'
+      }`,
+      messageFa: `تعداد ${toApply.length} پارامتر با موفقیت به فایل postgresql.conf اضافه شد و بکاپ تهیه گردید. ${
+        requiresRestart ? 'جهت اعمال پارامترهای حافظه، راه‌اندازی مجدد سرویس الزامی است.' : 'سیگنال بارگذاری مجدد ارسال شد.'
+      }`,
+    };
+  }
+}
