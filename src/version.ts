@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.208.0';
+export const APP_VERSION = '1.209.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.209.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲ مدیریت پایگاه‌داده MySQL: اتصال واقعی و داشبورد تلمتری و مشخصات موتور پایگاه‌داده',
+    title_en: 'Phase 2 MySQL Management: Live Connectivity, Telemetry Specs & Engine Overview',
+    changes: [
+      'پیاده‌سازی کامل فاز ۲ نقشه راه ۲۰ مرحله‌ای مدیریت MySQL (Phase 2 — MySQL Connection & Server Overview): برقراری اتصال واقعی به موتور MySQL و واکشی زنده تلمتری و مشخصات فنی.',
+      'واکشی و نمایش جامع مشخصات سرور: نسخه دقیق MySQL، توزیع و کامنت سرور (Server Version & Comment)، کاربر متصل، دیتابیس فعال، آدرس هاست و پورت اختصاصی.',
+      'افزودن اطلاعات منطقه زمانی سرور (Server Timezone)، سیستم کدگذاری نویسه‌ها (Character Set) و ترتیب‌بندی پیش‌فرض (Collation).',
+      'نمایش مدت زمان فعالیت موتور (Server Uptime) به صورت تفکیکی و زمان واقعی.',
+      'پایش بلادرنگ اتصالات: نمایش زنده تعداد اتصالات فعال (Threads Connected) در برابر سقف مجاز اتصالات (Max Connections) همراه با نوار درصد بصری.',
+      'رعایت اصل عدم افشای رمز عبور یا کانکشن‌استرینگ در فرانت‌اند و رمزگشایی لحظه‌ای صرفاً در سمت بک‌اند.',
+    ],
+    changes_en: [
+      'Implemented Phase 2 of the MySQL Management 20-Phase Roadmap (Phase 2 — MySQL Connection & Server Overview): Live database engine connectivity, performance metrics, and technical telemetry.',
+      'Comprehensive engine overview: Accurate MySQL version, flavor comment, connected user, active database, host address, and target port.',
+      'Added technical server properties: Server Timezone, default Character Set, and collation mapping.',
+      'Real-time uptime display with human-readable formatting and raw runtime calculation.',
+      'Live thread and connection tracking: Active thread count vs. Max allowed connections with animated visual capacity meter.',
+      'Strict adherence to credential zero-leakage: Passwords decrypted strictly in-flight on the server without exposing connection strings to the client.',
+    ],
+  },
   {
     version: '1.208.0',
     releaseDate: '2026-09-28',

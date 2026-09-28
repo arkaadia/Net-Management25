@@ -494,30 +494,89 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                     <span>{isEn ? 'Refresh' : 'تازه‌سازی'}</span>
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3 text-xs font-mono">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 text-xs font-mono">
+                  {/* 1. MySQL Version */}
                   <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
-                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Version' : 'نسخه موتور'}</span>
-                    <span className="font-bold text-slate-200">{overview?.version || 'MySQL / MariaDB'}</span>
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'MySQL Version' : 'نسخه MySQL'}</span>
+                    <span className="font-bold text-amber-300">{overview?.version || 'MySQL'}</span>
                   </div>
+
+                  {/* 2. Server Version & Flavor */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Server Version & Comment' : 'نسخه کامل و توزیع سرور'}</span>
+                    <span className="font-bold text-slate-200 truncate block" title={overview?.serverVersion || overview?.versionComment}>
+                      {overview?.serverVersion || overview?.versionComment || 'Community Server'}
+                    </span>
+                  </div>
+
+                  {/* 3. Host */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Host / IP' : 'هاست / آدرس IP'}</span>
+                    <span className="font-bold text-slate-200">{overview?.serverAddress || server.ip}</span>
+                  </div>
+
+                  {/* 4. Port */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'MySQL Port' : 'پورت MySQL'}</span>
+                    <span className="font-bold text-orange-400">{overview?.port || server.mysql_port || 3306}</span>
+                  </div>
+
+                  {/* 5. Current User */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Current User' : 'کاربر متصل'}</span>
+                    <span className="font-bold text-emerald-400">{overview?.connectedUser || server.mysql_user || 'root'}</span>
+                  </div>
+
+                  {/* 6. Current Database */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Current Database' : 'پایگاه داده متصل'}</span>
+                    <span className="font-bold text-cyan-400">{overview?.connectedDatabase || server.mysql_database || 'mysql'}</span>
+                  </div>
+
+                  {/* 7. Timezone */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Server Timezone' : 'منطقه زمانی سرور'}</span>
+                    <span className="font-bold text-slate-200">{overview?.timezone || 'SYSTEM'}</span>
+                  </div>
+
+                  {/* 8. Character Set & Collation */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Charset / Collation' : 'کدگذاری و ترتیه‌بندی'}</span>
+                    <span className="font-bold text-purple-300 truncate block" title={`${overview?.characterSet || 'utf8mb4'} / ${overview?.collation || 'utf8mb4_general_ci'}`}>
+                      {overview?.characterSet || 'utf8mb4'} / {overview?.collation || 'utf8mb4_general_ci'}
+                    </span>
+                  </div>
+
+                  {/* 9. Server Uptime */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
+                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Server Uptime' : 'مدت زمان فعالیت (Uptime)'}</span>
+                    <span className="font-bold text-emerald-400">{overview?.uptimePretty || '—'}</span>
+                  </div>
+
+                  {/* 10. Connections (Current / Max) */}
+                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5 sm:col-span-2">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>{isEn ? 'Connections (Current / Max)' : 'اتصالات (فعال / حداکثر)'}</span>
+                      <span className="font-mono text-cyan-400">
+                        {overview?.threadsConnected ?? 0} / {overview?.maxConnections ?? 151}
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full bg-cyan-400 rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, Math.round(((overview?.threadsConnected ?? 0) / (overview?.maxConnections || 151)) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 11. Slow Queries */}
                   <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
                     <span className="text-slate-400 block text-[10px]">{isEn ? 'Slow Queries' : 'کوئری‌های کند'}</span>
-                    <span className="font-bold text-rose-400">{overview?.slowQueries ?? 0}</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
-                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Open Tables' : 'جداول باز'}</span>
-                    <span className="font-bold text-slate-200">{overview?.openTables ?? '—'}</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
-                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Host & Port' : 'آدرس و پورت'}</span>
-                    <span className="font-bold text-slate-200">{server.ip}:{server.mysql_port || 3306}</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
-                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Default Database' : 'دیتابیس پیش‌فرض'}</span>
-                    <span className="font-bold text-cyan-400">{server.mysql_database || 'mysql'}</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-black/10 border border-white/5">
-                    <span className="text-slate-400 block text-[10px]">{isEn ? 'Connected User' : 'کاربر متصل'}</span>
-                    <span className="font-bold text-emerald-400">{server.mysql_user || 'root'}</span>
+                    <span className={`font-bold ${(overview?.slowQueries ?? 0) > 0 ? 'text-amber-400' : 'text-slate-200'}`}>
+                      {overview?.slowQueries ?? 0}
+                    </span>
                   </div>
                 </div>
               </div>

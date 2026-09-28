@@ -1475,6 +1475,10 @@ export interface MysqlOverview {
   connectedDatabase: string;
   version: string;
   versionComment: string;
+  serverVersion?: string;
+  timezone?: string;
+  characterSet?: string;
+  collation?: string;
   uptimeSeconds: number;
   uptimePretty: string;
   threadsConnected: number;
