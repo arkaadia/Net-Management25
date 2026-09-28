@@ -104,6 +104,8 @@ import {
   runPostgresMaintenance,
   getPostgresBloatMetrics,
   getPostgresActiveMaintenance,
+  getPostgresLocksOverview,
+  terminatePostgresSession,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2731,6 +2733,107 @@ apiRouter.get('/remote-servers/:id/postgres/maintenance/active', async (req: Req
       success: false,
       error: err.message || 'Failed to fetch active maintenance tasks',
       errorFa: 'خطا در دریافت وضعیت عملیات فعال نگهداری',
+    });
+  }
+});
+
+// ============================================================================
+// PHASE 20: Lock & Deadlock Inspector (پایش زنده و ردیابی قفل‌ها و بن‌بست‌ها)
+// ============================================================================
+
+// GET /api/remote-servers/:id/postgres/locks - Retrieve live active locks, blocking tree & deadlock telemetry
+apiRouter.get('/remote-servers/:id/postgres/locks', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const overview = await getPostgresLocksOverview(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      data: overview,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve PostgreSQL locks overview',
+      errorFa: 'خطا در دریافت وضعیت قفل‌ها و بن‌بست‌های PostgreSQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/locks/terminate - Cancel query or terminate blocked/blocking session
+apiRouter.post('/remote-servers/:id/postgres/locks/terminate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { pid, action, database, port, user, password } = req.body;
+    if (!pid || typeof pid !== 'number') {
+      return res.status(400).json({
+        success: false,
+        error: 'A valid backend PID is required.',
+        errorFa: 'شناسه معتبر پردازش (PID) الزامی است.',
+      });
+    }
+
+    if (action !== 'cancel' && action !== 'terminate') {
+      return res.status(400).json({
+        success: false,
+        error: 'Action must be either "cancel" or "terminate".',
+        errorFa: 'عملیات باید "cancel" یا "terminate" باشد.',
+      });
+    }
+
+    const result = await terminatePostgresSession(server, {
+      pid,
+      action,
+      database: database || server.postgres_database || 'postgres',
+      port: port ? Number(port) : undefined,
+      user: user || server.postgres_user,
+      password,
+    });
+
+    // Record audit log
+    try {
+      await addAuditLog({
+        user: (req as any).user?.username || 'system',
+        action: action === 'cancel' ? 'POSTGRES_QUERY_CANCEL' : 'POSTGRES_SESSION_TERMINATE',
+        details: `PostgreSQL session PID ${pid} ${action}ed on server ${server.name || server.ip} (database: ${database || 'default'})`,
+        status: result.success ? 'success' : 'failure',
+      });
+    } catch {}
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to terminate PostgreSQL backend session',
+      errorFa: 'خطا در خاتمه نشست PostgreSQL',
     });
   }
 });

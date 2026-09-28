@@ -15,6 +15,12 @@ import {
   PostgresHbaSaveRequest,
   PostgresHbaSaveResult,
   PostgresHbaRestoreRequest,
+  PostgresLockItem,
+  PostgresBlockingNode,
+  PostgresDeadlockSummary,
+  PostgresLocksOverview,
+  PostgresSessionTerminateRequest,
+  PostgresSessionTerminateResult,
 } from '../src/types';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
@@ -8637,6 +8643,352 @@ export async function getPostgresActiveMaintenance(
       await client.end();
     } catch {}
     return [];
+  }
+}
+
+// ============================================================================
+// PHASE 20: Lock & Deadlock Inspector (پایش زنده و ردیابی قفل‌ها و بن‌بست‌ها)
+// ============================================================================
+
+/**
+ * Retrieves authentic live lock telemetry from pg_locks, pg_stat_activity,
+ * pg_database, and pg_stat_database.
+ * Analyzes blocker hierarchies using pg_blocking_pids() and computes tree structures.
+ */
+export async function getPostgresLocksOverview(
+  server: RemoteServer,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<PostgresLocksOverview> {
+  const { client, targetDatabase } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    // 1. Fetch all locks joined with relation, database, and activity
+    const locksQuery = `
+      SELECT
+        l.locktype,
+        COALESCE(d.datname, '') AS database_name,
+        COALESCE(n.nspname, '') AS schema_name,
+        COALESCE(c.relname, '') AS relation_name,
+        l.mode,
+        l.granted,
+        l.pid,
+        COALESCE(a.usename, '') AS usename,
+        COALESCE(a.client_addr::text, 'local') AS client_addr,
+        COALESCE(a.application_name, '') AS application_name,
+        COALESCE(a.state, '') AS state,
+        COALESCE(a.query, '') AS query,
+        a.query_start,
+        a.xact_start,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(a.query_start, a.xact_start, NOW())))::numeric, 1)::float AS wait_duration_seconds,
+        COALESCE(pg_blocking_pids(l.pid), ARRAY[]::integer[]) AS blocking_pids
+      FROM pg_locks l
+      LEFT JOIN pg_database d ON d.oid = l.database
+      LEFT JOIN pg_class c ON c.oid = l.relation
+      LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_stat_activity a ON a.pid = l.pid
+      WHERE l.pid != pg_backend_pid()
+      ORDER BY l.granted ASC, wait_duration_seconds DESC, l.pid ASC;
+    `;
+
+    const locksRes = await client.query(locksQuery);
+    const rawLocks = locksRes.rows || [];
+
+    // Also get all active/idle sessions from pg_stat_activity to ensure root blockers
+    const activityQuery = `
+      SELECT
+        a.pid,
+        COALESCE(a.usename, '') AS usename,
+        COALESCE(a.client_addr::text, 'local') AS client_addr,
+        COALESCE(a.application_name, '') AS application_name,
+        COALESCE(a.state, '') AS state,
+        COALESCE(a.query, '') AS query,
+        a.query_start,
+        a.xact_start,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(a.query_start, a.xact_start, NOW())))::numeric, 1)::float AS wait_duration_seconds,
+        COALESCE(pg_blocking_pids(a.pid), ARRAY[]::integer[]) AS blocking_pids
+      FROM pg_stat_activity a
+      WHERE a.pid != pg_backend_pid();
+    `;
+    const activityRes = await client.query(activityQuery);
+    const rawActivities = activityRes.rows || [];
+
+    // 2. Deadlock statistics and settings
+    let deadlockStats: any[] = [];
+    try {
+      const dlRes = await client.query(`
+        SELECT
+          d.datname,
+          COALESCE(d.deadlocks, 0)::bigint AS deadlocks,
+          COALESCE(d.conflicts, 0)::bigint AS conflicts,
+          COALESCE(d.xact_rollback, 0)::bigint AS xact_rollback
+        FROM pg_stat_database d
+        WHERE d.datistemplate = false
+        ORDER BY deadlocks DESC, conflicts DESC;
+      `);
+      deadlockStats = dlRes.rows || [];
+    } catch {}
+
+    let deadlockTimeout = '1s';
+    let maxLocksPerTx = 64;
+    let logLockWaits = false;
+    try {
+      const s1 = await client.query(`SHOW deadlock_timeout;`);
+      deadlockTimeout = s1.rows[0]?.deadlock_timeout || '1s';
+    } catch {}
+    try {
+      const s2 = await client.query(`SHOW max_locks_per_transaction;`);
+      maxLocksPerTx = Number(s2.rows[0]?.max_locks_per_transaction) || 64;
+    } catch {}
+    try {
+      const s3 = await client.query(`SHOW log_lock_waits;`);
+      logLockWaits = s3.rows[0]?.log_lock_waits === 'on';
+    } catch {}
+
+    await client.end();
+
+    // Map of PID -> array of PIDs that this PID is blocking
+    const blockedByMap = new Map<number, number[]>(); // pid -> blockedPids[]
+    const sessionMap = new Map<number, any>();
+
+    for (const act of rawActivities) {
+      const pid = Number(act.pid);
+      sessionMap.set(pid, act);
+      const blockers: number[] = Array.isArray(act.blocking_pids)
+        ? act.blocking_pids.map(Number)
+        : [];
+
+      for (const blk of blockers) {
+        if (!blockedByMap.has(blk)) {
+          blockedByMap.set(blk, []);
+        }
+        if (!blockedByMap.get(blk)!.includes(pid)) {
+          blockedByMap.get(blk)!.push(pid);
+        }
+      }
+    }
+
+    // Build lock items
+    let waitingLocksCount = 0;
+    let heavyLocksCount = 0;
+    let longestWait = 0;
+    const blockedSessionsSet = new Set<number>();
+    const rootBlockersSet = new Set<number>();
+
+    const locks: PostgresLockItem[] = rawLocks.map((r: any) => {
+      const pid = Number(r.pid);
+      const isGranted = Boolean(r.granted);
+      const blockingPids: number[] = Array.isArray(r.blocking_pids)
+        ? r.blocking_pids.map(Number)
+        : [];
+      const blockedPids = blockedByMap.get(pid) || [];
+      const isBlocking = blockedPids.length > 0;
+      const waitSec = Math.max(0, Number(r.wait_duration_seconds) || 0);
+
+      if (!isGranted) {
+        waitingLocksCount++;
+        blockedSessionsSet.add(pid);
+      }
+      if (blockingPids.length > 0) {
+        blockedSessionsSet.add(pid);
+      }
+      if (isBlocking && blockingPids.length === 0) {
+        rootBlockersSet.add(pid);
+      }
+      if (
+        r.mode === 'ExclusiveLock' ||
+        r.mode === 'AccessExclusiveLock' ||
+        r.mode === 'ShareRowExclusiveLock'
+      ) {
+        heavyLocksCount++;
+      }
+      if (waitSec > longestWait) {
+        longestWait = waitSec;
+      }
+
+      return {
+        locktype: String(r.locktype || ''),
+        database: String(r.database_name || targetDatabase),
+        relation: r.relation_name || undefined,
+        schema: r.schema_name || undefined,
+        mode: String(r.mode || ''),
+        granted: isGranted,
+        pid,
+        usename: String(r.usename || ''),
+        clientAddr: String(r.client_addr || 'local'),
+        applicationName: String(r.application_name || ''),
+        state: String(r.state || ''),
+        query: String(r.query || ''),
+        queryStart: r.query_start ? new Date(r.query_start).toISOString() : undefined,
+        xactStart: r.xact_start ? new Date(r.xact_start).toISOString() : undefined,
+        waitDurationSeconds: waitSec,
+        isBlocking,
+        blockedPids,
+        blockingPids,
+      };
+    });
+
+    // Also check if any activity is a root blocker even if not directly matching a specific rawLock
+    for (const [blkPid, waiters] of blockedByMap.entries()) {
+      const blkAct = sessionMap.get(blkPid);
+      const blkBlockers = blkAct?.blocking_pids || [];
+      if (waiters.length > 0 && blkBlockers.length === 0) {
+        rootBlockersSet.add(blkPid);
+      }
+    }
+
+    // Build the hierarchical blocking tree:
+    const visitedTreePids = new Set<number>();
+    function buildNode(pid: number, depth = 0): PostgresBlockingNode | null {
+      if (visitedTreePids.has(pid) || depth > 20) return null; // Avoid infinite loops on cycles
+      visitedTreePids.add(pid);
+
+      const act = sessionMap.get(pid);
+      const matchingLock = locks.find((l) => l.pid === pid);
+      const childPids = blockedByMap.get(pid) || [];
+
+      const childNodes: PostgresBlockingNode[] = [];
+      for (const cp of childPids) {
+        const childNode = buildNode(cp, depth + 1);
+        if (childNode) {
+          childNodes.push(childNode);
+        }
+      }
+
+      let totalDescendants = childNodes.length;
+      for (const c of childNodes) {
+        totalDescendants += c.blockedCount;
+      }
+
+      const blockers = act?.blocking_pids || [];
+
+      return {
+        pid,
+        usename: act?.usename || matchingLock?.usename || 'unknown',
+        clientAddr: act?.client_addr || matchingLock?.clientAddr || 'local',
+        applicationName: act?.application_name || matchingLock?.applicationName || '',
+        state: act?.state || matchingLock?.state || '',
+        query: act?.query || matchingLock?.query || '',
+        queryStart: act?.query_start ? new Date(act.query_start).toISOString() : matchingLock?.queryStart,
+        xactStart: act?.xact_start ? new Date(act.xact_start).toISOString() : matchingLock?.xactStart,
+        waitDurationSeconds: Number(act?.wait_duration_seconds) || matchingLock?.waitDurationSeconds || 0,
+        isRootBlocker: blockers.length === 0,
+        lockMode: matchingLock?.mode,
+        lockType: matchingLock?.locktype,
+        relation: matchingLock?.relation,
+        schema: matchingLock?.schema,
+        blockedCount: totalDescendants,
+        blockedSessions: childNodes,
+      };
+    }
+
+    const blockingTree: PostgresBlockingNode[] = [];
+    for (const rootPid of Array.from(rootBlockersSet)) {
+      const node = buildNode(rootPid);
+      if (node) {
+        blockingTree.push(node);
+      }
+    }
+
+    // Sort blockingTree so the nodes with most blocked sessions or longest wait come first
+    blockingTree.sort((a, b) => b.blockedCount - a.blockedCount || b.waitDurationSeconds - a.waitDurationSeconds);
+
+    const totalDeadlocksRecorded = deadlockStats.reduce((sum, d) => sum + (Number(d.deadlocks) || 0), 0);
+
+    return {
+      totalLocksCount: locks.length,
+      waitingLocksCount,
+      blockedSessionsCount: blockedSessionsSet.size,
+      rootBlockersCount: rootBlockersSet.size,
+      heavyLocksCount,
+      longestWaitSeconds: longestWait,
+      locks,
+      blockingTree,
+      deadlockSummary: {
+        totalDeadlocksRecorded,
+        databaseDeadlocks: deadlockStats.map((d) => ({
+          datname: String(d.datname),
+          deadlocks: Number(d.deadlocks) || 0,
+          conflicts: Number(d.conflicts) || 0,
+          xactRollback: Number(d.xact_rollback) || 0,
+        })),
+        deadlockTimeoutSetting: deadlockTimeout,
+        maxLocksPerTx,
+        logLockWaitsSetting: logLockWaits,
+      },
+      retrievedAt: new Date().toISOString(),
+      database: targetDatabase,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Gracefully cancels the running query (pg_cancel_backend) or forcefully terminates
+ * the backend connection (pg_terminate_backend) for a specified PID.
+ */
+export async function terminatePostgresSession(
+  server: RemoteServer,
+  options: {
+    pid: number;
+    action: 'cancel' | 'terminate';
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<PostgresSessionTerminateResult> {
+  const { client } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    const isCancel = options.action === 'cancel';
+    const query = isCancel
+      ? 'SELECT pg_cancel_backend($1) AS signal_sent;'
+      : 'SELECT pg_terminate_backend($1) AS signal_sent;';
+
+    const res = await client.query(query, [options.pid]);
+    const signalSent = Boolean(res.rows?.[0]?.signal_sent);
+    await client.end();
+
+    if (!signalSent) {
+      return {
+        success: false,
+        pid: options.pid,
+        action: options.action,
+        message: `Failed to ${isCancel ? 'cancel query on' : 'terminate'} session PID ${options.pid}. The process may have already exited or requires superuser privileges.`,
+        messageFa: `عملیات ${isCancel ? 'لغو کوئری' : 'خاتمه نشست'} برای پردازش PID ${options.pid} انجام نشد. ممکن است پردازش پیش‌تر بسته شده باشد یا نیاز به دسترسی Superuser داشته باشد.`,
+      };
+    }
+
+    return {
+      success: true,
+      pid: options.pid,
+      action: options.action,
+      message: `Successfully ${isCancel ? 'canceled running query on' : 'terminated connection for'} session PID ${options.pid}.`,
+      messageFa: `پردازش PID ${options.pid} با موفقیت ${isCancel ? 'لغو (Cancel)' : 'خاتمه داده (Terminate)'} شد.`,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      pid: options.pid,
+      action: options.action,
+      message: err.message || `Error executing ${options.action} on PID ${options.pid}`,
+      messageFa: `خطا در اجرای عملیات ${options.action === 'cancel' ? 'لغو' : 'خاتمه'} روی PID ${options.pid}`,
+      error: err.message,
+    };
   }
 }
 

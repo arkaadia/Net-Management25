@@ -2645,6 +2645,95 @@ export interface PostgresActiveMaintenanceProgress {
   elapsedSeconds?: number;
 }
 
+// ============================================================================
+// PHASE 20: Lock & Deadlock Inspector (پایش زنده و ردیابی قفل‌ها و بن‌بست‌ها)
+// ============================================================================
+
+export interface PostgresLockItem {
+  locktype: string;
+  database: string;
+  relation?: string;
+  schema?: string;
+  mode: string;
+  granted: boolean;
+  pid: number;
+  usename: string;
+  clientAddr?: string;
+  applicationName?: string;
+  state?: string;
+  query?: string;
+  queryStart?: string;
+  xactStart?: string;
+  waitDurationSeconds: number;
+  isBlocking: boolean;
+  blockedPids: number[];
+  blockingPids: number[];
+}
+
+export interface PostgresBlockingNode {
+  pid: number;
+  usename: string;
+  clientAddr?: string;
+  applicationName?: string;
+  state?: string;
+  query?: string;
+  queryStart?: string;
+  xactStart?: string;
+  waitDurationSeconds: number;
+  isRootBlocker: boolean;
+  lockMode?: string;
+  lockType?: string;
+  relation?: string;
+  schema?: string;
+  blockedCount: number;
+  blockedSessions: PostgresBlockingNode[];
+}
+
+export interface PostgresDeadlockSummary {
+  totalDeadlocksRecorded: number;
+  databaseDeadlocks: Array<{
+    datname: string;
+    deadlocks: number;
+    conflicts?: number;
+    xactRollback: number;
+  }>;
+  deadlockTimeoutSetting: string;
+  maxLocksPerTx: number;
+  logLockWaitsSetting: boolean;
+}
+
+export interface PostgresLocksOverview {
+  totalLocksCount: number;
+  waitingLocksCount: number;
+  blockedSessionsCount: number;
+  rootBlockersCount: number;
+  heavyLocksCount: number;
+  longestWaitSeconds: number;
+  locks: PostgresLockItem[];
+  blockingTree: PostgresBlockingNode[];
+  deadlockSummary: PostgresDeadlockSummary;
+  retrievedAt: string;
+  database: string;
+}
+
+export interface PostgresSessionTerminateRequest {
+  database?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  pid: number;
+  action: 'cancel' | 'terminate';
+}
+
+export interface PostgresSessionTerminateResult {
+  success: boolean;
+  pid: number;
+  action: 'cancel' | 'terminate';
+  message: string;
+  messageFa: string;
+  error?: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

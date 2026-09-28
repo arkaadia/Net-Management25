@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.200.0';
+export const APP_VERSION = '1.201.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.201.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۲۰ مدیریت PostgreSQL: پایش زنده و ردیابی بن‌بست‌ها و قفل‌های دیتابیس (Lock & Deadlock Inspector)',
+    title_en: 'PostgreSQL Management Phase 20: Real-Time Lock & Deadlock Inspector, Blocker Trees & Session Termination',
+    changes: [
+      'پیاده‌سازی جامع فاز ۲۰ نقشه راه مدیریت PostgreSQL: سیستم پایش بلادرنگ قفل‌ها، ردیابی کوئری‌های مسدودکننده (Blocking Queries)، سلسله‌مراتب بن‌بست‌ها و آزادسازی فوری نشست‌ها.',
+      'پایش زنده جدول pg_locks: استعلام و نمایش بلادرنگ کلیه قفل‌های فعال در سطح دیتابیس، اسکیما و جدول به همراه نوع قفل (Relation, TransactionID, VirtualXID, Tuple) و حالت قفل (AccessExclusiveLock, ExclusiveLock, ShareLock, RowExclusiveLock).',
+      'درخت سلسله‌مراتبی وابستگی و مسدودسازی (Blocking Dependency Tree): بهره‌گیری هوشمندانه از تابع pg_blocking_pids جهت ساختاردهی درختی نشست‌ها، شناسایی خودکار مسدودکننده‌های ریشه (Root Blockers) با نشان برجسته و انیمیشن بصری، و نمایش دقیق کوئری‌ها و کلاینت‌های در انتظار در هر شاخه.',
+      'آزادسازی و خاتمه هوشمند نشست‌ها (Session Termination Suite): تجهیز به دو سازوکار مجزا شامل لغو نرم کوئری در حال اجرا (pg_cancel_backend) جهت حفظ اتصال کلاینت، و قطع و خاتمه قطعی نشست (pg_terminate_backend) جهت آزادسازی بلادرنگ منابع قفل‌شده، همراه با دیالوگ تاییدیه ایمن و هشدارهای تعداد نشست‌های در انتظار.',
+      'تحلیلگر و تلمتری بن‌بست‌ها (Deadlock Inspector): پایش شاخص‌های بن‌بست، تداخل‌ها و رول‌بک‌ها از کاتالوگ pg_stat_database به تفکیک هر پایگاه داده، نمایش پارامترهای حیاتی deadlock_timeout، max_locks_per_transaction و log_lock_waits.',
+      'سامانه رفرش خودکار زنده: قابلیت تنظیم بروزرسانی خودکار در بازه‌های ۲، ۵، ۱۰ و ۳۰ ثانیه جهت مانیتورینگ زنده بحران‌ها و ترافیک‌های سنگین بدون نیاز به بارگذاری مجدد صفحه.',
+      'فیلترهای پیشرفته و جستجوی چندبعدی: فیلتر سریع بر اساس قفل‌های در انتظار (Waiting)، مسدودکننده‌ها (Blockers) و قفل‌های سنگین انحصاری (Exclusive)، همراه با جستجوی آنی در شناسه PID، نام جدول، کاربر، کلاینت و متن کوئری SQL.',
+      'یکپارچگی با SQL Studio: امکان ارسال مستقیم کوئری‌های مسدودکننده به ویرایشگر SQL جهت بهینه‌سازی و کپی آسان دستورات SQL و کدهای قطع نشست.',
+      'انطباق دقیق با استانداردهای طراحی، مودال‌ها، تم‌های تیره/روشن باکنتراست بالا و رعایت صددرصدی قوانین چندزبانگی (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 20: Real-time lock monitoring, blocking query hierarchy trees, deadlock telemetry diagnostics, and instant session termination suite.',
+      'Real-Time pg_locks Engine: Deep inspection of active locks across relations, schemas, and tables with lock types (relation, transactionid, virtualxid, tuple) and lock modes (AccessExclusiveLock, ExclusiveLock, ShareLock, RowExclusiveLock).',
+      'Blocking Dependency Hierarchy Tree: Intelligent utilization of pg_blocking_pids() to construct recursive visual dependency trees, automatically identifying and highlighting Root Blockers with visual badges, wait counters, and descendant session traces.',
+      'Session Termination & Query Cancellation Suite: Dual mitigation mechanisms providing graceful query cancellation (pg_cancel_backend) to preserve client connection or forceful connection termination (pg_terminate_backend) for immediate lock release, with safety confirmation dialogs and impacted waiter counts.',
+      'Deadlock Diagnostics & Settings Hub: Aggregated and per-database deadlock, conflict, and rollback counters from pg_stat_database, paired with real-time inspection of deadlock_timeout, max_locks_per_transaction, and log_lock_waits settings.',
+      'Live Auto-Refresh Engine: High-frequency live polling with selectable intervals (2s fast poll, 5s, 10s, 30s) or manual trigger with active telemetry indicators.',
+      'Multi-Dimensional Filtering & Search: Instant classification tabs for Waiting/Blocked Only, Blocker Sessions, and Heavy Exclusive Locks, alongside live search filtering across PID, relation, schema, username, client IP, and query substrings.',
+      'SQL Studio Interoperability: Direct one-click transfer of blocking queries to the Postgres SQL Editor for query tuning and optimization, plus one-click SQL command copying.',
+      'Strict compliance with Universal Modal guidelines, high-contrast dark and light themes, boundary-safe tooltips, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.200.0',
     releaseDate: '2026-09-28',

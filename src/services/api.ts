@@ -1777,6 +1777,41 @@ export async function fetchRemoteServerPostgresActiveMaintenance(
   return res.json();
 }
 
+// ==========================================
+// Phase 20: Lock & Deadlock Inspector API
+// ==========================================
+export async function fetchRemoteServerPostgresLocks(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresLocksOverview;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/locks${queryStr}`);
+  return res.json();
+}
+
+export async function terminateRemoteServerPostgresSession(
+  id: string,
+  req: import('../types').PostgresSessionTerminateRequest
+): Promise<import('../types').PostgresSessionTerminateResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/locks/terminate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,
