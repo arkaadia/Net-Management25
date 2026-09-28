@@ -320,12 +320,64 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [mysqlModalServer, setMysqlModalServer] = useState<RemoteServer | null>(null);
   const [isMysqlModalOpen, setIsMysqlModalOpen] = useState(false);
 
-  // Add Server / Service Submenu Dropdown State
+  // Add Server / Service Submenu Dropdown State (Portal-rendered with fixed coords & z-[9999] to prevent falling underneath tables)
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [addServiceMode, setAddServiceMode] = useState<
     'standard' | 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql'
   >('standard');
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement | null>(null);
+  const addDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [addMenuCoords, setAddMenuCoords] = useState<{ top: number; left: number } | null>(null);
+
+  const updateAddMenuPosition = useCallback(() => {
+    if (!addBtnRef.current || typeof window === 'undefined') return;
+    const rect = addBtnRef.current.getBoundingClientRect();
+    const dropdownWidth = 320; // 20rem (w-80)
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let top = rect.bottom + 8;
+    const estimatedHeight = 390;
+    // If not enough room below (within 390px of viewport bottom) and more room above, flip above
+    if (top + estimatedHeight > viewportHeight && rect.top > estimatedHeight) {
+      top = Math.max(10, rect.top - estimatedHeight - 6);
+    }
+
+    let left: number;
+    if (isEn) {
+      // In LTR: try to align right edge of dropdown with right edge of button
+      const desiredLeft = rect.right - dropdownWidth;
+      if (desiredLeft >= 10 && desiredLeft + dropdownWidth <= viewportWidth - 10) {
+        left = desiredLeft;
+      } else if (rect.left + dropdownWidth <= viewportWidth - 10) {
+        left = Math.max(10, rect.left);
+      } else {
+        left = Math.max(10, viewportWidth - dropdownWidth - 10);
+      }
+    } else {
+      // In RTL: try to align left edge of dropdown with left edge of button
+      const desiredLeft = rect.left;
+      if (desiredLeft + dropdownWidth <= viewportWidth - 10 && desiredLeft >= 10) {
+        left = desiredLeft;
+      } else if (rect.right - dropdownWidth >= 10) {
+        left = rect.right - dropdownWidth;
+      } else {
+        left = Math.max(10, Math.min(rect.left, viewportWidth - dropdownWidth - 10));
+      }
+    }
+
+    setAddMenuCoords({ top, left });
+  }, [isEn]);
+
+  const handleToggleAddMenu = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!isAddMenuOpen) {
+      updateAddMenuPosition();
+      setIsAddMenuOpen(true);
+    } else {
+      setIsAddMenuOpen(false);
+    }
+  };
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -368,17 +420,35 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Ref to the floating 3-dots action menu dropdown container
   const menuDropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // Close Add Server / Service dropdown on click outside
+  // Close Add Server / Service dropdown on click outside or reposition on scroll/resize
   useEffect(() => {
     if (!isAddMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
-        setIsAddMenuOpen(false);
-      }
+
+    const handleScrollOrResize = () => {
+      updateAddMenuPosition();
     };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (addBtnRef.current && addBtnRef.current.contains(target)) {
+        return;
+      }
+      if (addDropdownRef.current && addDropdownRef.current.contains(target)) {
+        return;
+      }
+      setIsAddMenuOpen(false);
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isAddMenuOpen]);
+
+    return () => {
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isAddMenuOpen, updateAddMenuPosition]);
 
   // Close floating action menu on outside scroll or window resize
   useEffect(() => {
@@ -1167,7 +1237,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       dir={isEn ? 'ltr' : 'rtl'}
     >
       {/* 1. Sticky Top Bar (Matching DeviceListView spatial-glass styling) */}
-      <div className="sticky top-0 z-20 -mt-2 pt-2 pb-2 bg-transparent -mx-4 sm:-mx-6 px-4 sm:px-6 transition-all">
+      <div className="sticky top-0 z-30 -mt-2 pt-2 pb-2 bg-transparent -mx-4 sm:-mx-6 px-4 sm:px-6 transition-all">
         <div
           className={`flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 rounded-2xl border shadow-xl backdrop-blur-xl ${
             isLightMode
@@ -1277,11 +1347,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             </button>
 
             {/* Add Server & Standalone Services Dropdown Button */}
-            <div className="relative" ref={addMenuRef}>
+            <div className="relative">
               <button
+                ref={addBtnRef}
                 id="btn-add-server"
                 type="button"
-                onClick={() => setIsAddMenuOpen((prev) => !prev)}
+                onClick={handleToggleAddMenu}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
                 title={isEn ? 'Add remote server or standalone service' : 'ثبت سرور جدید یا سرویس مستقل'}
               >
@@ -1290,123 +1361,145 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isAddMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {/* Submenu Dropdown */}
-              {isAddMenuOpen && (
-                <div
-                  className={`absolute top-full mt-2 w-72 sm:w-80 rounded-2xl border shadow-2xl p-1.5 z-50 transition-all animate-in fade-in zoom-in-95 ${
-                    isEn ? 'right-0' : 'left-0'
-                  } ${
-                    isLightMode
-                      ? 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-900/20'
-                      : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
-                  }`}
-                >
-                  <div
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b ${
-                      isLightMode ? 'text-slate-500 border-slate-200' : 'text-slate-400 border-white/10'
-                    }`}
-                  >
-                    {isEn ? 'Select Server / Service Type' : 'نوع سرور یا سرویس مورد نظر را انتخاب کنید'}
-                  </div>
+              {/* Submenu Dropdown (Portal-rendered with z-[9999] so it never falls under tables or filters) */}
+              {isAddMenuOpen &&
+                addMenuCoords &&
+                createPortal(
+                  <>
+                    {/* Transparent Click-catcher Backdrop */}
+                    <div
+                      className="fixed inset-0 z-[9998] bg-transparent"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsAddMenuOpen(false);
+                      }}
+                    />
 
-                  <div className="py-1 space-y-1">
-                    {/* Option 1: Standard Full Compute Node */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAdd('standard')}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                    <div
+                      ref={addDropdownRef}
+                      style={{
+                        position: 'fixed',
+                        top: `${addMenuCoords.top}px`,
+                        left: `${addMenuCoords.left}px`,
+                        width: '20rem',
+                      }}
+                      className={`z-[9999] rounded-2xl border shadow-2xl p-1.5 font-sans transition-all animate-in fade-in zoom-in-95 ${
                         isEn ? 'text-left' : 'text-right'
-                      } ${isLightMode ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-white/10 text-slate-200'}`}
+                      } ${
+                        isLightMode
+                          ? 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-900/20'
+                          : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shrink-0">
-                        <Server className="w-4 h-4" />
+                      <div
+                        className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b ${
+                          isLightMode ? 'text-slate-500 border-slate-200' : 'text-slate-400 border-white/10'
+                        }`}
+                      >
+                        {isEn ? 'Select Server / Service Type' : 'نوع سرور یا سرویس مورد نظر را انتخاب کنید'}
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold">{isEn ? 'Compute Node (Linux / Windows)' : 'سرور محاسباتی لینوکس / ویندوز'}</span>
-                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? 'SSH, WinRM, RDP & Full OS Fleet' : 'مدیریت کامل سیستم‌عامل، ترمینال و فایل‌ها'}
-                        </span>
-                      </div>
-                    </button>
 
-                    {/* Option 2: Nginx Web Server */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAdd('nginx')}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                        isEn ? 'text-left' : 'text-right'
-                      } ${isLightMode ? 'hover:bg-emerald-50 text-emerald-800' : 'hover:bg-emerald-950/40 text-emerald-200'}`}
-                    >
-                      <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
-                        <Globe className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-emerald-400">{isEn ? 'Nginx Web Server / Proxy' : 'وب‌سرور انجین‌ایکس (Nginx)'}</span>
-                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? 'HTTP/HTTPS, Reverse Proxy & Virtual Hosts' : 'پروکسی معکوس، پورت‌های وب و هاست مجازی'}
-                        </span>
-                      </div>
-                    </button>
+                      <div className="py-1 space-y-1">
+                        {/* Option 1: Standard Full Compute Node */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd('standard')}
+                          className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-white/10 text-slate-200'}`}
+                        >
+                          <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shrink-0">
+                            <Server className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold">{isEn ? 'Compute Node (Linux / Windows)' : 'سرور محاسباتی لینوکس / ویندوز'}</span>
+                            <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'SSH, WinRM, RDP & Full OS Fleet' : 'مدیریت کامل سیستم‌عامل، ترمینال و فایل‌ها'}
+                            </span>
+                          </div>
+                        </button>
 
-                    {/* Option 3: Apache HTTP Server */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAdd('apache')}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                        isEn ? 'text-left' : 'text-right'
-                      } ${isLightMode ? 'hover:bg-rose-50 text-rose-800' : 'hover:bg-rose-950/40 text-rose-200'}`}
-                    >
-                      <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
-                        <Flame className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-rose-400">{isEn ? 'Apache HTTP Server' : 'وب‌سرور آپاچی (Apache)'}</span>
-                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? 'VirtualHosts, Modules, .htaccess & Ports' : 'هاست‌های مجازی، پورت‌ها و ماژول‌های وب'}
-                        </span>
-                      </div>
-                    </button>
+                        {/* Option 2: Nginx Web Server */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd('nginx')}
+                          className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-emerald-50 text-emerald-800' : 'hover:bg-emerald-950/40 text-emerald-200'}`}
+                        >
+                          <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                            <Globe className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-emerald-400">{isEn ? 'Nginx Web Server / Proxy' : 'وب‌سرور انجین‌ایکس (Nginx)'}</span>
+                            <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'HTTP/HTTPS, Reverse Proxy & Virtual Hosts' : 'پروکسی معکوس، پورت‌های وب و هاست مجازی'}
+                            </span>
+                          </div>
+                        </button>
 
-                    {/* Option 4: PostgreSQL Database */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAdd('postgresql')}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                        isEn ? 'text-left' : 'text-right'
-                      } ${isLightMode ? 'hover:bg-blue-50 text-blue-800' : 'hover:bg-blue-950/40 text-blue-200'}`}
-                    >
-                      <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
-                        <Database className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-blue-400">{isEn ? 'PostgreSQL Database' : 'پایگاه داده پستگرس (PostgreSQL)'}</span>
-                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? 'Port 5432, Schemas, SQL Runner & Roles' : 'ارتباط پورت ۵۴۳۲، اسکیماها و کوئری‌رانر'}
-                        </span>
-                      </div>
-                    </button>
+                        {/* Option 3: Apache HTTP Server */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd('apache')}
+                          className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-rose-50 text-rose-800' : 'hover:bg-rose-950/40 text-rose-200'}`}
+                        >
+                          <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
+                            <Flame className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-rose-400">{isEn ? 'Apache HTTP Server' : 'وب‌سرور آپاچی (Apache)'}</span>
+                            <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'VirtualHosts, Modules, .htaccess & Ports' : 'هاست‌های مجازی، پورت‌ها و ماژول‌های وب'}
+                            </span>
+                          </div>
+                        </button>
 
-                    {/* Option 5: MySQL / MariaDB Database */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAdd('mysql')}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                        isEn ? 'text-left' : 'text-right'
-                      } ${isLightMode ? 'hover:bg-amber-50 text-amber-800' : 'hover:bg-amber-950/40 text-amber-200'}`}
-                    >
-                      <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                        <Database className="w-4 h-4" />
+                        {/* Option 4: PostgreSQL Database */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd('postgresql')}
+                          className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-blue-50 text-blue-800' : 'hover:bg-blue-950/40 text-blue-200'}`}
+                        >
+                          <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+                            <Database className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-blue-400">{isEn ? 'PostgreSQL Database' : 'پایگاه داده پستگرس (PostgreSQL)'}</span>
+                            <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'Port 5432, Schemas, SQL Runner & Roles' : 'ارتباط پورت ۵۴۳۲، اسکیماها و کوئری‌رانر'}
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Option 5: MySQL / MariaDB Database */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdd('mysql')}
+                          className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-amber-50 text-amber-800' : 'hover:bg-amber-950/40 text-amber-200'}`}
+                        >
+                          <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                            <Database className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-amber-400">{isEn ? 'MySQL / MariaDB Database' : 'پایگاه داده مای‌اس‌کیوال (MySQL / MariaDB)'}</span>
+                            <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'Port 3306, Processlist, Query Runner & Tuning' : 'ارتباط پورت ۳۳۰۶، کوئری‌رانر و تلمتری'}
+                            </span>
+                          </div>
+                        </button>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-amber-400">{isEn ? 'MySQL / MariaDB Database' : 'پایگاه داده مای‌اس‌کیوال (MySQL / MariaDB)'}</span>
-                        <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? 'Port 3306, Processlist, Query Runner & Tuning' : 'ارتباط پورت ۳۳۰۶، کوئری‌رانر و تلمتری'}
-                        </span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
+                    </div>
+                  </>,
+                  document.body
+                )}
             </div>
           </div>
         </div>

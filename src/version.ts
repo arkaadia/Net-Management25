@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.206.0';
+export const APP_VERSION = '1.206.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.206.1',
+    releaseDate: '2026-09-28',
+    type: 'patch',
+    title: 'اصلاح لایه‌بندی منوی آبشاری ثبت سرور و سرویس‌ها (Add Remote Server) و مهار افتادن زیر جداول',
+    title_en: 'Fix Add Remote Server Submenu Z-Index Stacking Hierarchy via Direct Portal Rendering',
+    changes: [
+      'اصلاح لایه‌بندی بصری (Z-Index Hierarchy) منوی بازشونده دکمه «Add Remote Server» در نمای سرورهای ریموت (RemoteServersView): انتقال رندرینگ منوی آبشاری به ریشه سند با استفاده از پورتال مستقیم (createPortal در document.body) با لایه z-[9999] و مختصات ثابت (fixed coordinates).',
+      'جلوگیری قطعی از افتادن یا بریده شدن منو زیر جداول ناوگان، نوارهای فیلتر جستجو (relative z-20) یا کانتینرهای دارای backdrop-blur.',
+      'افزودن رویدادهای بازنشانی و محاسبه خودکار موقعیت منو بر اساس جهت زبان پنل (LTR / RTL)، چرخش هوشمند به سمت بالا در صورت نزدیکی به پایین صفحه، و بستن فوری با کلیک خارج از منو (Backdrop Click & Click Outside).',
+      'ارتقای لایه نوار بالای صفحه (Sticky Top Bar) به z-30 جهت تضمین تقدم همیشگی بر نوار فیلتر و جداول هنگام اسکرول.',
+    ],
+    changes_en: [
+      'Resolved stacking context issue where clicking "Add Remote Server" in RemoteServersView rendered the dropdown submenu underneath tables and search filters.',
+      'Transitioned the Add Remote Server submenu to direct root portal rendering (createPortal to document.body) with position: fixed and z-[9999] priority, ensuring it always floats cleanly above all tables, cards, and glassmorphic containers.',
+      'Implemented dynamic viewport boundary clamping with intelligent auto-flip (opening above the button if nearing viewport bottom) and direction-aware alignment for both LTR and RTL layouts.',
+      'Elevated sticky top bar stacking priority to z-30 to guarantee proper elevation above search filter controls during page scroll.',
+    ],
+  },
   {
     version: '1.206.0',
     releaseDate: '2026-09-28',
