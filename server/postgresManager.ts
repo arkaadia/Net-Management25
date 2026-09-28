@@ -21,6 +21,11 @@ import {
   PostgresLocksOverview,
   PostgresSessionTerminateRequest,
   PostgresSessionTerminateResult,
+  PostgresDbActivityStats,
+  PostgresBgWriterStats,
+  PostgresStatStatementItem,
+  PostgresLiveSessionItem,
+  PostgresPerformanceOverview,
 } from '../src/types';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
@@ -8987,6 +8992,340 @@ export async function terminatePostgresSession(
       action: options.action,
       message: err.message || `Error executing ${options.action} on PID ${options.pid}`,
       messageFa: `خطا در اجرای عملیات ${options.action === 'cancel' ? 'لغو' : 'خاتمه'} روی PID ${options.pid}`,
+      error: err.message,
+    };
+  }
+}
+
+// ============================================================================
+// PHASE 21: Live Activity & Query Performance Monitor (پایش زنده ترافیک و کوئری‌ها)
+// ============================================================================
+
+/**
+ * Phase 21: Retrieves comprehensive real-time database activity, transactions per second (TPS),
+ * buffer cache hit ratios, background writer checkpoint statistics, active session states,
+ * and slow query execution metrics from pg_stat_statements.
+ */
+export async function getPostgresPerformanceOverview(
+  server: RemoteServer,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<PostgresPerformanceOverview> {
+  const { client, targetDatabase } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    // 1. Database-level activity stats (Commits, Rollbacks, Blocks, Tuples, Conflicts)
+    const dbStatsRes = await client.query(
+      `
+      SELECT
+        d.datname,
+        COALESCE(d.numbackends, 0)::integer AS numbackends,
+        COALESCE(d.xact_commit, 0)::bigint AS xact_commit,
+        COALESCE(d.xact_rollback, 0)::bigint AS xact_rollback,
+        COALESCE(d.blks_read, 0)::bigint AS blks_read,
+        COALESCE(d.blks_hit, 0)::bigint AS blks_hit,
+        COALESCE(d.tup_returned, 0)::bigint AS tup_returned,
+        COALESCE(d.tup_fetched, 0)::bigint AS tup_fetched,
+        COALESCE(d.tup_inserted, 0)::bigint AS tup_inserted,
+        COALESCE(d.tup_updated, 0)::bigint AS tup_updated,
+        COALESCE(d.tup_deleted, 0)::bigint AS tup_deleted,
+        COALESCE(d.conflicts, 0)::bigint AS conflicts,
+        COALESCE(d.temp_files, 0)::bigint AS temp_files,
+        COALESCE(d.temp_bytes, 0)::bigint AS temp_bytes,
+        COALESCE(d.deadlocks, 0)::bigint AS deadlocks,
+        d.stats_reset
+      FROM pg_stat_database d
+      WHERE d.datname = $1;
+      `,
+      [targetDatabase]
+    );
+
+    const rawDb = dbStatsRes.rows?.[0] || {};
+    const blksRead = Number(rawDb.blks_read) || 0;
+    const blksHit = Number(rawDb.blks_hit) || 0;
+    const totalBlks = blksRead + blksHit;
+    const cacheHitRatio = totalBlks > 0 ? Number(((blksHit / totalBlks) * 100).toFixed(2)) : 100;
+
+    const dbStats: PostgresDbActivityStats = {
+      datname: rawDb.datname || targetDatabase,
+      numbackends: Number(rawDb.numbackends) || 0,
+      xactCommit: Number(rawDb.xact_commit) || 0,
+      xactRollback: Number(rawDb.xact_rollback) || 0,
+      blksRead,
+      blksHit,
+      tupReturned: Number(rawDb.tup_returned) || 0,
+      tupFetched: Number(rawDb.tup_fetched) || 0,
+      tupInserted: Number(rawDb.tup_inserted) || 0,
+      tupUpdated: Number(rawDb.tup_updated) || 0,
+      tupDeleted: Number(rawDb.tup_deleted) || 0,
+      conflicts: Number(rawDb.conflicts) || 0,
+      tempFiles: Number(rawDb.temp_files) || 0,
+      tempBytes: Number(rawDb.temp_bytes) || 0,
+      deadlocks: Number(rawDb.deadlocks) || 0,
+      cacheHitRatio,
+      statsReset: rawDb.stats_reset ? new Date(rawDb.stats_reset).toISOString() : undefined,
+    };
+
+    // 2. Background Writer stats (checkpoints, dirty page flushes)
+    let bgWriterStats: PostgresBgWriterStats | undefined;
+    try {
+      const bgRes = await client.query(`
+        SELECT
+          COALESCE(checkpoints_timed, 0)::bigint AS checkpoints_timed,
+          COALESCE(checkpoints_req, 0)::bigint AS checkpoints_req,
+          COALESCE(checkpoint_write_time, 0)::float AS checkpoint_write_time,
+          COALESCE(checkpoint_sync_time, 0)::float AS checkpoint_sync_time,
+          COALESCE(buffers_checkpoint, 0)::bigint AS buffers_checkpoint,
+          COALESCE(buffers_clean, 0)::bigint AS buffers_clean,
+          COALESCE(maxwritten_clean, 0)::bigint AS maxwritten_clean,
+          COALESCE(buffers_backend, 0)::bigint AS buffers_backend,
+          COALESCE(buffers_backend_fsync, 0)::bigint AS buffers_backend_fsync,
+          COALESCE(buffers_alloc, 0)::bigint AS buffers_alloc,
+          stats_reset
+        FROM pg_stat_bgwriter;
+      `);
+      if (bgRes.rows?.[0]) {
+        const b = bgRes.rows[0];
+        const timed = Number(b.checkpoints_timed) || 0;
+        const req = Number(b.checkpoints_req) || 0;
+        const totalCp = timed + req;
+        const forcedPct = totalCp > 0 ? Number(((req / totalCp) * 100).toFixed(1)) : 0;
+        bgWriterStats = {
+          checkpointsTimed: timed,
+          checkpointsReq: req,
+          checkpointWriteTime: Number(b.checkpoint_write_time) || 0,
+          checkpointSyncTime: Number(b.checkpoint_sync_time) || 0,
+          buffersCheckpoint: Number(b.buffers_checkpoint) || 0,
+          buffersClean: Number(b.buffers_clean) || 0,
+          maxwrittenClean: Number(b.maxwritten_clean) || 0,
+          buffersBackend: Number(b.buffers_backend) || 0,
+          buffersBackendFsync: Number(b.buffers_backend_fsync) || 0,
+          buffersAlloc: Number(b.buffers_alloc) || 0,
+          forcedCheckpointPercent: forcedPct,
+          statsReset: b.stats_reset ? new Date(b.stats_reset).toISOString() : undefined,
+        };
+      }
+    } catch {}
+
+    // 3. Max Connections & Connection pool state
+    let maxConn = 100;
+    try {
+      const s = await client.query(`SHOW max_connections;`);
+      maxConn = Number(s.rows[0]?.max_connections) || 100;
+    } catch {}
+
+    const connRes = await client.query(`
+      SELECT
+        count(*)::integer as total,
+        count(CASE WHEN state = 'active' THEN 1 END)::integer as active,
+        count(CASE WHEN state = 'idle' THEN 1 END)::integer as idle,
+        count(CASE WHEN state = 'idle in transaction' THEN 1 END)::integer as idle_in_transaction,
+        count(CASE WHEN wait_event_type IS NOT NULL AND state = 'active' THEN 1 END)::integer as waiting
+      FROM pg_stat_activity;
+    `);
+    const cRow = connRes.rows?.[0] || {};
+    const connectionSummary = {
+      total: Number(cRow.total) || 0,
+      active: Number(cRow.active) || 0,
+      idle: Number(cRow.idle) || 0,
+      idleInTransaction: Number(cRow.idle_in_transaction) || 0,
+      waiting: Number(cRow.waiting) || 0,
+      maxConnections: maxConn,
+    };
+
+    // 4. Active Sessions list
+    const sessionsRes = await client.query(`
+      SELECT
+        a.pid,
+        COALESCE(a.usename, '') AS usename,
+        COALESCE(a.datname, '') AS datname,
+        COALESCE(a.client_addr::text, 'local') AS client_addr,
+        COALESCE(a.application_name, '') AS application_name,
+        a.backend_start,
+        a.xact_start,
+        a.query_start,
+        a.state_change,
+        a.wait_event_type,
+        a.wait_event,
+        COALESCE(a.state, '') AS state,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(a.query_start, a.xact_start, NOW())))::numeric, 1)::float AS duration_seconds,
+        COALESCE(a.query, '') AS query
+      FROM pg_stat_activity a
+      WHERE a.pid != pg_backend_pid()
+      ORDER BY duration_seconds DESC
+      LIMIT 100;
+    `);
+
+    const activeSessions: PostgresLiveSessionItem[] = (sessionsRes.rows || []).map((s: any) => ({
+      pid: Number(s.pid),
+      usename: s.usename || 'postgres',
+      datname: s.datname || targetDatabase,
+      clientAddr: s.client_addr || 'local',
+      applicationName: s.application_name || '',
+      backendStart: s.backend_start ? new Date(s.backend_start).toISOString() : new Date().toISOString(),
+      xactStart: s.xact_start ? new Date(s.xact_start).toISOString() : undefined,
+      queryStart: s.query_start ? new Date(s.query_start).toISOString() : undefined,
+      stateChange: s.state_change ? new Date(s.state_change).toISOString() : undefined,
+      waitEventType: s.wait_event_type || undefined,
+      waitEvent: s.wait_event || undefined,
+      state: s.state || 'active',
+      durationSeconds: Math.max(0, Number(s.duration_seconds) || 0),
+      query: s.query || '',
+    }));
+
+    // 5. pg_stat_statements check & query stats
+    let pgStatStatementsAvailable = false;
+    let pgStatStatementsReason: string | undefined;
+    let topQueries: PostgresStatStatementItem[] = [];
+    let totalQueriesTracked = 0;
+    let totalClusterExecTimeMs = 0;
+
+    try {
+      const extCheck = await client.query(`
+        SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements';
+      `);
+      if (extCheck.rows && extCheck.rows.length > 0) {
+        // Inspect available columns in pg_stat_statements (total_exec_time in PG 13+ vs total_time in PG < 13)
+        const colsRes = await client.query(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_name = 'pg_stat_statements';
+        `);
+        const colNames = (colsRes.rows || []).map((r) => r.column_name);
+        const hasExecTime = colNames.includes('total_exec_time');
+        const timeCol = hasExecTime ? 'total_exec_time' : 'total_time';
+        const meanCol = hasExecTime ? 'mean_exec_time' : 'mean_time';
+        const minCol = hasExecTime ? 'min_exec_time' : '0 AS min_exec_time';
+        const maxCol = hasExecTime ? 'max_exec_time' : '0 AS max_exec_time';
+        const stddevCol = hasExecTime ? 'stddev_exec_time' : 'stddev_time';
+
+        // Sum total time across all statements
+        const sumRes = await client.query(`
+          SELECT
+            count(*)::integer AS total_tracked,
+            COALESCE(sum(${timeCol}), 0)::float AS total_cluster_time
+          FROM pg_stat_statements;
+        `);
+        totalQueriesTracked = Number(sumRes.rows?.[0]?.total_tracked) || 0;
+        totalClusterExecTimeMs = Number(sumRes.rows?.[0]?.total_cluster_time) || 0;
+
+        const statementsQuery = `
+          SELECT
+            queryid::text AS query_id,
+            query,
+            calls,
+            ROUND(${timeCol}::numeric, 2)::float AS total_exec_time,
+            ROUND(${meanCol}::numeric, 2)::float AS mean_exec_time,
+            ROUND((${minCol})::numeric, 2)::float AS min_exec_time,
+            ROUND((${maxCol})::numeric, 2)::float AS max_exec_time,
+            ROUND(${stddevCol}::numeric, 2)::float AS stddev_exec_time,
+            rows,
+            shared_blks_hit,
+            shared_blks_read,
+            shared_blks_dirtied,
+            shared_blks_written
+          FROM pg_stat_statements
+          ORDER BY ${timeCol} DESC
+          LIMIT 100;
+        `;
+
+        const statRes = await client.query(statementsQuery);
+        topQueries = (statRes.rows || []).map((r: any) => {
+          const tot = Number(r.total_exec_time) || 0;
+          const hit = Number(r.shared_blks_hit) || 0;
+          const read = Number(r.shared_blks_read) || 0;
+          const blkTotal = hit + read;
+          const hitPct = blkTotal > 0 ? Number(((hit / blkTotal) * 100).toFixed(1)) : 100;
+          const cpuPct = totalClusterExecTimeMs > 0 ? Number(((tot / totalClusterExecTimeMs) * 100).toFixed(1)) : 0;
+
+          return {
+            queryId: r.query_id || String(Math.random()),
+            query: r.query || '',
+            calls: Number(r.calls) || 0,
+            totalExecTimeMs: tot,
+            meanExecTimeMs: Number(r.mean_exec_time) || 0,
+            minExecTimeMs: Number(r.min_exec_time) || 0,
+            maxExecTimeMs: Number(r.max_exec_time) || 0,
+            stddevExecTimeMs: Number(r.stddev_exec_time) || 0,
+            rows: Number(r.rows) || 0,
+            sharedBlksHit: hit,
+            sharedBlksRead: read,
+            sharedBlksDirtied: Number(r.shared_blks_dirtied) || 0,
+            sharedBlksWritten: Number(r.shared_blks_written) || 0,
+            cacheHitPercent: hitPct,
+            percentOfTotalCpu: cpuPct,
+          };
+        });
+
+        pgStatStatementsAvailable = true;
+      } else {
+        pgStatStatementsAvailable = false;
+        pgStatStatementsReason = 'extension_not_installed';
+      }
+    } catch (err: any) {
+      pgStatStatementsAvailable = false;
+      pgStatStatementsReason = err.message || 'error_querying_pg_stat_statements';
+    }
+
+    await client.end();
+
+    return {
+      retrievedAt: new Date().toISOString(),
+      database: targetDatabase,
+      pgStatStatementsAvailable,
+      pgStatStatementsReason,
+      dbStats,
+      bgWriterStats,
+      connectionSummary,
+      topQueries,
+      totalQueriesTracked,
+      totalClusterExecTimeMs,
+      activeSessions,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Phase 21: Resets execution statistics in pg_stat_statements.
+ */
+export async function resetPostgresStatStatements(
+  server: RemoteServer,
+  options?: {
+    database?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const { client } = createPostgresClient(server, options);
+  await client.connect();
+
+  try {
+    await client.query(`SELECT pg_stat_statements_reset();`);
+    await client.end();
+    return {
+      success: true,
+      message: 'pg_stat_statements telemetry has been successfully reset.',
+      messageFa: 'آمار و تلمتری pg_stat_statements با موفقیت بازنشانی (Reset) شد.',
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return {
+      success: false,
+      message: err.message || 'Failed to reset pg_stat_statements',
+      messageFa: 'خطا در بازنشانی آمار pg_stat_statements',
       error: err.message,
     };
   }

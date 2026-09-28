@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.201.0';
+export const APP_VERSION = '1.202.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.202.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۲۱ مدیریت PostgreSQL: مانیتورینگ زنده ترافیک، بار و آمار تفصیلی کوئری‌ها (Live Activity & Query Performance Monitor)',
+    title_en: 'PostgreSQL Management Phase 21: Real-Time Traffic Telemetry, Query Performance Diagnostics & pg_stat_statements Integration',
+    changes: [
+      'پیاده‌سازی جامع فاز ۲۱ نقشه راه مدیریت PostgreSQL: هاب مانیتورینگ زنده ترافیک سرور، تحلیل نرخ تراکنش‌ها (TPS)، شاخص‌های بهره‌وری بافر کش، عیب‌یابی چک‌پوینت‌های نویسنده پس‌زمینه و ردیابی کوئری‌های کند با افزونه استاندارد pg_stat_statements.',
+      'پایش زنده ترافیک و تراکنش‌ها (Database Traffic & TPS Telemetry): استعلام بلادرنگ شاخص‌های pg_stat_database شامل مجموع کامیت‌ها، رول‌بک‌ها، نرخ بلاک‌های خوانده‌شده از دیسک در برابر حافظه رم، و تفکیک جریان سطرهای بازگردانی‌شده و نوشته‌شده (Inserts/Updates/Deletes).',
+      'سنجش سلامت حافظه بافر و نرخ کش (Buffer Cache Hit Ratio): محاسبه دقیق و آنی درصد بهره‌وری بافر رم کلاستر با شاخص‌های رنگی ارگونومیک (سبز بالای ۹۹٪، زرد ۹۵-۹۹٪ و قرمز نیازمند بهینه‌سازی دیسک).',
+      'تحلیلگر چک‌پوینت و نویسنده پس‌زمینه (Background Writer & I/O Diagnostics): بررسی عمیق جدول pg_stat_bgwriter جهت سنجش چک‌پوینت‌های زمان‌بندی‌شده در برابر چک‌پوینت‌های اضطراری (Forced Checkpoints ناشی از پر شدن سریع فایل‌های WAL) و هشدارهای هوشمند جهت تنظیم max_wal_size.',
+      'مرکز عیب‌یابی کوئری‌های پرمصرف و کند (Slow Query Profiler via pg_stat_statements): شناسایی و رتبه‌بندی کوئری‌ها بر اساس کل زمان مصرف CPU، میانگین زمان تاخیر اجرا (Mean Latency)، تعداد دفعات فراخوانی و حجم دیسک‌خوانی همراه با نوار بصری سهم مصرف پردازنده.',
+      'راهنمای هوشمند فعال‌سازی افزونه: تشخیص خودکار وضعیت نصب بودن افزونه رسمی pg_stat_statements و ارائه راهنمای کپی فرمان CREATE EXTENSION و تنظیمات shared_preload_libraries به همراه امکان اجرای تک‌کلیکه در SQL Studio.',
+      'پایش نشست‌های فعال (Live Active Sessions): پایش بلادرنگ نشست‌های متصل از pg_stat_activity با تفکیک رویدادهای معطلی (Wait Events مانند Lock، I/O و IPC)، کلاینت و مدت زمان اجرای تراکنش.',
+      'جعبه‌ابزار مدیریت آمار: امکان بازنشانی آمار و تلمتری کوئری‌ها با دستور امن pg_stat_statements_reset() از طریق مدال تایید دو مرحله‌ای، کپی آسان کدهای SQL و انتقال یک‌کلیکه به ویرایشگر SQL Studio.',
+      'سامانه رفرش خودکار زنده با بازه‌های ۲، ۵، ۱۰ و ۳۰ ثانیه جهت مانیتورینگ بدون تاخیر ترافیک و عیب‌یابی آنی بار سرور.',
+      'انطباق کامل با استانداردهای طراحی مودال، تم‌های تیره و روشن، ساختار سه‌بخشی راهنماهای FieldInfoTooltip و رعایت سخت‌گیرانه قوانین دو زبانه (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Comprehensive implementation of PostgreSQL Management Phase 21: Real-time server traffic monitoring, transaction throughput (TPS) telemetry, buffer cache hit efficiency, background writer checkpoint diagnostics, and slow query profiling with official pg_stat_statements.',
+      'Database Traffic & TPS Telemetry: Real-time inspection of pg_stat_database metrics including cumulative commits, rollbacks, disk read vs buffer hit block throughput, and tuple streaming flow (returned vs inserted/updated/deleted rows).',
+      'Buffer Cache Hit Ratio Gauge: Real-time computation of RAM cache hit efficiency with ergonomic status indicators (green >= 99%, yellow 95-99%, red indicating heavy disk bottleneck).',
+      'Background Writer & I/O Diagnostics: Deep analysis of pg_stat_bgwriter comparing scheduled checkpoints against forced requested checkpoints caused by saturated WAL buffers, providing smart sizing recommendations for max_wal_size.',
+      'Slow Query Profiler via pg_stat_statements: Identifies and ranks workload queries by total cluster CPU consumption, mean execution latency, invocation call frequency, and shared disk read volume, complete with CPU share progress bars.',
+      'Smart Extension Setup Guide: Automatically detects pg_stat_statements installation status, offering one-click CREATE EXTENSION snippets, SQL Studio direct execution, and guidance for shared_preload_libraries.',
+      'Live Active Sessions Inspector: Real-time session auditing from pg_stat_activity detailing wait events (Lock, I/O, IPC), connected client IPs, transaction states, and run duration counters.',
+      'Telemetry Reset & Management Toolkit: Safely reset aggregated query statistics via pg_stat_statements_reset() with two-step confirmation dialogs, quick SQL snippet copying, and one-click transfer to SQL Studio.',
+      'High-frequency live polling with selectable intervals (2s fast ticker, 5s, 10s, 30s) or manual trigger with active telemetry indicators.',
+      'Strict compliance with Universal Modal guidelines, high-contrast dark and light themes, boundary-safe tooltips, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.201.0',
     releaseDate: '2026-09-28',

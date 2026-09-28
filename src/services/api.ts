@@ -1812,6 +1812,41 @@ export async function terminateRemoteServerPostgresSession(
   return res.json();
 }
 
+// ==========================================
+// Phase 21: Live Activity & Query Performance API
+// ==========================================
+export async function fetchRemoteServerPostgresPerformance(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{
+  success: boolean;
+  data?: import('../types').PostgresPerformanceOverview;
+  error?: string;
+  errorFa?: string;
+}> {
+  const params = new URLSearchParams();
+  if (options?.database) params.append('database', options.database);
+  if (options?.port) params.append('port', String(options.port));
+  if (options?.user) params.append('user', options.user);
+  if (options?.password) params.append('password', options.password);
+
+  const queryStr = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/performance${queryStr}`);
+  return res.json();
+}
+
+export async function resetRemoteServerPostgresStatStatements(
+  id: string,
+  options?: { database?: string; port?: number; user?: string; password?: string }
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/performance/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

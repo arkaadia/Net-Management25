@@ -2734,6 +2734,101 @@ export interface PostgresSessionTerminateResult {
   error?: string;
 }
 
+// ============================================================================
+// PHASE 21: Live Activity & Query Performance Monitor (پایش زنده ترافیک و کوئری‌ها)
+// ============================================================================
+
+export interface PostgresDbActivityStats {
+  datname: string;
+  numbackends: number;
+  xactCommit: number;
+  xactRollback: number;
+  blksRead: number;
+  blksHit: number;
+  tupReturned: number;
+  tupFetched: number;
+  tupInserted: number;
+  tupUpdated: number;
+  tupDeleted: number;
+  conflicts: number;
+  tempFiles: number;
+  tempBytes: number;
+  deadlocks: number;
+  cacheHitRatio: number;
+  statsReset?: string;
+}
+
+export interface PostgresBgWriterStats {
+  checkpointsTimed: number;
+  checkpointsReq: number;
+  checkpointWriteTime: number;
+  checkpointSyncTime: number;
+  buffersCheckpoint: number;
+  buffersClean: number;
+  maxwrittenClean: number;
+  buffersBackend: number;
+  buffersBackendFsync: number;
+  buffersAlloc: number;
+  forcedCheckpointPercent: number;
+  statsReset?: string;
+}
+
+export interface PostgresStatStatementItem {
+  queryId: string;
+  query: string;
+  calls: number;
+  totalExecTimeMs: number;
+  meanExecTimeMs: number;
+  minExecTimeMs: number;
+  maxExecTimeMs: number;
+  stddevExecTimeMs: number;
+  rows: number;
+  sharedBlksHit: number;
+  sharedBlksRead: number;
+  sharedBlksDirtied: number;
+  sharedBlksWritten: number;
+  cacheHitPercent: number;
+  percentOfTotalCpu: number;
+}
+
+export interface PostgresLiveSessionItem {
+  pid: number;
+  usename: string;
+  datname: string;
+  clientAddr: string;
+  applicationName: string;
+  backendStart: string;
+  xactStart?: string;
+  queryStart?: string;
+  stateChange?: string;
+  waitEventType?: string;
+  waitEvent?: string;
+  state: string;
+  durationSeconds: number;
+  query: string;
+}
+
+export interface PostgresPerformanceOverview {
+  retrievedAt: string;
+  database: string;
+  pgStatStatementsAvailable: boolean;
+  pgStatStatementsReason?: string;
+  dbStats: PostgresDbActivityStats;
+  bgWriterStats?: PostgresBgWriterStats;
+  connectionSummary: {
+    total: number;
+    active: number;
+    idle: number;
+    idleInTransaction: number;
+    waiting: number;
+    maxConnections: number;
+  };
+  topQueries: PostgresStatStatementItem[];
+  totalQueriesTracked: number;
+  totalClusterExecTimeMs: number;
+  activeSessions: PostgresLiveSessionItem[];
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

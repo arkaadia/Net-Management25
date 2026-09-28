@@ -106,6 +106,8 @@ import {
   getPostgresActiveMaintenance,
   getPostgresLocksOverview,
   terminatePostgresSession,
+  getPostgresPerformanceOverview,
+  resetPostgresStatStatements,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2834,6 +2836,89 @@ apiRouter.post('/remote-servers/:id/postgres/locks/terminate', async (req: Reque
       success: false,
       error: err.message || 'Failed to terminate PostgreSQL backend session',
       errorFa: 'خطا در خاتمه نشست PostgreSQL',
+    });
+  }
+});
+
+// ============================================================================
+// PHASE 21: Live Activity & Query Performance Monitor (پایش زنده ترافیک و کوئری‌ها)
+// ============================================================================
+
+// GET /api/remote-servers/:id/postgres/performance - Retrieve live activity, TPS, buffer hits, checkpoints & slow queries
+apiRouter.get('/remote-servers/:id/postgres/performance', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const overview = await getPostgresPerformanceOverview(server, {
+      database,
+      port,
+      user,
+      password,
+    });
+
+    return res.json({
+      success: true,
+      data: overview,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve PostgreSQL performance overview',
+      errorFa: 'خطا در دریافت وضعیت کارایی و تلمتری کوئری‌های PostgreSQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/performance/reset - Reset pg_stat_statements statistics
+apiRouter.post('/remote-servers/:id/postgres/performance/reset', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { database, port, user, password } = req.body || {};
+    const result = await resetPostgresStatStatements(server, {
+      database: database || server.postgres_database || 'postgres',
+      port: port ? Number(port) : undefined,
+      user: user || server.postgres_user,
+      password,
+    });
+
+    // Record audit log
+    try {
+      await addAuditLog({
+        user: (req as any).user?.username || 'system',
+        action: 'POSTGRES_STAT_STATEMENTS_RESET',
+        details: `Reset pg_stat_statements metrics on server ${server.name || server.ip} (database: ${database || 'default'})`,
+        status: result.success ? 'success' : 'failure',
+      });
+    } catch {}
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to reset PostgreSQL stat statements',
+      errorFa: 'خطا در بازنشانی آمار pg_stat_statements',
     });
   }
 });

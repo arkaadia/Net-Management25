@@ -57,6 +57,7 @@ import { PostgresBackupManagerTab } from './PostgresBackupManagerTab';
 import { PostgresExtensionsManagerTab } from './PostgresExtensionsManagerTab';
 import { PostgresHealthAuditTab } from './PostgresHealthAuditTab';
 import { PostgresLocksInspectorTab } from './PostgresLocksInspectorTab';
+import { PostgresPerformanceMonitorTab } from './PostgresPerformanceMonitorTab';
 import { PostgresHbaManagerTab } from './PostgresHbaManagerTab';
 import { PostgresMaintenanceModal } from './PostgresMaintenanceModal';
 
@@ -71,7 +72,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'locks' | 'hba' | 'overview' | 'connection';
+type PostgresTab = 'browser' | 'sql' | 'roles' | 'permissions' | 'databases' | 'backups' | 'extensions' | 'health' | 'locks' | 'performance' | 'hba' | 'overview' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -556,6 +557,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
             >
               <Lock className="w-3.5 h-3.5 text-rose-400" />
               <span>{isEn ? 'Locks & Deadlocks' : 'قفل‌ها و بن‌بست‌ها'}</span>
+            </button>
+
+            {/* TAB: PERFORMANCE & ACTIVITY MONITOR (Phase 21) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('performance')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'performance'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Live Activity & Performance' : 'ترافیک و کارایی زنده'}</span>
             </button>
 
             {/* TAB: CLIENT AUTHENTICATION (pg_hba.conf) (Phase 16) */}
@@ -1188,6 +1205,20 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
           {/* TAB: LOCK & DEADLOCK INSPECTOR (Phase 20) */}
           {activeTab === 'locks' && (
             <PostgresLocksInspectorTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={server.postgres_database || 'postgres'}
+              onNavigateToSqlStudio={(sql) => {
+                setSqlEditorInitialQuery(sql);
+                setActiveTab('sql');
+              }}
+            />
+          )}
+
+          {/* TAB: LIVE ACTIVITY & PERFORMANCE (Phase 21) */}
+          {activeTab === 'performance' && (
+            <PostgresPerformanceMonitorTab
               server={server}
               isLightMode={isLightMode}
               isEn={isEn}
