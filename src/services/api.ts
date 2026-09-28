@@ -1707,6 +1707,76 @@ export async function reloadRemoteServerPostgresHbaConfig(
   return res.json();
 }
 
+// ==========================================
+// Phase 18: Database Maintenance & Optimization API
+// ==========================================
+
+export async function runRemoteServerPostgresMaintenance(
+  id: string,
+  params: import('../types').PostgresMaintenanceRequest
+): Promise<import('../types').PostgresMaintenanceResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/maintenance/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresBloatMetrics(
+  id: string,
+  params: {
+    database: string;
+    schema?: string;
+    table?: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{
+  success: boolean;
+  database: string;
+  metrics: import('../types').PostgresTableBloatMetric[];
+  error?: string;
+  errorFa?: string;
+}> {
+  const q = new URLSearchParams();
+  q.append('database', params.database);
+  if (params.schema) q.append('schema', params.schema);
+  if (params.table) q.append('table', params.table);
+  if (params.port) q.append('port', String(params.port));
+  if (params.user) q.append('user', params.user);
+  if (params.password) q.append('password', params.password);
+
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/maintenance/bloat?${q.toString()}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresActiveMaintenance(
+  id: string,
+  params: {
+    database: string;
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{
+  success: boolean;
+  database: string;
+  activeTasks: import('../types').PostgresActiveMaintenanceProgress[];
+  error?: string;
+  errorFa?: string;
+}> {
+  const q = new URLSearchParams();
+  q.append('database', params.database);
+  if (params.port) q.append('port', String(params.port));
+  if (params.user) q.append('user', params.user);
+  if (params.password) q.append('password', params.password);
+
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/maintenance/active?${q.toString()}`);
+  return res.json();
+}
+
 export async function fetchRemoteServerPostgresDatabaseTree(
   id: string,
   database: string,

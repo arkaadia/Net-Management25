@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.198.0';
+export const APP_VERSION = '1.199.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.199.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'فاز ۱۸ مدیریت PostgreSQL: ابزارهای نگهداری، بهینه‌سازی و پاکسازی فضای مرده (Maintenance & Optimization - VACUUM, ANALYZE, REINDEX)',
+    title_en: 'PostgreSQL Management Phase 18: Maintenance & Optimization Hub (VACUUM, ANALYZE, REINDEX, Bloat Metrics & Lock Warnings)',
+    changes: [
+      'پیاده‌سازی کامل فاز ۱۸ نقشه راه مدیریت PostgreSQL: هاب جامع نگهداری، بازسازی ایندکس و پاکسازی فضای مرده جداول و پایگاه‌های داده.',
+      'مرکز جامع اجرای عملیات VACUUM: پشتیبانی کامل از VACUUM معمولی، VACUUM FULL (بازپس‌گیری فضای دیسک به سیستم‌عامل)، FREEZE و تحلیل همزمان آمار با VACUUM ANALYZE.',
+      'بهینه‌سازی آمار توزیع داده‌ها (ANALYZE): به‌روزرسانی آمارهای کوئری پلنر در سطح کل پایگاه داده یا جداول مجزا جهت تولید بهینه‌ترین برنامه‌های اجرایی (Query Plans).',
+      'بازسازی تخصصی ایندکس‌ها (REINDEX): بازسازی ایندکس‌های معیوب یا حجیم در سطوح جدول، ایندکس، اسکیما و دیتابیس با پشتیبانی از حالت امن CONCURRENTLY جهت بازسازی در پس‌زمینه بدون مسدودسازی عملیات نوشتن.',
+      'سامانه هوشمند تشخیص هرزرفت و فضای مرده (Dead Tuples & Bloat Inspector): اسکن کاتالوگ‌های آماری سرور، نمایش درصد سطرهای مرده، حجم دیسک جدول و ایندکس، آخرین زمان اجرای اتوماتیک و دستی، و ارائه پیشنهادات هوشمند نیاز به نگهداری.',
+      'پایش زنده فرآیندهای در حال اجرا (Active VACUUM Progress Monitor): استعلام مستقیم از جدول آماری pg_stat_progress_vacuum جهت نمایش گام‌به‌گام بلاک‌های اسکن‌شده و پیشرفت زنده درصد پاکسازی.',
+      'تحلیلگر و هشدار سطوح قفل‌گذاری (Lock Impact Evaluation): سنجش خودکار نوع قفل مورد نیاز (ShareLock، AccessExclusiveLock، ShareUpdateExclusiveLock) و ارائه هشدارهای دقیق امنیتی قبل از اجرای فرآیندهای قفل‌کننده سنگین.',
+      'کنسول لاگ‌های خروجی سرور (Server Output Notices): دریافت پیام‌های لحظه‌ای سرور در حالت VERBOSE و نمایش صفحات پاکسازی‌شده، سطرهای حذف‌شده و مدت زمان اجرا به میلی‌ثانیه.',
+      'طراحی کامل مودال استاندارد سه‌کلیده (بستن، کوچک‌نمایی و تمام‌صفحه) همراه با حفظ حریم فوتر و انطباق ۱۰۰٪ با تم تیره و روشن و قوانین دو زبانه (Strict Bilingual i18n).'
+    ],
+    changes_en: [
+      'Complete implementation of PostgreSQL Management Phase 18: Comprehensive Database Maintenance & Optimization Hub for remote Linux instances.',
+      'Full VACUUM operations suite: Standard online VACUUM, aggressive VACUUM FULL for reclaiming disk space to the OS, transaction ID freezing (FREEZE), and bundled VACUUM ANALYZE.',
+      'Query Optimizer Statistics Update (ANALYZE): Gathers data distribution telemetry across entire databases or individual tables to ensure optimal query execution plans.',
+      'Specialized Index Rebuilding (REINDEX): Rebuilds bloated or corrupted indexes at Table, Index, Schema, and Database scopes with zero-downtime CONCURRENTLY mode preventing table write locks.',
+      'Dead Tuples & Bloat Inspector: Deep scanning of PostgreSQL statistic catalogs (pg_stat_user_tables), displaying live vs dead tuples, bloat percentages, relation and index sizes, freshness timestamps, and actionable maintenance recommendations.',
+      'Live VACUUM Progress Monitor: Real-time polling of pg_stat_progress_vacuum reporting live block progression, scanning phases, and dead tuple counts for active maintenance jobs.',
+      'Lock Impact Warnings & Classification: Automatic safety evaluation of required lock types (AccessExclusiveLock, ShareLock, ShareUpdateExclusiveLock) warning operators before high-contention exclusive operations.',
+      'Server Output Notices Console: Captures live PostgreSQL notice streams in VERBOSE mode, detailing scanned pages, removed tuples, and duration tracking in milliseconds.',
+      'Compliant 3-button modal (Close, Minimize, Fullscreen) with strict footer clearance, high-contrast dark/light theme styling, and strict bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.198.0',
     releaseDate: '2026-09-27',

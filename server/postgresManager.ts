@@ -7601,6 +7601,444 @@ export async function reloadPostgresHba(
   }
 }
 
+/**
+ * ============================================================================
+ * PHASE 18: Database Maintenance & Optimization (VACUUM, ANALYZE, REINDEX)
+ * ============================================================================
+ */
+
+export function evaluateMaintenanceLockWarning(
+  action: 'vacuum' | 'analyze' | 'reindex',
+  options: { full?: boolean; concurrently?: boolean }
+): {
+  level: 'none' | 'low' | 'moderate' | 'heavy' | 'exclusive';
+  lockName: string;
+  blocksReads: boolean;
+  blocksWrites: boolean;
+  description: string;
+  descriptionFa: string;
+} {
+  if (action === 'vacuum') {
+    if (options.full) {
+      return {
+        level: 'exclusive',
+        lockName: 'AccessExclusiveLock',
+        blocksReads: true,
+        blocksWrites: true,
+        description:
+          'VACUUM FULL rewrites the entire table to reclaim disk space to OS. It acquires an AccessExclusiveLock, blocking all concurrent SELECT, INSERT, UPDATE, and DELETE operations until finished.',
+        descriptionFa:
+          'دستور VACUUM FULL کل جدول را از نو بازنویسی می‌کند تا فضای دیسک را به سیستم‌عامل بازگرداند. این عملیات قفل انحصاری کامل (AccessExclusiveLock) می‌گیرد و کلیه خواندن‌ها و نوشتن‌ها تا پایان مسدود می‌شوند.',
+      };
+    }
+    return {
+      level: 'low',
+      lockName: 'ShareUpdateExclusiveLock',
+      blocksReads: false,
+      blocksWrites: false,
+      description:
+        'Standard VACUUM runs completely online without blocking normal SELECT, INSERT, UPDATE, or DELETE operations. It reclaims dead space for future table inserts.',
+      descriptionFa:
+        'دستور VACUUM استاندارد به صورت آنلاین و بدون مسدودسازی تراکنش‌های خواندن یا نوشتن اجرا شده و فضاهای خالی را برای رکوردهای بعدی آماده می‌کند.',
+    };
+  }
+
+  if (action === 'analyze') {
+    return {
+      level: 'low',
+      lockName: 'ShareUpdateExclusiveLock',
+      blocksReads: false,
+      blocksWrites: false,
+      description:
+        'ANALYZE collects distribution statistics about the contents of tables to optimize query planner execution plans. Normal queries continue unaffected.',
+      descriptionFa:
+        'دستور ANALYZE آمار توزیع داده‌ها را جهت بهینه‌سازی نقشه اجرای کوئری‌ها جمع‌آوری می‌کند و تاثیری در اجرای کوئری‌های عادی ندارد.',
+    };
+  }
+
+  // action === 'reindex'
+  if (options.concurrently) {
+    return {
+      level: 'moderate',
+      lockName: 'ShareUpdateExclusiveLock (CONCURRENTLY)',
+      blocksReads: false,
+      blocksWrites: false,
+      description:
+        'REINDEX CONCURRENTLY rebuilds indexes in the background without locking out concurrent SELECT, INSERT, UPDATE, or DELETE operations.',
+      descriptionFa:
+        'دستور REINDEX CONCURRENTLY ایندکس‌ها را در پس‌زمینه بدون مسدود کردن خواندن یا نوشتن بازسازی می‌کند.',
+    };
+  }
+
+  return {
+    level: 'heavy',
+    lockName: 'ShareLock',
+    blocksReads: false,
+    blocksWrites: true,
+    description:
+      'Standard REINDEX locks out all write operations (INSERT, UPDATE, DELETE) on the target table until the index rebuild is finished. Reads remain operational.',
+    descriptionFa:
+      'دستور REINDEX استاندارد کلیه عملیات‌های نوشتن (درج، ویرایش و حذف) را تا اتمام بازسازی ایندکس مسدود می‌کند، ولی خواندن فعال می‌ماند.',
+  };
+}
+
+export async function runPostgresMaintenance(
+  server: RemoteServer,
+  params: {
+    action: 'vacuum' | 'analyze' | 'reindex';
+    scope: 'table' | 'database' | 'schema' | 'index';
+    database: string;
+    schema?: string;
+    table?: string;
+    indexName?: string;
+    full?: boolean;
+    freeze?: boolean;
+    analyzeWithVacuum?: boolean;
+    verbose?: boolean;
+    concurrently?: boolean;
+    port?: number;
+    user?: string;
+    sessionPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  action: 'vacuum' | 'analyze' | 'reindex';
+  scope: 'table' | 'database' | 'schema' | 'index';
+  targetDescription: string;
+  executedCommand: string;
+  durationMs: number;
+  message: string;
+  messageFa: string;
+  lockWarning?: {
+    level: 'none' | 'low' | 'moderate' | 'heavy' | 'exclusive';
+    lockName: string;
+    blocksReads: boolean;
+    blocksWrites: boolean;
+    description: string;
+    descriptionFa: string;
+  };
+  outputLogs?: string[];
+  error?: string;
+  errorFa?: string;
+}> {
+  const { client } = createPostgresClient(server, {
+    database: params.database,
+    port: params.port,
+    user: params.user,
+    password: params.sessionPassword,
+  });
+
+  const outputLogs: string[] = [];
+  const lockWarning = evaluateMaintenanceLockWarning(params.action, {
+    full: params.full,
+    concurrently: params.concurrently,
+  });
+
+  let executedCommand = '';
+  let targetDescription = '';
+
+  // Construct target description and valid SQL statement
+  if (params.action === 'vacuum') {
+    const opts: string[] = [];
+    if (params.full) opts.push('FULL');
+    if (params.freeze) opts.push('FREEZE');
+    if (params.verbose) opts.push('VERBOSE');
+    if (params.analyzeWithVacuum) opts.push('ANALYZE');
+
+    const optString = opts.length > 0 ? `(${opts.join(', ')})` : '';
+
+    if (params.scope === 'table' && params.table) {
+      const targetIdent = params.schema
+        ? `"${params.schema.replace(/"/g, '""')}"."${params.table.replace(/"/g, '""')}"`
+        : `"${params.table.replace(/"/g, '""')}"`;
+      executedCommand = `VACUUM ${optString} ${targetIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Table ${targetIdent}`;
+    } else {
+      executedCommand = `VACUUM ${optString};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Entire Database "${params.database}"`;
+    }
+  } else if (params.action === 'analyze') {
+    const optString = params.verbose ? 'VERBOSE' : '';
+    if (params.scope === 'table' && params.table) {
+      const targetIdent = params.schema
+        ? `"${params.schema.replace(/"/g, '""')}"."${params.table.replace(/"/g, '""')}"`
+        : `"${params.table.replace(/"/g, '""')}"`;
+      executedCommand = `ANALYZE ${optString} ${targetIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Table ${targetIdent}`;
+    } else {
+      executedCommand = `ANALYZE ${optString};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Entire Database "${params.database}"`;
+    }
+  } else if (params.action === 'reindex') {
+    const concurrentStr = params.concurrently ? 'CONCURRENTLY' : '';
+
+    if (params.scope === 'table' && params.table) {
+      const targetIdent = params.schema
+        ? `"${params.schema.replace(/"/g, '""')}"."${params.table.replace(/"/g, '""')}"`
+        : `"${params.table.replace(/"/g, '""')}"`;
+      executedCommand = `REINDEX TABLE ${concurrentStr} ${targetIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Table ${targetIdent}`;
+    } else if (params.scope === 'index' && params.indexName) {
+      const targetIdent = params.schema
+        ? `"${params.schema.replace(/"/g, '""')}"."${params.indexName.replace(/"/g, '""')}"`
+        : `"${params.indexName.replace(/"/g, '""')}"`;
+      executedCommand = `REINDEX INDEX ${concurrentStr} ${targetIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Index ${targetIdent}`;
+    } else if (params.scope === 'schema' && params.schema) {
+      const schemaIdent = `"${params.schema.replace(/"/g, '""')}"`;
+      executedCommand = `REINDEX SCHEMA ${concurrentStr} ${schemaIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Schema ${schemaIdent}`;
+    } else {
+      // Reindex Database
+      const dbIdent = `"${params.database.replace(/"/g, '""')}"`;
+      executedCommand = `REINDEX DATABASE ${concurrentStr} ${dbIdent};`.trim().replace(/\s+/g, ' ');
+      targetDescription = `Entire Database "${params.database}"`;
+    }
+  }
+
+  const startTime = Date.now();
+
+  try {
+    // Listen for PostgreSQL server notices (e.g. VACUUM VERBOSE logs)
+    client.on('notice', (msg) => {
+      if (msg && msg.message) {
+        outputLogs.push(msg.message);
+      }
+    });
+
+    await client.connect();
+    await client.query(executedCommand);
+    const durationMs = Date.now() - startTime;
+    await client.end();
+
+    const actionUpper = params.action.toUpperCase();
+
+    return {
+      success: true,
+      action: params.action,
+      scope: params.scope,
+      targetDescription,
+      executedCommand,
+      durationMs,
+      message: `${actionUpper} executed successfully on ${targetDescription} in ${durationMs} ms.`,
+      messageFa: `عملیات ${actionUpper} با موفقیت روی ${targetDescription} ظرف مدت ${durationMs} میلی‌ثانیه اجرا شد.`,
+      lockWarning,
+      outputLogs: outputLogs.length > 0 ? outputLogs : undefined,
+    };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    const durationMs = Date.now() - startTime;
+
+    return {
+      success: false,
+      action: params.action,
+      scope: params.scope,
+      targetDescription,
+      executedCommand,
+      durationMs,
+      message: `Failed to execute ${params.action.toUpperCase()} on ${targetDescription}: ${err.message}`,
+      messageFa: `خطا در اجرای ${params.action.toUpperCase()} روی ${targetDescription}: ${err.message}`,
+      lockWarning,
+      outputLogs: outputLogs.length > 0 ? outputLogs : undefined,
+      error: err.message,
+      errorFa: `خطا در اجرای دستور پایگاه داده: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Retrieve dead tuples, bloat estimates and maintenance recommendations
+ */
+export async function getPostgresBloatMetrics(
+  server: RemoteServer,
+  database: string,
+  schema?: string,
+  table?: string,
+  opts?: { port?: number; user?: string; sessionPassword?: string }
+): Promise<Array<{
+  schema: string;
+  tableName: string;
+  liveTuples: number;
+  deadTuples: number;
+  deadTupleRatio: number;
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  tableSizeBytes: number;
+  tableSizePretty: string;
+  indexSizeBytes: number;
+  indexSizePretty: string;
+  lastVacuum?: string | null;
+  lastAutovacuum?: string | null;
+  lastAnalyze?: string | null;
+  lastAutoanalyze?: string | null;
+  vacuumRecommended: boolean;
+  analyzeRecommended: boolean;
+  reindexRecommended: boolean;
+}>> {
+  const { client } = createPostgresClient(server, {
+    database,
+    port: opts?.port,
+    user: opts?.user,
+    password: opts?.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+
+    const sql = `
+      SELECT
+        schemaname AS "schema",
+        relname AS "tableName",
+        COALESCE(n_live_tup, 0)::bigint AS "liveTuples",
+        COALESCE(n_dead_tup, 0)::bigint AS "deadTuples",
+        ROUND(
+          CASE WHEN (COALESCE(n_live_tup, 0) + COALESCE(n_dead_tup, 0)) > 0
+            THEN (COALESCE(n_dead_tup, 0)::numeric / (COALESCE(n_live_tup, 0) + COALESCE(n_dead_tup, 0))::numeric) * 100
+            ELSE 0
+          END, 2
+        )::float AS "deadTupleRatio",
+        pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname))::bigint AS "totalSizeBytes",
+        pg_size_pretty(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname))) AS "totalSizePretty",
+        pg_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname))::bigint AS "tableSizeBytes",
+        pg_size_pretty(pg_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname))) AS "tableSizePretty",
+        pg_indexes_size(quote_ident(schemaname) || '.' || quote_ident(relname))::bigint AS "indexSizeBytes",
+        pg_size_pretty(pg_indexes_size(quote_ident(schemaname) || '.' || quote_ident(relname))) AS "indexSizePretty",
+        last_vacuum AS "lastVacuum",
+        last_autovacuum AS "lastAutovacuum",
+        last_analyze AS "lastAnalyze",
+        last_autoanalyze AS "lastAutoanalyze"
+      FROM pg_stat_user_tables
+      WHERE ($1::text IS NULL OR schemaname = $1)
+        AND ($2::text IS NULL OR relname = $2)
+      ORDER BY n_dead_tup DESC, n_live_tup DESC
+      LIMIT 100;
+    `;
+
+    const res = await client.query(sql, [schema || null, table || null]);
+    await client.end();
+
+    return (res.rows || []).map((r) => {
+      const deadTuples = Number(r.deadTuples) || 0;
+      const deadRatio = Number(r.deadTupleRatio) || 0;
+      const indexSizeBytes = Number(r.indexSizeBytes) || 0;
+
+      // Smart recommendations based on dead tuples, bloat ratio, and statistics freshness
+      const vacuumRecommended = deadTuples > 500 && deadRatio > 10;
+      const analyzeRecommended = (!r.lastAnalyze && !r.lastAutoanalyze) || deadRatio > 20;
+      const reindexRecommended = indexSizeBytes > 10000000 && deadRatio > 25;
+
+      return {
+        schema: r.schema,
+        tableName: r.tableName,
+        liveTuples: Number(r.liveTuples) || 0,
+        deadTuples,
+        deadTupleRatio: deadRatio,
+        totalSizeBytes: Number(r.totalSizeBytes) || 0,
+        totalSizePretty: r.totalSizePretty || '0 bytes',
+        tableSizeBytes: Number(r.tableSizeBytes) || 0,
+        tableSizePretty: r.tableSizePretty || '0 bytes',
+        indexSizeBytes,
+        indexSizePretty: r.indexSizePretty || '0 bytes',
+        lastVacuum: r.lastVacuum ? new Date(r.lastVacuum).toISOString() : null,
+        lastAutovacuum: r.lastAutovacuum ? new Date(r.lastAutovacuum).toISOString() : null,
+        lastAnalyze: r.lastAnalyze ? new Date(r.lastAnalyze).toISOString() : null,
+        lastAutoanalyze: r.lastAutoanalyze ? new Date(r.lastAutoanalyze).toISOString() : null,
+        vacuumRecommended,
+        analyzeRecommended,
+        reindexRecommended,
+      };
+    });
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    console.error('[Postgres Bloat Metrics Error]', err);
+    return [];
+  }
+}
+
+/**
+ * Check active VACUUM operations currently running on the server
+ */
+export async function getPostgresActiveMaintenance(
+  server: RemoteServer,
+  database: string,
+  opts?: { port?: number; user?: string; sessionPassword?: string }
+): Promise<Array<{
+  pid: number;
+  datname: string;
+  relname?: string;
+  phase: string;
+  heapBlksTotal?: number;
+  heapBlksScanned?: number;
+  heapBlksVacuumed?: number;
+  indexVacuumCount?: number;
+  maxDeadTuples?: number;
+  numDeadTuples?: number;
+}>> {
+  const { client } = createPostgresClient(server, {
+    database,
+    port: opts?.port,
+    user: opts?.user,
+    password: opts?.sessionPassword,
+  });
+
+  try {
+    await client.connect();
+
+    // Check if pg_stat_progress_vacuum exists in catalog
+    const checkView = await client.query(`
+      SELECT 1 FROM pg_views WHERE viewname = 'pg_stat_progress_vacuum';
+    `);
+
+    if (!checkView.rows || checkView.rows.length === 0) {
+      await client.end();
+      return [];
+    }
+
+    const sql = `
+      SELECT
+        p.pid,
+        d.datname,
+        c.relname,
+        p.phase,
+        p.heap_blks_total AS "heapBlksTotal",
+        p.heap_blks_scanned AS "heapBlksScanned",
+        p.heap_blks_vacuumed AS "heapBlksVacuumed",
+        p.index_vacuum_count AS "indexVacuumCount",
+        p.max_dead_tuples AS "maxDeadTuples",
+        p.num_dead_tuples AS "numDeadTuples"
+      FROM pg_stat_progress_vacuum p
+      LEFT JOIN pg_database d ON d.oid = p.datid
+      LEFT JOIN pg_class c ON c.oid = p.relid;
+    `;
+
+    const res = await client.query(sql);
+    await client.end();
+
+    return (res.rows || []).map((r) => ({
+      pid: Number(r.pid),
+      datname: r.datname || database,
+      relname: r.relname || undefined,
+      phase: r.phase || 'running',
+      heapBlksTotal: Number(r.heapBlksTotal) || 0,
+      heapBlksScanned: Number(r.heapBlksScanned) || 0,
+      heapBlksVacuumed: Number(r.heapBlksVacuumed) || 0,
+      indexVacuumCount: Number(r.indexVacuumCount) || 0,
+      maxDeadTuples: Number(r.maxDeadTuples) || 0,
+      numDeadTuples: Number(r.numDeadTuples) || 0,
+    }));
+  } catch (err) {
+    try {
+      await client.end();
+    } catch {}
+    return [];
+  }
+}
+
+
 
 
 

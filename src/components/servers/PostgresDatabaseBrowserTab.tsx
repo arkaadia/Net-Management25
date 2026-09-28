@@ -50,6 +50,8 @@ import {
   X,
   Pencil,
   Terminal,
+  RotateCw,
+  Activity,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -97,6 +99,12 @@ export interface PostgresDatabaseBrowserTabProps {
   onRefreshDatabases: () => Promise<void>;
   onRefreshOverview: () => Promise<void>;
   onOpenSqlEditor?: (query: string, database?: string, schema?: string) => void;
+  onOpenMaintenance?: (params: {
+    database?: string;
+    schema?: string;
+    table?: string;
+    action?: 'vacuum' | 'analyze' | 'reindex';
+  }) => void;
 }
 
 export type SelectedNodeType =
@@ -143,6 +151,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
   onRefreshDatabases,
   onRefreshOverview,
   onOpenSqlEditor,
+  onOpenMaintenance,
 }) => {
   // Tree expansion state
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
@@ -4311,6 +4320,77 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                   {struct.metadata.nTuplesHotUpd.toLocaleString()}
                                 </p>
                               </div>
+                            </div>
+                          </div>
+
+                          {/* Table Maintenance & Optimization Shortcut (Phase 18) */}
+                          <div
+                            className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
+                              isLightMode ? 'bg-amber-50/70 border-amber-200' : 'bg-amber-950/20 border-amber-900/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                                <Zap className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h5 className="font-bold text-xs text-amber-300">
+                                  {isEn ? 'Table Maintenance & Bloat Space Reclaim' : 'نگهداری و پاکسازی فضای مرده جدول'}
+                                </h5>
+                                <p className="text-[11px] text-slate-400">
+                                  {isEn
+                                    ? 'Reclaim dead tuple space, update query optimizer distribution statistics, or rebuild indexes.'
+                                    : 'پاکسازی سطرهای مرده، به‌روزرسانی آمار توزیع داده‌ها یا بازسازی ایندکس‌های این جدول.'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 font-sans">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenMaintenance?.({
+                                    database: selectedNode.dbName,
+                                    schema: selectedNode.schemaName,
+                                    table: selectedNode.name,
+                                    action: 'vacuum',
+                                  })
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <Zap className="w-3.5 h-3.5" />
+                                <span>VACUUM</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenMaintenance?.({
+                                    database: selectedNode.dbName,
+                                    schema: selectedNode.schemaName,
+                                    table: selectedNode.name,
+                                    action: 'analyze',
+                                  })
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <Activity className="w-3.5 h-3.5" />
+                                <span>ANALYZE</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenMaintenance?.({
+                                    database: selectedNode.dbName,
+                                    schema: selectedNode.schemaName,
+                                    table: selectedNode.name,
+                                    action: 'reindex',
+                                  })
+                                }
+                                className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <RotateCw className="w-3.5 h-3.5" />
+                                <span>REINDEX</span>
+                              </button>
                             </div>
                           </div>
 

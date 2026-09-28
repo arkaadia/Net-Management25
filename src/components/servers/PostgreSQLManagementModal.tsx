@@ -32,6 +32,7 @@ import {
   Users,
   Archive,
   Puzzle,
+  Zap,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -39,6 +40,7 @@ import {
   PostgresConnectionStatus,
   PostgresEngineOverview,
   PostgresDatabaseItem,
+  PostgresMaintenanceAction,
 } from '../../types';
 import {
   testRemoteServerPostgresConnection,
@@ -55,6 +57,7 @@ import { PostgresBackupManagerTab } from './PostgresBackupManagerTab';
 import { PostgresExtensionsManagerTab } from './PostgresExtensionsManagerTab';
 import { PostgresHealthAuditTab } from './PostgresHealthAuditTab';
 import { PostgresHbaManagerTab } from './PostgresHbaManagerTab';
+import { PostgresMaintenanceModal } from './PostgresMaintenanceModal';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -86,6 +89,13 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
   const [sqlEditorInitialQuery, setSqlEditorInitialQuery] = useState<string | undefined>(undefined);
   const [sqlEditorTargetDb, setSqlEditorTargetDb] = useState<string | undefined>(undefined);
   const [sqlEditorTargetSchema, setSqlEditorTargetSchema] = useState<string | undefined>(undefined);
+
+  // Phase 18: Maintenance Hub States
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+  const [maintenanceInitialDb, setMaintenanceInitialDb] = useState<string | undefined>(undefined);
+  const [maintenanceInitialSchema, setMaintenanceInitialSchema] = useState<string | undefined>(undefined);
+  const [maintenanceInitialTable, setMaintenanceInitialTable] = useState<string | undefined>(undefined);
+  const [maintenanceInitialAction, setMaintenanceInitialAction] = useState<PostgresMaintenanceAction | undefined>(undefined);
 
   // Connection Test State
   const [testing, setTesting] = useState(false);
@@ -547,6 +557,26 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               <span>{isEn ? 'Client Auth (pg_hba)' : 'احراز هویت (pg_hba)'}</span>
             </button>
 
+            {/* TAB: MAINTENANCE & OPTIMIZATION (Phase 18) */}
+            <button
+              type="button"
+              onClick={() => {
+                setMaintenanceInitialDb(databases[0]?.name || 'postgres');
+                setMaintenanceInitialSchema(undefined);
+                setMaintenanceInitialTable(undefined);
+                setMaintenanceInitialAction(undefined);
+                setIsMaintenanceModalOpen(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Maintenance (VACUUM)' : 'نگهداری (VACUUM)'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('connection')}
@@ -583,6 +613,13 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                 if (db) setSqlEditorTargetDb(db);
                 if (schema) setSqlEditorTargetSchema(schema);
                 setActiveTab('sql');
+              }}
+              onOpenMaintenance={(params) => {
+                setMaintenanceInitialDb(params.database);
+                setMaintenanceInitialSchema(params.schema);
+                setMaintenanceInitialTable(params.table);
+                setMaintenanceInitialAction(params.action);
+                setIsMaintenanceModalOpen(true);
               }}
             />
           )}
@@ -1458,5 +1495,24 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
     </div>
   );
 
-  return createPortal(modalContent, document.body);
+  return (
+    <>
+      {createPortal(modalContent, document.body)}
+      {server && (
+        <PostgresMaintenanceModal
+          isOpen={isMaintenanceModalOpen}
+          server={server}
+          databases={databases}
+          initialDatabase={maintenanceInitialDb}
+          initialSchema={maintenanceInitialSchema}
+          initialTable={maintenanceInitialTable}
+          initialAction={maintenanceInitialAction}
+          onClose={() => setIsMaintenanceModalOpen(false)}
+          onMinimize={() => setIsMaintenanceModalOpen(false)}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
+    </>
+  );
 };

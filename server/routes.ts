@@ -101,6 +101,9 @@ import {
   savePostgresHbaConfig,
   restorePostgresHbaBackup,
   reloadPostgresHba,
+  runPostgresMaintenance,
+  getPostgresBloatMetrics,
+  getPostgresActiveMaintenance,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -2573,6 +2576,161 @@ apiRouter.post('/remote-servers/:id/postgres/hba/reload', async (req: Request, r
       success: false,
       error: err.message || 'Failed to reload PostgreSQL configuration',
       errorFa: 'خطا در بازخوانی مجدد پیکربندی PostgreSQL',
+    });
+  }
+});
+
+// ============================================================================
+// PHASE 18: Database Maintenance & Optimization (VACUUM, ANALYZE, REINDEX)
+// ============================================================================
+
+// POST /api/remote-servers/:id/postgres/maintenance/run - Run VACUUM, ANALYZE or REINDEX
+apiRouter.post('/remote-servers/:id/postgres/maintenance/run', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      action,
+      scope,
+      database,
+      schema,
+      table,
+      indexName,
+      full,
+      freeze,
+      analyzeWithVacuum,
+      verbose,
+      concurrently,
+      port,
+      user,
+      sessionPassword,
+    } = req.body;
+
+    if (!action || !['vacuum', 'analyze', 'reindex'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid maintenance action (vacuum, analyze, reindex) is required.',
+        errorFa: 'انتخاب نوع عملیات نگهداری معتبر (vacuum، analyze یا reindex) الزامی است.',
+      });
+    }
+
+    if (!database) {
+      return res.status(400).json({
+        success: false,
+        error: 'Target database name is required.',
+        errorFa: 'نام پایگاه داده هدف الزامی است.',
+      });
+    }
+
+    const result = await runPostgresMaintenance(server, {
+      action,
+      scope: scope || 'table',
+      database,
+      schema,
+      table,
+      indexName,
+      full: Boolean(full),
+      freeze: Boolean(freeze),
+      analyzeWithVacuum: Boolean(analyzeWithVacuum),
+      verbose: Boolean(verbose),
+      concurrently: Boolean(concurrently),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute maintenance command',
+      errorFa: 'خطای سرور در اجرای دستور نگهداری و بهینه‌سازی',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/maintenance/bloat - Retrieve dead tuples and bloat metrics
+apiRouter.get('/remote-servers/:id/postgres/maintenance/bloat', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const schema = req.query.schema as string | undefined;
+    const table = req.query.table as string | undefined;
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const metrics = await getPostgresBloatMetrics(server, database, schema, table, {
+      port,
+      user,
+      sessionPassword: password,
+    });
+
+    return res.json({
+      success: true,
+      database,
+      metrics,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch table bloat metrics',
+      errorFa: 'خطا در دریافت شاخص‌های هرزرفت و فضای مرده جداول',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/maintenance/active - Check active vacuum progress
+apiRouter.get('/remote-servers/:id/postgres/maintenance/active', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = (req.query.database as string) || server.postgres_database || 'postgres';
+    const port = req.query.port ? Number(req.query.port) : undefined;
+    const user = req.query.user as string | undefined;
+    const password = req.query.password as string | undefined;
+
+    const activeTasks = await getPostgresActiveMaintenance(server, database, {
+      port,
+      user,
+      sessionPassword: password,
+    });
+
+    return res.json({
+      success: true,
+      database,
+      activeTasks,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch active maintenance tasks',
+      errorFa: 'خطا در دریافت وضعیت عملیات فعال نگهداری',
     });
   }
 });

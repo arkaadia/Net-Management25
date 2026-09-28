@@ -2542,6 +2542,90 @@ export interface PostgresHbaRestoreRequest {
   user?: string;
 }
 
+// ============================================================================
+// PHASE 18: Database Maintenance & Optimization (VACUUM, ANALYZE, REINDEX)
+// ============================================================================
+
+export type PostgresMaintenanceAction = 'vacuum' | 'analyze' | 'reindex';
+export type PostgresMaintenanceScope = 'table' | 'database' | 'schema' | 'index';
+
+export interface PostgresMaintenanceLockWarning {
+  level: 'none' | 'low' | 'moderate' | 'heavy' | 'exclusive';
+  lockName: string;
+  blocksReads: boolean;
+  blocksWrites: boolean;
+  description: string;
+  descriptionFa: string;
+}
+
+export interface PostgresMaintenanceRequest {
+  action: PostgresMaintenanceAction;
+  scope: PostgresMaintenanceScope;
+  database: string;
+  schema?: string;
+  table?: string;
+  indexName?: string;
+  // Options
+  full?: boolean; // VACUUM FULL (takes exclusive lock)
+  freeze?: boolean; // VACUUM FREEZE
+  analyzeWithVacuum?: boolean; // VACUUM ANALYZE
+  verbose?: boolean;
+  concurrently?: boolean; // REINDEX ... CONCURRENTLY
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface PostgresMaintenanceResult {
+  success: boolean;
+  action: PostgresMaintenanceAction;
+  scope: PostgresMaintenanceScope;
+  targetDescription: string;
+  executedCommand: string;
+  durationMs: number;
+  message: string;
+  messageFa: string;
+  lockWarning?: PostgresMaintenanceLockWarning;
+  outputLogs?: string[];
+  error?: string;
+  errorFa?: string;
+}
+
+export interface PostgresTableBloatMetric {
+  schema: string;
+  tableName: string;
+  liveTuples: number;
+  deadTuples: number;
+  deadTupleRatio: number; // percentage (0-100)
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  tableSizeBytes: number;
+  tableSizePretty: string;
+  indexSizeBytes: number;
+  indexSizePretty: string;
+  lastVacuum?: string | null;
+  lastAutovacuum?: string | null;
+  lastAnalyze?: string | null;
+  lastAutoanalyze?: string | null;
+  vacuumRecommended: boolean;
+  analyzeRecommended: boolean;
+  reindexRecommended: boolean;
+}
+
+export interface PostgresActiveMaintenanceProgress {
+  pid: number;
+  datname: string;
+  relname?: string;
+  phase: string;
+  heapBlksTotal?: number;
+  heapBlksScanned?: number;
+  heapBlksVacuumed?: number;
+  indexVacuumCount?: number;
+  maxDeadTuples?: number;
+  numDeadTuples?: number;
+  elapsedSeconds?: number;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;
