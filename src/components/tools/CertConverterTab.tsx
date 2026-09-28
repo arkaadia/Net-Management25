@@ -29,6 +29,17 @@ import {
   X
 } from 'lucide-react';
 
+interface OutputMissingRequirements {
+  needsPrivateKey?: boolean;
+  needsModulusMatch?: boolean;
+  needsPassword?: boolean;
+  errorMessageEn?: string;
+  errorMessageFa?: string;
+  instructionEn?: string;
+  instructionFa?: string;
+  commandExample?: string;
+}
+
 interface ConvertedOutput {
   id: string;
   format: string;
@@ -41,6 +52,8 @@ interface ConvertedOutput {
   descriptionFa: string;
   targetPlatforms: string[];
   sizeBytes: number;
+  status?: 'ready' | 'requires_action' | 'error';
+  missingRequirements?: OutputMissingRequirements;
 }
 
 interface CertInfo {
@@ -112,6 +125,7 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
   // File input refs
   const certFileInputRef = useRef<HTMLInputElement>(null);
   const keyFileInputRef = useRef<HTMLInputElement>(null);
+  const keyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const caFileInputRef = useRef<HTMLInputElement>(null);
   const pfxFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -813,6 +827,7 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
               </div>
 
               <textarea
+                ref={keyTextareaRef}
                 rows={3}
                 value={keyText}
                 onChange={(e) => setKeyText(e.target.value)}
@@ -1235,14 +1250,21 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
                         {item.isBinary ? <FolderArchive className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
                       </div>
                       <div>
-                        <h5 className="text-xs font-bold text-slate-100">{item.format}</h5>
+                        <h5 className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-slate-100'}`}>{item.format}</h5>
                         <span className="text-[10px] font-mono text-cyan-400">{item.filename}</span>
                       </div>
                     </div>
 
-                    <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-800/60">
-                      {(item.sizeBytes / 1024).toFixed(1)} KB
-                    </span>
+                    {item.status === 'requires_action' ? (
+                      <span className="text-[10px] font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center gap-1 shrink-0">
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span>{isEn ? 'Requires Private Key' : 'نیازمند کلید خصوصی'}</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-800/60 shrink-0">
+                        {(item.sizeBytes / 1024).toFixed(1)} KB
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2">
@@ -1262,56 +1284,168 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
                       ))}
                     </div>
                   )}
+
+                  {/* Missing Requirement Guidance Box (for PFX or actions requiring key) */}
+                  {item.status === 'requires_action' && item.missingRequirements && (
+                    <div
+                      className={`mt-2.5 p-3 rounded-xl border text-xs space-y-2.5 animate-in fade-in ${
+                        isLightMode
+                          ? 'bg-amber-50/90 border-amber-300 text-slate-800'
+                          : 'bg-amber-950/25 border-amber-500/35 text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0 mt-0.5">
+                          <Key className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="font-bold text-xs flex items-center gap-1.5 text-amber-400">
+                            <span>{isEn ? 'Why is PFX not generated & What is needed?' : 'علت عدم تولید PFX و پیش‌نیاز مورد نیاز'}</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed font-semibold text-amber-500">
+                            {isEn ? item.missingRequirements.errorMessageEn : item.missingRequirements.errorMessageFa}
+                          </p>
+                          <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                            {isEn ? item.missingRequirements.instructionEn : item.missingRequirements.instructionFa}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action buttons inside card */}
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-500/20">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowKeyField(true);
+                            setTimeout(() => {
+                              keyTextareaRef.current?.focus();
+                              keyTextareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }, 100);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+                            isLightMode
+                              ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                              : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-95 text-white'
+                          }`}
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Provide Private Key Above' : 'ورود کلید خصوصی در بالا'}</span>
+                        </button>
+
+                        {item.missingRequirements.commandExample && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (item.missingRequirements?.commandExample) {
+                                navigator.clipboard.writeText(item.missingRequirements.commandExample);
+                                setCopiedId(`cmd_${item.id}`);
+                                setTimeout(() => setCopiedId(null), 2500);
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border ${
+                              copiedId === `cmd_${item.id}`
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : isLightMode
+                                ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                            }`}
+                            title={isEn ? 'Copy local OpenSSL export command' : 'کپی دستور OpenSSL جهت ساخت در سیستم خود'}
+                          >
+                            {copiedId === `cmd_${item.id}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+                            <span>{copiedId === `cmd_${item.id}` ? (isEn ? 'Command Copied' : 'دستور کپی شد') : (isEn ? 'Copy OpenSSL Command' : 'کپی دستور OpenSSL')}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {item.missingRequirements.commandExample && (
+                        <div className="pt-1">
+                          <div className={`p-2 rounded-lg text-[10px] font-mono select-all overflow-x-auto custom-scrollbar border ${
+                            isLightMode ? 'bg-white/90 border-amber-300/60 text-slate-800' : 'bg-slate-950/80 border-amber-500/20 text-cyan-300'
+                          }`}>
+                            {item.missingRequirements.commandExample}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
-                  <div className="flex items-center gap-1.5">
-                    {!item.isBinary && item.text && (
-                      <button
-                        onClick={() => handleCopyText(item)}
-                        className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer border ${
-                          copiedId === item.id
-                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                            : isLightMode
-                            ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                        }`}
-                        title={isEn ? 'Copy file text to clipboard' : 'کپی متن فایل'}
-                      >
-                        {copiedId === item.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedId === item.id ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
-                      </button>
-                    )}
+                {item.status === 'requires_action' ? (
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
+                    <div className="flex items-center gap-1.5 text-amber-400 text-xs font-medium">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Private Key Required for Export' : 'نیازمند کلید متناظر برای ایجاد فایل'}</span>
+                    </div>
 
-                    {!item.isBinary && item.text && (
-                      <button
-                        onClick={() => setPreviewItem(item)}
-                        className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer border ${
-                          isLightMode
-                            ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                        }`}
-                        title={isEn ? 'Preview content' : 'پیش‌نمایش محتوا'}
-                      >
-                        <Eye className="w-3 h-3 text-amber-400" />
-                        <span>{isEn ? 'Preview' : 'مشاهده'}</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowKeyField(true);
+                        setTimeout(() => {
+                          keyTextareaRef.current?.focus();
+                          keyTextareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 100);
+                      }}
+                      className={`px-3 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+                        isLightMode
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                      }`}
+                    >
+                      <Key className="w-3 h-3" />
+                      <span>{isEn ? 'Enter Key to Generate' : 'ورود کلید و ساخت'}</span>
+                    </button>
                   </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
+                    <div className="flex items-center gap-1.5">
+                      {!item.isBinary && item.text && (
+                        <button
+                          onClick={() => handleCopyText(item)}
+                          className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer border ${
+                            copiedId === item.id
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                              : isLightMode
+                              ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                              : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          }`}
+                          title={isEn ? 'Copy file text to clipboard' : 'کپی متن فایل'}
+                        >
+                          {copiedId === item.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedId === item.id ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
+                        </button>
+                      )}
 
-                  <button
-                    onClick={() => handleDownloadItem(item)}
-                    className={`px-3 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
-                      isLightMode
-                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                        : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                    }`}
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>{isEn ? 'Download' : 'دانلود فایل'}</span>
-                  </button>
-                </div>
+                      {!item.isBinary && item.text && (
+                        <button
+                          onClick={() => setPreviewItem(item)}
+                          className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer border ${
+                            isLightMode
+                              ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                              : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          }`}
+                          title={isEn ? 'Preview content' : 'پیش‌نمایش محتوا'}
+                        >
+                          <Eye className="w-3 h-3 text-amber-400" />
+                          <span>{isEn ? 'Preview' : 'مشاهده'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => handleDownloadItem(item)}
+                      className={`px-3 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+                        isLightMode
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                      }`}
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>{isEn ? 'Download' : 'دانلود فایل'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

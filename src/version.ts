@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.206.1';
+export const APP_VERSION = '1.207.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.207.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'تعبیه فرمت آرشیو PFX / PKCS#12 در لیست خروجی‌های تبدیل گواهی با راهنمای پیش‌نیاز کلید خصوصی',
+    title_en: 'Include PFX / PKCS#12 in Certificate Output Formats Suite with Requirement Guidance & OpenSSL Automation',
+    changes: [
+      'تجهیز ماژول تبدیل و بازرسی گواهی (SSL / TLS Certificate Inspector & Converter) به تولید دائمی فرمت آرشیو PKCS#12 (.pfx / .p12): قرارگیری همیشگی فرمت PFX در فهرست خروجی‌های دکمه «Convert & Generate All Output Formats».',
+      'باکس راهنمای هوشمند پیش‌نیاز در کارت PFX (در صورت عدم ورود کلید خصوصی یا عدم تطابق آن): توضیح صریح و فنی علت عدم تولید فایل باینری PFX (نیاز ساختاری فرمت PKCS#12 به کلید خصوصی برای بسته‌بندی جفت‌کلید رمزنگاری).',
+      'دکمه تعاملی دسترسی مستقیم به فیلد کلید خصوصی (Provide Private Key): باز کردن خودکار کادر کلید خصوصی و اسکرول نرم و فوکوس روی تکست‌اریا جهت ورود کلید و تولید آنی.',
+      'تولید خودکار فرمان OpenSSL متناسب با دامنه و کلید: امکان کپی سریع دستور استاندارد openssl pkcs12 -export با یک کلیک جهت اجرای محلی در ترمینال سیستم کاربر.',
+      'بهبود سازگاری موتور صدور PFX در سمت بک‌اند با استفاده از فلگ سازگاری openssl pkcs12 و پالایش ایمن فایل‌های بدون محتوا در بسته ZIP یکپارچه.',
+    ],
+    changes_en: [
+      'Enhanced SSL / TLS Certificate Inspector & Converter to always include PKCS#12 (.pfx / .p12) in the generated output formats list when clicking "Convert & Generate All Output Formats".',
+      'Added an intelligent requirement guidance card whenever a Private Key is missing or mismatched, technically explaining why .pfx cannot be assembled without its matching private key pair.',
+      'Integrated a 1-click interactive action to expand and focus the Private Key field with smooth viewport scrolling for quick entry and re-generation.',
+      'Generated domain-tailored OpenSSL CLI export commands with a 1-click copy button, allowing users to export PFX locally in their own terminal environments.',
+      'Improved OpenSSL PKCS#12 export resilience on the backend with modern and legacy cipher fallbacks, ensuring empty placeholder files are excluded from the unified ZIP archive.',
+    ],
+  },
   {
     version: '1.206.1',
     releaseDate: '2026-09-28',

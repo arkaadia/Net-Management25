@@ -5,6 +5,17 @@ import path from 'path';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
 
+export interface OutputMissingRequirements {
+  needsPrivateKey?: boolean;
+  needsModulusMatch?: boolean;
+  needsPassword?: boolean;
+  errorMessageEn?: string;
+  errorMessageFa?: string;
+  instructionEn?: string;
+  instructionFa?: string;
+  commandExample?: string;
+}
+
 export interface ConvertedOutputItem {
   id: string;
   format: string;
@@ -17,6 +28,8 @@ export interface ConvertedOutputItem {
   descriptionFa: string;
   targetPlatforms: string[];
   sizeBytes: number;
+  status?: 'ready' | 'requires_action' | 'error';
+  missingRequirements?: OutputMissingRequirements;
 }
 
 export interface CertInfoMetadata {
@@ -731,7 +744,110 @@ export function registerCertConverterRoutes(app: Express): void {
         descriptionFa: 'فرمت استاندارد متنی Base64 با هدرهای استاندارد. مناسب برای وب‌سرورهای Nginx، Apache، HAProxy و سرورهای لینوکس.',
         targetPlatforms: ['Nginx', 'Apache HTTPD', 'HAProxy', 'Linux / Unix', 'cPanel / DirectAdmin'],
         sizeBytes: Buffer.byteLength(certPem, 'utf8'),
+        status: 'ready',
       });
+
+      // 2. PKCS#12 / PFX Archive (.pfx / .p12) - Always present in output formats
+      if (hasKey) {
+        let pfxSuccess = false;
+        let pfxBuffer: Buffer | null = null;
+        const pfxPath = path.join(tmpDir, 'output.pfx');
+        const passOpt = pfxPass ? `-passout "pass:${pfxPass}"` : `-passout "pass:"`;
+        const caOpt = hasCa ? `-certfile "${caPath}"` : '';
+        const nameOpt = alias ? `-name "${alias}"` : '';
+
+        try {
+          execSync(
+            `openssl pkcs12 -export -out "${pfxPath}" -inkey "${keyPath}" -in "${certPath}" ${caOpt} ${nameOpt} ${passOpt} 2>/dev/null`
+          );
+          if (fs.existsSync(pfxPath)) {
+            pfxBuffer = fs.readFileSync(pfxPath);
+            pfxSuccess = true;
+          }
+        } catch {
+          try {
+            // Fallback attempt with -legacy flag for older environments
+            execSync(
+              `openssl pkcs12 -export -legacy -out "${pfxPath}" -inkey "${keyPath}" -in "${certPath}" ${caOpt} ${nameOpt} ${passOpt} 2>/dev/null`
+            );
+            if (fs.existsSync(pfxPath)) {
+              pfxBuffer = fs.readFileSync(pfxPath);
+              pfxSuccess = true;
+            }
+          } catch (pfxErr: any) {
+            console.warn('[CertConverter] PFX export error:', pfxErr.message);
+          }
+        }
+
+        if (pfxSuccess && pfxBuffer) {
+          outputs.push({
+            id: 'pkcs12_pfx',
+            format: 'PKCS#12 Archive (.pfx / .p12)',
+            filename: `${safeCn}.pfx`,
+            mimeType: 'application/x-pkcs12',
+            isBinary: true,
+            base64: pfxBuffer.toString('base64'),
+            status: 'ready',
+            descriptionEn: `Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat. (Password: ${pfxPass ? 'Custom Password Set' : 'Blank/None'})`,
+            descriptionFa: `کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور. (رمز عبور: ${pfxPass ? 'رمز سفارشی تنظیم شده' : 'بدون رمز'})`,
+            targetPlatforms: ['Microsoft IIS', 'Azure App Services', 'Windows Server', 'Tomcat', 'Citrix Gateway'],
+            sizeBytes: pfxBuffer.length,
+          });
+        } else {
+          const isMismatch = keyMatch.checked && !keyMatch.matches;
+          outputs.push({
+            id: 'pkcs12_pfx',
+            format: 'PKCS#12 Archive (.pfx / .p12)',
+            filename: `${safeCn}.pfx`,
+            mimeType: 'application/x-pkcs12',
+            isBinary: true,
+            sizeBytes: 0,
+            status: 'requires_action',
+            descriptionEn: 'Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat.',
+            descriptionFa: 'کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور.',
+            targetPlatforms: ['Microsoft IIS', 'Azure App Services', 'Windows Server', 'Tomcat', 'Citrix Gateway'],
+            missingRequirements: {
+              needsPrivateKey: false,
+              needsModulusMatch: isMismatch,
+              errorMessageEn: isMismatch
+                ? 'Cryptographic Modulus Mismatch: The provided Private Key does not correspond to this Certificate.'
+                : 'PKCS#12 export failed: The private key format was invalid or could not be packaged.',
+              errorMessageFa: isMismatch
+                ? 'عدم تطابق ماژولوس رمزنگاری: کلید خصوصی ارائه شده با این گواهی همخوانی ندارد.'
+                : 'خطا در تولید PKCS#12: فرمت کلید خصوصی نامعتبر است یا امکان بسته‌بندی آن وجود نداشت.',
+              instructionEn: isMismatch
+                ? 'A PKCS#12 (.pfx) bundle strictly requires the matching private key generated with the CSR for this certificate. Please supply the corresponding key.'
+                : 'Ensure the private key is a valid unencrypted RSA/EC key in PEM format.',
+              instructionFa: isMismatch
+                ? 'بسته PKCS#12 (.pfx) الزاماً نیازمند کلید خصوصی متناظری است که همراه با درخواست CSR برای این گواهی ایجاد شده بود. لطفاً کلید متناظر را وارد نمایید.'
+                : 'اطمینان حاصل کنید که کلید خصوصی معتبر و در فرمت استاندارد PEM بدون رمز است.',
+              commandExample: `openssl pkcs12 -export -out "${safeCn}.pfx" -inkey "${safeCn}.key" -in "${safeCn}.crt"${hasCa ? ` -certfile "${safeCn}_ca_bundle.crt"` : ''}${pfxPass ? ` -passout pass:${pfxPass}` : ''}`,
+            },
+          });
+        }
+      } else {
+        outputs.push({
+          id: 'pkcs12_pfx',
+          format: 'PKCS#12 Archive (.pfx / .p12)',
+          filename: `${safeCn}.pfx`,
+          mimeType: 'application/x-pkcs12',
+          isBinary: true,
+          sizeBytes: 0,
+          status: 'requires_action',
+          descriptionEn: 'Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat.',
+          descriptionFa: 'کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور.',
+          targetPlatforms: ['Microsoft IIS', 'Azure App Services', 'Windows Server', 'Tomcat', 'Citrix Gateway'],
+          missingRequirements: {
+            needsPrivateKey: true,
+            needsModulusMatch: false,
+            errorMessageEn: 'Private Key (.key) is required to generate a PKCS#12 (.pfx) file.',
+            errorMessageFa: 'برای تولید فایل PKCS#12 (.pfx) نیاز به کلید خصوصی (.key) متناظر است.',
+            instructionEn: 'A .pfx archive is an encrypted container that securely bundles the Public Certificate and the Private Key together for Windows IIS, Azure, and Tomcat. Because only the public certificate was provided in the input, the .pfx binary file cannot be assembled. To generate this file: paste or upload your Private Key in the field above, enter an optional password, and click "Convert & Generate All Output Formats".',
+            instructionFa: 'آرشیو .pfx یک کانتینر رمزشده است که گواهی عمومی و کلید خصوصی را برای وب‌سرورهای IIS ویندوز، سرویس‌های Azure و Tomcat یکپارچه می‌کند. از آنجا که تنها گواهی عمومی وارد شده است، امکان ساخت فایل .pfx وجود ندارد. برای تولید این فرمت: کلید خصوصی خود را در فیلد بالا وارد کرده، در صورت تمایل رمز عبور تعیین نمایید و مجدداً دکمه «تبدیل و ایجاد تمام فرمت‌ها» را بزنید.',
+            commandExample: `openssl pkcs12 -export -out "${safeCn}.pfx" -inkey "${safeCn}.key" -in "${safeCn}.crt"${hasCa ? ` -certfile "${safeCn}_ca_bundle.crt"` : ''}${pfxPass ? ` -passout pass:${pfxPass}` : ''}`,
+          },
+        });
+      }
 
       // 2. Binary DER Certificate (.cer / .der)
       try {
@@ -873,36 +989,7 @@ export function registerCertConverterRoutes(app: Express): void {
 
       // If Private Key is provided:
       if (hasKey) {
-        // 7. PKCS#12 / PFX (.pfx / .p12)
-        try {
-          const pfxPath = path.join(tmpDir, 'output.pfx');
-          const passOpt = pfxPass ? `-passout "pass:${pfxPass}"` : `-passout "pass:"`;
-          const caOpt = hasCa ? `-certfile "${caPath}"` : '';
-          const nameOpt = alias ? `-name "${alias}"` : '';
-
-          const pfxCmd = `openssl pkcs12 -export -out "${pfxPath}" -inkey "${keyPath}" -in "${certPath}" ${caOpt} ${nameOpt} ${passOpt} 2>/dev/null`;
-          execSync(pfxCmd);
-
-          if (fs.existsSync(pfxPath)) {
-            const pfxBuffer = fs.readFileSync(pfxPath);
-            outputs.push({
-              id: 'pkcs12_pfx',
-              format: 'PKCS#12 Archive (.pfx / .p12)',
-              filename: `${safeCn}.pfx`,
-              mimeType: 'application/x-pkcs12',
-              isBinary: true,
-              base64: pfxBuffer.toString('base64'),
-              descriptionEn: `Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat. (Password: ${pfxPass ? 'Custom Password Set' : 'Blank/None'})`,
-              descriptionFa: `کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور. (رمز عبور: ${pfxPass ? 'رمز سفارشی تنظیم شده' : 'بدون رمز'})`,
-              targetPlatforms: ['Microsoft IIS', 'Azure App Services', 'Windows Server', 'Tomcat', 'Citrix Gateway'],
-              sizeBytes: pfxBuffer.length,
-            });
-          }
-        } catch (pfxErr: any) {
-          console.warn('[CertConverter] PFX export error:', pfxErr.message);
-        }
-
-        // 8. Combined PEM (.pem) (Cert + CA Bundle + Private Key)
+        // Combined PEM (.pem) (Cert + CA Bundle + Private Key)
         try {
           const combinedParts: string[] = [certPem];
           if (hasCa) {
@@ -977,14 +1064,21 @@ export function registerCertConverterRoutes(app: Express): void {
 
         // Save every generated output into the bundle directory
         for (const out of outputs) {
+          if (out.status === 'requires_action' || (!out.base64 && !out.text)) {
+            continue;
+          }
           const filePath = path.join(bundleDir, out.filename);
           if (out.isBinary && out.base64) {
             fs.writeFileSync(filePath, Buffer.from(out.base64, 'base64'));
+            zipFileCount++;
           } else if (out.text) {
             fs.writeFileSync(filePath, out.text, 'utf8');
+            zipFileCount++;
           }
-          zipFileCount++;
         }
+
+        const pfxItem = outputs.find((o) => o.id === 'pkcs12_pfx');
+        const pfxIncluded = pfxItem && pfxItem.status === 'ready' && pfxItem.base64;
 
         // Add deployment guide README
         const readmeContent = `===================================================================
@@ -1003,21 +1097,22 @@ FILES INCLUDED IN THIS ARCHIVE:
    - Standard X.509 Certificate in PEM format (Base64 ASCII).
    - Suitable for Nginx, Apache, HAProxy, AWS ALB, Node.js, Python, etc.
 
-2. ${safeCn}_fullchain.crt
+2. ${safeCn}.pfx / .p12
+   - PKCS#12 Archive (Certificate + Private Key + Intermediate Chain).
+   - Status: ${pfxIncluded ? `Generated & Included (Password: ${pfxPass ? 'Set' : 'Blank'})` : 'Not Included (Requires matching Private Key)'}
+   - Required by Microsoft IIS, Azure App Service, Windows Server, Tomcat.
+
+3. ${safeCn}_fullchain.crt
    - Full Certificate Chain (Server Certificate + Intermediate CA + Root CA).
    - Recommended for Nginx (ssl_certificate), Traefik, Caddy, Envoy.
 
-3. ${safeCn}_ca_chain.crt
+4. ${safeCn}_ca_chain.crt
    - Intermediate and Root CA certificates bundle.
    - Use for Apache (SSLCACertificateFile / SSLCertificateChainFile).
 
-4. ${safeCn}.key
-   - Standalone private key in PEM format.
+5. ${safeCn}.key
+   - Standalone private key in PEM format (if provided).
    - Required by web servers and proxies for SSL handshakes.
-
-5. ${safeCn}.pfx / .p12
-   - PKCS#12 Archive (Certificate + Private Key + Intermediate Chain).
-   - Required by Microsoft IIS, Azure App Service, Windows Server, Tomcat.
 
 6. ${safeCn}.p7b
    - PKCS#7 / P7B Certificate Bundle.
