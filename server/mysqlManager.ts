@@ -18,6 +18,14 @@ import {
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
+  MysqlColumnStructure,
+  MysqlIndexDetail,
+  MysqlForeignKeyConstraint,
+  MysqlTableMetadataStats,
+  MysqlTableStructure,
+  MysqlTableDataRequest,
+  MysqlTableDataColumnInfo,
+  MysqlTableDataResult,
 } from '../src/types';
 
 /**
@@ -914,5 +922,380 @@ export async function getMysqlVariables(server: RemoteServer, filter?: string): 
       } catch {}
     }
     throw new Error(`Failed to fetch MySQL variables: ${err.message}`);
+  }
+}
+
+/**
+ * Phase 5: Retrieves detailed table structure, column definitions, keys,
+ * indexes, foreign key constraints, table storage options, and generated DDL.
+ */
+export async function getMysqlTableStructure(
+  server: RemoteServer,
+  databaseName: string,
+  tableName: string
+): Promise<MysqlTableStructure> {
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: databaseName,
+      connectTimeout: 8000,
+    });
+
+    // 1. Columns
+    const [cols]: any = await conn.query(
+      `SELECT 
+        COLUMN_NAME, ORDINAL_POSITION, COLUMN_DEFAULT, IS_NULLABLE, 
+        DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, 
+        COLUMN_TYPE, COLUMN_KEY, EXTRA, COLLATION_NAME, COLUMN_COMMENT 
+       FROM information_schema.columns 
+       WHERE table_schema = ? AND table_name = ? 
+       ORDER BY ORDINAL_POSITION`,
+      [databaseName, tableName]
+    );
+
+    const primaryKeyColumns: string[] = [];
+    const columns: MysqlColumnStructure[] = (cols || []).map((c: any) => {
+      const isPk = c.COLUMN_KEY === 'PRI';
+      if (isPk) primaryKeyColumns.push(c.COLUMN_NAME);
+      return {
+        name: c.COLUMN_NAME,
+        ordinalPosition: Number(c.ORDINAL_POSITION || 0),
+        dataType: c.DATA_TYPE || '',
+        columnType: c.COLUMN_TYPE || c.DATA_TYPE || '',
+        isNullable: c.IS_NULLABLE === 'YES',
+        columnDefault: c.COLUMN_DEFAULT !== null ? String(c.COLUMN_DEFAULT) : null,
+        columnKey: c.COLUMN_KEY || '',
+        isPrimaryKey: isPk,
+        isUniqueKey: c.COLUMN_KEY === 'UNI',
+        isIndexed: Boolean(c.COLUMN_KEY && c.COLUMN_KEY !== ''),
+        extra: c.EXTRA || '',
+        collation: c.COLLATION_NAME || null,
+        comment: c.COLUMN_COMMENT || null,
+      };
+    });
+
+    // 2. Indexes from information_schema.statistics
+    const [idxRows]: any = await conn.query(
+      `SELECT 
+        INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, 
+        COLLATION, CARDINALITY, SUB_PART, PACKED, NULLABLE, 
+        INDEX_TYPE, COMMENT, INDEX_COMMENT 
+       FROM information_schema.statistics 
+       WHERE table_schema = ? AND table_name = ? 
+       ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
+      [databaseName, tableName]
+    );
+
+    const indexMap = new Map<string, MysqlIndexDetail>();
+    for (const r of idxRows || []) {
+      const idxName = r.INDEX_NAME;
+      if (!indexMap.has(idxName)) {
+        indexMap.set(idxName, {
+          name: idxName,
+          isUnique: Number(r.NON_UNIQUE) === 0,
+          isPrimary: idxName === 'PRIMARY',
+          indexType: r.INDEX_TYPE || 'BTREE',
+          columns: [],
+          cardinality: r.CARDINALITY !== null && r.CARDINALITY !== undefined ? Number(r.CARDINALITY) : null,
+          comment: r.INDEX_COMMENT || r.COMMENT || null,
+        });
+      }
+      const entry = indexMap.get(idxName)!;
+      entry.columns.push({
+        name: r.COLUMN_NAME,
+        seqInIndex: Number(r.SEQ_IN_INDEX || 1),
+        collation: r.COLLATION || undefined,
+        subPart: r.SUB_PART !== null && r.SUB_PART !== undefined ? Number(r.SUB_PART) : null,
+        nullable: r.NULLABLE || undefined,
+      });
+    }
+    const indexes = Array.from(indexMap.values());
+
+    // 3. Foreign Keys from information_schema.key_column_usage and referential_constraints
+    let foreignKeys: MysqlForeignKeyConstraint[] = [];
+    try {
+      const [fkRows]: any = await conn.query(
+        `SELECT 
+          kcu.CONSTRAINT_NAME, kcu.COLUMN_NAME, 
+          kcu.REFERENCED_TABLE_SCHEMA, kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME,
+          rc.UPDATE_RULE, rc.DELETE_RULE
+         FROM information_schema.key_column_usage kcu
+         JOIN information_schema.referential_constraints rc 
+           ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA 
+          AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+         WHERE kcu.table_schema = ? AND kcu.table_name = ? 
+           AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+         ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`,
+        [databaseName, tableName]
+      );
+      foreignKeys = (fkRows || []).map((fk: any) => ({
+        name: fk.CONSTRAINT_NAME,
+        column: fk.COLUMN_NAME,
+        referencedSchema: fk.REFERENCED_TABLE_SCHEMA || databaseName,
+        referencedTable: fk.REFERENCED_TABLE_NAME,
+        referencedColumn: fk.REFERENCED_COLUMN_NAME,
+        updateRule: fk.UPDATE_RULE || 'NO ACTION',
+        deleteRule: fk.DELETE_RULE || 'NO ACTION',
+      }));
+    } catch {}
+
+    // 4. Table Stats from information_schema.tables
+    const [tStats]: any = await conn.query(
+      `SELECT 
+        TABLE_NAME, ENGINE, VERSION, ROW_FORMAT, TABLE_ROWS, 
+        AVG_ROW_LENGTH, DATA_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH, 
+        DATA_FREE, AUTO_INCREMENT, CREATE_TIME, UPDATE_TIME, CHECK_TIME, 
+        TABLE_COLLATION, TABLE_COMMENT 
+       FROM information_schema.tables 
+       WHERE table_schema = ? AND table_name = ?`,
+      [databaseName, tableName]
+    );
+
+    const statRow = tStats?.[0] || {};
+    const dataLen = Number(statRow.DATA_LENGTH || 0);
+    const idxLen = Number(statRow.INDEX_LENGTH || 0);
+    const dataFree = Number(statRow.DATA_FREE || 0);
+    const totalSize = dataLen + idxLen;
+
+    const metadata: MysqlTableMetadataStats = {
+      engine: statRow.ENGINE || 'InnoDB',
+      version: statRow.VERSION ? Number(statRow.VERSION) : null,
+      rowFormat: statRow.ROW_FORMAT || 'Dynamic',
+      approxRows: Number(statRow.TABLE_ROWS || 0),
+      avgRowLength: Number(statRow.AVG_ROW_LENGTH || 0),
+      dataLengthBytes: dataLen,
+      dataLengthPretty: formatBytes(dataLen),
+      indexLengthBytes: idxLen,
+      indexLengthPretty: formatBytes(idxLen),
+      totalSizeBytes: totalSize,
+      totalSizePretty: formatBytes(totalSize),
+      dataFreeBytes: dataFree,
+      dataFreePretty: formatBytes(dataFree),
+      autoIncrementNext: statRow.AUTO_INCREMENT !== null && statRow.AUTO_INCREMENT !== undefined ? Number(statRow.AUTO_INCREMENT) : null,
+      createTime: statRow.CREATE_TIME ? new Date(statRow.CREATE_TIME).toISOString() : null,
+      updateTime: statRow.UPDATE_TIME ? new Date(statRow.UPDATE_TIME).toISOString() : null,
+      checkTime: statRow.CHECK_TIME ? new Date(statRow.CHECK_TIME).toISOString() : null,
+      collation: statRow.TABLE_COLLATION || null,
+      comment: statRow.TABLE_COMMENT || null,
+    };
+
+    // 5. SHOW CREATE TABLE
+    let createTableSql = '';
+    try {
+      const [createRes]: any = await conn.query(`SHOW CREATE TABLE \`${databaseName.replace(/`/g, '``')}\`.\`${tableName.replace(/`/g, '``')}\``);
+      if (createRes && createRes[0]) {
+        createTableSql = createRes[0]['Create Table'] || createRes[0]['Create View'] || '';
+      }
+    } catch (e: any) {
+      createTableSql = `-- Failed to fetch SHOW CREATE TABLE: ${e.message}`;
+    }
+
+    await conn.end();
+
+    return {
+      databaseName,
+      tableName,
+      metadata,
+      columns,
+      indexes,
+      foreignKeys,
+      primaryKeyColumns,
+      createTableSql,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to retrieve MySQL table structure for '${databaseName}.${tableName}': ${err.message}`);
+  }
+}
+
+/**
+ * Phase 5: Live paginated data query for MySQL table with filtering, sorting and search.
+ */
+export async function getMysqlTableData(
+  server: RemoteServer,
+  request: MysqlTableDataRequest
+): Promise<MysqlTableDataResult> {
+  const {
+    database,
+    table,
+    page = 1,
+    pageSize = 50,
+    sortColumn,
+    sortDirection = 'ASC',
+    search,
+    filters = [],
+  } = request;
+
+  if (!database || !database.trim()) {
+    throw new Error('Database name is required');
+  }
+  if (!table || !table.trim()) {
+    throw new Error('Table name is required');
+  }
+
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+  const startTime = Date.now();
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database,
+      connectTimeout: 8000,
+    });
+
+    // 1. Fetch column info to know valid column names and types
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, COLUMN_KEY 
+       FROM information_schema.columns 
+       WHERE table_schema = ? AND table_name = ? 
+       ORDER BY ORDINAL_POSITION`,
+      [database, table]
+    );
+
+    const validColMap = new Map<string, any>();
+    const columns: MysqlTableDataColumnInfo[] = (cols || []).map((c: any) => {
+      validColMap.set(c.COLUMN_NAME, c);
+      return {
+        name: c.COLUMN_NAME,
+        dataType: c.DATA_TYPE || '',
+        columnType: c.COLUMN_TYPE || c.DATA_TYPE || '',
+        isPrimaryKey: c.COLUMN_KEY === 'PRI',
+      };
+    });
+
+    // 2. Build WHERE clauses safely
+    const whereClauses: string[] = [];
+    const queryParams: any[] = [];
+
+    // Global search across text/varchar/char columns
+    if (search && search.trim()) {
+      const searchTerms = search.trim();
+      const stringCols = columns.filter((c) =>
+        ['varchar', 'char', 'text', 'mediumtext', 'longtext', 'tinytext'].includes(c.dataType.toLowerCase())
+      );
+      if (stringCols.length > 0) {
+        const searchOrs = stringCols.map((c) => `\`${c.name.replace(/`/g, '``')}\` LIKE ?`);
+        whereClauses.push(`(${searchOrs.join(' OR ')})`);
+        for (let i = 0; i < stringCols.length; i++) {
+          queryParams.push(`%${searchTerms}%`);
+        }
+      }
+    }
+
+    // Column-level filters
+    if (filters && filters.length > 0) {
+      for (const f of filters) {
+        if (!validColMap.has(f.column)) continue;
+        const colEsc = `\`${f.column.replace(/`/g, '``')}\``;
+        switch (f.operator) {
+          case 'eq':
+            whereClauses.push(`${colEsc} = ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'neq':
+            whereClauses.push(`${colEsc} != ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'contains':
+            whereClauses.push(`${colEsc} LIKE ?`);
+            queryParams.push(`%${f.value ?? ''}%`);
+            break;
+          case 'notContains':
+            whereClauses.push(`${colEsc} NOT LIKE ?`);
+            queryParams.push(`%${f.value ?? ''}%`);
+            break;
+          case 'startsWith':
+            whereClauses.push(`${colEsc} LIKE ?`);
+            queryParams.push(`${f.value ?? ''}%`);
+            break;
+          case 'endsWith':
+            whereClauses.push(`${colEsc} LIKE ?`);
+            queryParams.push(`%${f.value ?? ''}`);
+            break;
+          case 'gt':
+            whereClauses.push(`${colEsc} > ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'gte':
+            whereClauses.push(`${colEsc} >= ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'lt':
+            whereClauses.push(`${colEsc} < ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'lte':
+            whereClauses.push(`${colEsc} <= ?`);
+            queryParams.push(f.value ?? '');
+            break;
+          case 'isNull':
+            whereClauses.push(`${colEsc} IS NULL`);
+            break;
+          case 'isNotNull':
+            whereClauses.push(`${colEsc} IS NOT NULL`);
+            break;
+        }
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // 3. Count total matching rows
+    const countSql = `SELECT COUNT(*) as total FROM \`${database.replace(/`/g, '``')}\`.\`${table.replace(/`/g, '``')}\`${whereSql}`;
+    const [countRows]: any = await conn.query(countSql, queryParams);
+    const totalRows = Number(countRows?.[0]?.total || 0);
+
+    // 4. Sort clause (validated column name)
+    let orderSql = '';
+    if (sortColumn && validColMap.has(sortColumn)) {
+      const dir = sortDirection.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+      orderSql = ` ORDER BY \`${sortColumn.replace(/`/g, '``')}\` ${dir}`;
+    }
+
+    // 5. Pagination
+    const validPage = Math.max(1, page);
+    const validPageSize = Math.max(1, Math.min(500, pageSize));
+    const offset = (validPage - 1) * validPageSize;
+
+    const dataSql = `SELECT * FROM \`${database.replace(/`/g, '``')}\`.\`${table.replace(/`/g, '``')}\`${whereSql}${orderSql} LIMIT ? OFFSET ?`;
+    const [rows]: any = await conn.query(dataSql, [...queryParams, validPageSize, offset]);
+
+    await conn.end();
+    const executionTimeMs = Date.now() - startTime;
+
+    return {
+      databaseName: database,
+      tableName: table,
+      columns,
+      rows: rows || [],
+      totalRows,
+      page: validPage,
+      pageSize: validPageSize,
+      totalPages: Math.ceil(totalRows / validPageSize) || 1,
+      executionTimeMs,
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to fetch data for MySQL table '${database}.${table}': ${err.message}`);
   }
 }

@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.211.0';
+export const APP_VERSION = '1.212.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.212.0',
+    releaseDate: '2026-09-28',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۵ مدیریت پایگاه‌داده MySQL: ساختار جامع جداول و مرورگر پیشرفته و تعاملی داده‌ها',
+    title_en: 'Phase 5 MySQL Management: Comprehensive Table Structure Inspector & Interactive Data Viewer',
+    changes: [
+      'پیاده‌سازی کامل فاز ۵ نقشه راه ۲۰ مرحله‌ای مدیریت MySQL (Phase 5 — MySQL Table Structure & Data Viewer): بازرسی ساختار جداول و مرورگر صفحه‌بندی‌شده زنده رکوردها.',
+      'مرورگر زنده داده‌ها (Data Viewer) با صفحه‌بندی استاندارد (۲۵، ۵۰، ۱۰۰ و ۲۰۰ سطر)، مرتب‌سازی ستونی صعودی/نزولی، جستجوی بلادرنگ در مقادیر متنی و سنجش مدت‌زمان اجرای کوئری (ms).',
+      'امکان خروجی گرفتن و دانلود فوری رکوردهای جدول در قالب فایل‌های استاندارد CSV و JSON با یک کلیک.',
+      'کپی سریع و امن مقادیر هر سلول با کلیک روی آن و نشانگر گرافیکی کپی موفقیت‌آمیز، به همراه تفکیک بصری مقادیر NULL و بولین.',
+      'پنل اختصاصی ساختار ستون‌ها (Columns Inspector): نمایش نام ستون، نوع داده، وضعیت Nullable، نشانگرهای کلید (PRI, UNI, MUL)، مقدار پیش‌فرض، ویژگی‌های اضافی (auto_increment) و توضیحات ستون.',
+      'پنل اختصاصی ایندکس‌ها و کلیدها (Indexes Inspector): استخراج نوع ایندکس (BTREE, HASH)، وضعیت یکتایی و کلید اصلی، ستون‌های ترکیب‌شده و کاردینالیتی از information_schema.statistics.',
+      'پنل اختصاصی کلیدهای خارجی (Foreign Keys Inspector): تحلیل روابط، ستون‌های مبدا و مقصد، جداول مرجع و قوانین ON UPDATE و ON DELETE.',
+      'پنل تنظیمات و متادیتای موتور ذخیره‌سازی (Storage Options): موتور (InnoDB/MyISAM)، فرمت سطر، طول داده، طول ایندکس، فضای آزاد و مقدار بعدی auto_increment.',
+      'پنل تولید و نمایش کُد ساخت جدول (SHOW CREATE TABLE DDL): نمایش ساختار دقیق SQL با سینتکس هایلایت، امکان کپی و بازگشایی فوری در کنسول تعاملی SQL.',
+      'انطباق صددرصدی با استانداردهای دو زبانه (انگلیسی/فارسی)، تم‌های تیره و روشن و حفظ حریم آزاد نوار ابزار فوتر.',
+    ],
+    changes_en: [
+      'Implemented Phase 5 of the MySQL Management 20-Phase Roadmap (Phase 5 — MySQL Table Structure & Data Viewer): Deep table schema inspection and live paginated record browser.',
+      'Interactive Live Data Viewer with configurable page size (25, 50, 100, 200), multi-directional column sorting, instant text search across string attributes, and query execution timer (ms).',
+      'One-click client-side data export to standard CSV and formatted JSON files directly from the live view.',
+      'Instant cell click-to-copy utility with feedback tooltip and distinct ergonomic styling for NULL, boolean, and object values.',
+      'Columns Inspector tab: Ordinal position, Column Name, Data Type & Column Type, Nullable badge, Key badges (PRI/UNI/MUL), Defaults, Extra attributes (auto_increment), and Comments.',
+      'Indexes Inspector tab: Index Name, Index Type (BTREE/HASH), Primary/Unique badges, Composite column sequences, and Cardinality fetched from information_schema.statistics.',
+      'Foreign Keys & Relations Inspector tab: Source columns, referenced schemas/tables/columns, and cascading rules (ON UPDATE / ON DELETE).',
+      'Engine & Storage Options tab: Storage Engine (InnoDB/MyISAM), Row Format, Data Length, Index Length, Free Allocated Space, and Next Auto-Increment ID.',
+      'DDL Inspector tab: Full DDL statement straight from MySQL SHOW CREATE TABLE with syntax highlighting, one-click copy, and one-click injection into the SQL console.',
+      'Strict adherence to bilingual i18n standards, ergonomic dark/light mode theming, and strict non-blocking footer boundary clearance.',
+    ],
+  },
   {
     version: '1.211.0',
     releaseDate: '2026-09-28',

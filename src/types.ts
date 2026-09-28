@@ -1599,6 +1599,139 @@ export interface MysqlDatabaseObjects {
   sequences: MysqlSequenceSummary[];
 }
 
+// ==========================================
+// Phase 5: MySQL Table Structure & Data Viewer Types
+// ==========================================
+
+export interface MysqlColumnStructure {
+  name: string;
+  ordinalPosition: number;
+  dataType: string;
+  columnType: string;
+  isNullable: boolean;
+  columnDefault: string | null;
+  columnKey: string;
+  isPrimaryKey: boolean;
+  isUniqueKey: boolean;
+  isIndexed: boolean;
+  extra: string;
+  collation: string | null;
+  comment: string | null;
+}
+
+export interface MysqlIndexColumnDetail {
+  name: string;
+  seqInIndex: number;
+  collation?: string;
+  subPart?: number | null;
+  nullable?: string;
+}
+
+export interface MysqlIndexDetail {
+  name: string;
+  isUnique: boolean;
+  isPrimary: boolean;
+  indexType: string;
+  columns: MysqlIndexColumnDetail[];
+  cardinality: number | null;
+  comment: string | null;
+}
+
+export interface MysqlForeignKeyConstraint {
+  name: string;
+  column: string;
+  referencedSchema: string;
+  referencedTable: string;
+  referencedColumn: string;
+  updateRule: string;
+  deleteRule: string;
+}
+
+export interface MysqlTableMetadataStats {
+  engine: string;
+  version: number | null;
+  rowFormat: string | null;
+  approxRows: number;
+  avgRowLength: number;
+  dataLengthBytes: number;
+  dataLengthPretty: string;
+  indexLengthBytes: number;
+  indexLengthPretty: string;
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  dataFreeBytes: number;
+  dataFreePretty: string;
+  autoIncrementNext: number | null;
+  createTime: string | null;
+  updateTime: string | null;
+  checkTime: string | null;
+  collation: string | null;
+  comment: string | null;
+}
+
+export interface MysqlTableStructure {
+  databaseName: string;
+  tableName: string;
+  metadata: MysqlTableMetadataStats;
+  columns: MysqlColumnStructure[];
+  indexes: MysqlIndexDetail[];
+  foreignKeys: MysqlForeignKeyConstraint[];
+  primaryKeyColumns: string[];
+  createTableSql: string;
+  fetchedAt: string;
+}
+
+export type MysqlFilterOperator =
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'notContains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'isNull'
+  | 'isNotNull';
+
+export interface MysqlTableDataFilter {
+  column: string;
+  operator: MysqlFilterOperator;
+  value?: string;
+}
+
+export interface MysqlTableDataRequest {
+  database: string;
+  table: string;
+  page?: number;
+  pageSize?: number;
+  sortColumn?: string;
+  sortDirection?: 'ASC' | 'DESC';
+  search?: string;
+  filters?: MysqlTableDataFilter[];
+}
+
+export interface MysqlTableDataColumnInfo {
+  name: string;
+  dataType: string;
+  columnType: string;
+  isPrimaryKey: boolean;
+}
+
+export interface MysqlTableDataResult {
+  databaseName: string;
+  tableName: string;
+  columns: MysqlTableDataColumnInfo[];
+  rows: Record<string, any>[];
+  totalRows: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  executionTimeMs: number;
+  fetchedAt: string;
+}
+
 export interface MysqlDatabaseDetails {
   name: string;
   defaultCollation: string;

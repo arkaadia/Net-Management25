@@ -42,6 +42,18 @@ import {
   Code,
   Eye,
   Hash,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
+  Download,
+  Filter,
+  ListFilter,
+  Link2,
+  Sparkles,
+  Plus,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -59,6 +71,16 @@ import {
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
+  MysqlTableStructure,
+  MysqlColumnStructure,
+  MysqlIndexDetail,
+  MysqlForeignKeyConstraint,
+  MysqlTableMetadataStats,
+  MysqlTableDataRequest,
+  MysqlTableDataResult,
+  MysqlTableDataColumnInfo,
+  MysqlTableDataFilter,
+  MysqlFilterOperator,
 } from '../../types';
 import {
   testRemoteServerMysqlConnection,
@@ -66,6 +88,8 @@ import {
   fetchRemoteServerMysqlDatabases,
   fetchRemoteServerMysqlDatabaseDetails,
   fetchRemoteServerMysqlDatabaseObjects,
+  fetchRemoteServerMysqlTableStructure,
+  fetchRemoteServerMysqlTableData,
   fetchRemoteServerMysqlUsers,
   executeRemoteServerMysqlQuery,
   fetchRemoteServerMysqlProcesslist,
@@ -190,6 +214,27 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [users, setUsers] = useState<MysqlUserItem[]>([]);
   const [userSearch, setUserSearch] = useState('');
+
+  // Phase 5: Table Structure & Data Viewer States
+  const [tableStructures, setTableStructures] = useState<Record<string, MysqlTableStructure>>({});
+  const [loadingTableStructure, setLoadingTableStructure] = useState(false);
+  const [tableStructureError, setTableStructureError] = useState<string | null>(null);
+
+  const [tableActiveSubTab, setTableActiveSubTab] = useState<'data' | 'columns' | 'indexes' | 'foreignKeys' | 'options' | 'ddl'>('data');
+  const [tableDataResult, setTableDataResult] = useState<MysqlTableDataResult | null>(null);
+  const [loadingTableData, setLoadingTableData] = useState(false);
+  const [tableDataError, setTableDataError] = useState<string | null>(null);
+  const [tableDataPage, setTableDataPage] = useState(1);
+  const [tableDataPageSize, setTableDataPageSize] = useState(50);
+  const [tableDataSortColumn, setTableDataSortColumn] = useState<string | undefined>(undefined);
+  const [tableDataSortDir, setTableDataSortDir] = useState<'ASC' | 'DESC'>('ASC');
+  const [tableDataSearch, setTableDataSearch] = useState('');
+  const [tableDataFilters, setTableDataFilters] = useState<MysqlTableDataFilter[]>([]);
+  const [showFilterBuilder, setShowFilterBuilder] = useState(false);
+  const [newFilterColumn, setNewFilterColumn] = useState('');
+  const [newFilterOperator, setNewFilterOperator] = useState<MysqlFilterOperator>('eq');
+  const [newFilterValue, setNewFilterValue] = useState('');
+  const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
 
   // Run initial test and overview on open
   const runTestConnection = useCallback(async () => {
@@ -319,6 +364,137 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     }
     setSqlQuery(query);
     setActiveTab('sql');
+  };
+
+  // Phase 5: Load Table Structure
+  const loadTableStructure = useCallback(
+    async (dbName: string, tableName: string, force = false) => {
+      if (!server || !dbName || !tableName) return;
+      const key = `${dbName}:${tableName}`;
+      if (!force && tableStructures[key]) return;
+
+      setLoadingTableStructure(true);
+      setTableStructureError(null);
+      try {
+        const res = await fetchRemoteServerMysqlTableStructure(server.id, dbName, tableName);
+        if (res.success && res.structure) {
+          setTableStructures((prev) => ({ ...prev, [key]: res.structure! }));
+        } else {
+          setTableStructureError(res.error || 'Failed to fetch table structure');
+        }
+      } catch (err: any) {
+        setTableStructureError(err.message || 'Error fetching table structure');
+      } finally {
+        setLoadingTableStructure(false);
+      }
+    },
+    [server, tableStructures]
+  );
+
+  // Phase 5: Load Table Data
+  const loadTableData = useCallback(
+    async (
+      dbName: string,
+      tableName: string,
+      pageOverride?: number,
+      pageSizeOverride?: number,
+      sortColOverride?: string,
+      sortDirOverride?: 'ASC' | 'DESC',
+      searchOverride?: string,
+      filtersOverride?: MysqlTableDataFilter[]
+    ) => {
+      if (!server || !dbName || !tableName) return;
+
+      setLoadingTableData(true);
+      setTableDataError(null);
+
+      const page = pageOverride !== undefined ? pageOverride : tableDataPage;
+      const pageSize = pageSizeOverride !== undefined ? pageSizeOverride : tableDataPageSize;
+      const sortColumn = sortColOverride !== undefined ? sortColOverride : tableDataSortColumn;
+      const sortDirection = sortDirOverride !== undefined ? sortDirOverride : tableDataSortDir;
+      const search = searchOverride !== undefined ? searchOverride : tableDataSearch;
+      const filters = filtersOverride !== undefined ? filtersOverride : tableDataFilters;
+
+      try {
+        const res = await fetchRemoteServerMysqlTableData(server.id, dbName, tableName, {
+          database: dbName,
+          table: tableName,
+          page,
+          pageSize,
+          sortColumn,
+          sortDirection,
+          search,
+          filters,
+        });
+
+        if (res.success && res.data) {
+          setTableDataResult(res.data);
+          if (pageOverride !== undefined) setTableDataPage(pageOverride);
+          if (pageSizeOverride !== undefined) setTableDataPageSize(pageSizeOverride);
+          if (sortColOverride !== undefined) setTableDataSortColumn(sortColOverride);
+          if (sortDirOverride !== undefined) setTableDataSortDir(sortDirOverride);
+        } else {
+          setTableDataError(res.error || 'Failed to load table rows');
+        }
+      } catch (err: any) {
+        setTableDataError(err.message || 'Error loading table data');
+      } finally {
+        setLoadingTableData(false);
+      }
+    },
+    [server, tableDataPage, tableDataPageSize, tableDataSortColumn, tableDataSortDir, tableDataSearch, tableDataFilters]
+  );
+
+  // Auto-load table structure and data on table selection
+  useEffect(() => {
+    if (selectedTreeNode.type === 'table' && selectedTreeNode.dbName && selectedTreeNode.name) {
+      const dbName = selectedTreeNode.dbName;
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      loadTableStructure(dbName, tableName);
+      loadTableData(dbName, tableName, 1);
+    }
+  }, [selectedTreeNode.type, selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name]);
+
+  // Phase 5: Export Table Data
+  const exportTableData = (format: 'csv' | 'json') => {
+    if (!tableDataResult || !tableDataResult.rows || tableDataResult.rows.length === 0) return;
+    const { rows, columns, tableName } = tableDataResult;
+
+    let content = '';
+    let mimeType = 'text/plain';
+    let ext = 'txt';
+
+    if (format === 'json') {
+      content = JSON.stringify(rows, null, 2);
+      mimeType = 'application/json';
+      ext = 'json';
+    } else {
+      const headers = columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(',');
+      const body = rows
+        .map((r) =>
+          columns
+            .map((c) => {
+              const val = r[c.name];
+              if (val === null || val === undefined) return 'NULL';
+              return `"${String(val).replace(/"/g, '""')}"`;
+            })
+            .join(',')
+        )
+        .join('\n');
+      content = `${headers}\n${body}`;
+      mimeType = 'text/csv';
+      ext = 'csv';
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${tableName}_page_${tableDataPage}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const loadProcesslist = useCallback(async () => {
@@ -2701,6 +2877,836 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                     <div className="text-sm font-bold text-emerald-400 mt-1">{seq?.increment ?? '1'}</div>
                                   </div>
                                 </div>
+                              </div>
+                            );
+                          }
+
+                          // ========================================================
+                          // SUB-VIEW 0: PHASE 5 - INDIVIDUAL TABLE INSPECTOR & DATA VIEWER
+                          // ========================================================
+                          if (selectedTreeNode.type === 'table') {
+                            const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+                            const structKey = `${dbName}:${tableName}`;
+                            const struct = tableStructures[structKey];
+                            const summary = details?.tables?.find((t) => t.name === tableName);
+
+                            return (
+                              <div className="space-y-4">
+                                {/* Table Header Bar */}
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTreeNode({
+                                          type: 'tables_folder',
+                                          id: `db:${dbName}:tables`,
+                                          name: isEn ? 'Tables' : 'جداول',
+                                          dbName,
+                                        });
+                                        setDbActiveObjectTab('tables');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                                      <span>{isEn ? 'Back to Tables' : 'بازگشت به جداول'}</span>
+                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                        <Table className="w-4 h-4" />
+                                      </div>
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold text-base font-mono text-emerald-200">{tableName}</span>
+                                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-sans font-bold border border-emerald-500/30">
+                                            {struct?.metadata.engine || summary?.engine || 'InnoDB'}
+                                          </span>
+                                          {struct && struct.primaryKeyColumns.length > 0 && (
+                                            <span className="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-mono font-bold border border-blue-500/30 flex items-center gap-1">
+                                              <Key className="w-3 h-3" />
+                                              <span>PK: {struct.primaryKeyColumns.join(', ')}</span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(tableName, `tbl-name-${tableName}`)}
+                                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono flex items-center gap-1.5 text-slate-300 cursor-pointer"
+                                    >
+                                      {copiedSnippet === `tbl-name-${tableName}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>{isEn ? 'Copy Name' : 'کپی نام'}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenSqlForDatabase(dbName, tableName)}
+                                      className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Terminal className="w-3.5 h-3.5" />
+                                      <span>{isEn ? 'SQL Console' : 'کنسول SQL'}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        loadTableStructure(dbName, tableName, true);
+                                        loadTableData(dbName, tableName, tableDataPage);
+                                      }}
+                                      disabled={loadingTableStructure || loadingTableData}
+                                      className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-300 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                      title={isEn ? 'Refresh' : 'تازه‌سازی'}
+                                    >
+                                      <RefreshCw className={`w-3.5 h-3.5 ${(loadingTableStructure || loadingTableData) ? 'animate-spin text-orange-400' : ''}`} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Quick Metrics Bar */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs font-mono">
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Rows (Approx)' : 'تعداد سطر (تقریبی)'}</div>
+                                    <div className="text-sm font-bold text-cyan-400 mt-0.5">
+                                      {(struct ? struct.metadata.approxRows : summary?.approxRows || 0).toLocaleString()}
+                                    </div>
+                                  </div>
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Columns' : 'تعداد ستون‌ها'}</div>
+                                    <div className="text-sm font-bold text-emerald-400 mt-0.5">
+                                      {struct ? struct.columns.length : '—'}
+                                    </div>
+                                  </div>
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Total Size' : 'فضای کل'}</div>
+                                    <div className="text-sm font-bold text-purple-400 mt-0.5">
+                                      {struct ? struct.metadata.totalSizePretty : summary?.totalSizePretty || '0 B'}
+                                    </div>
+                                  </div>
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Data Length' : 'حجم داده'}</div>
+                                    <div className="text-sm font-bold text-slate-200 mt-0.5">
+                                      {struct ? struct.metadata.dataLengthPretty : summary?.dataLengthPretty || '0 B'}
+                                    </div>
+                                  </div>
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Index Length' : 'حجم ایندکس'}</div>
+                                    <div className="text-sm font-bold text-blue-400 mt-0.5">
+                                      {struct ? struct.metadata.indexLengthPretty : summary?.indexLengthPretty || '0 B'}
+                                    </div>
+                                  </div>
+                                  <div className="p-2.5 rounded-xl border border-white/10 bg-black/20">
+                                    <div className="text-[10px] text-slate-400 font-sans font-bold uppercase truncate">{isEn ? 'Row Format' : 'فرمت سطر'}</div>
+                                    <div className="text-sm font-bold text-amber-300 mt-0.5 truncate">
+                                      {struct?.metadata.rowFormat || 'Dynamic'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Sub-Tabs Selector */}
+                                <div className="flex items-center gap-1.5 border-b border-white/10 pb-2 overflow-x-auto text-xs font-semibold">
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('data')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'data'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Table className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Data Viewer' : 'مرورگر داده‌ها'}</span>
+                                    {tableDataResult && (
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-orange-500/30 text-orange-200">
+                                        {tableDataResult.totalRows.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('columns')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'columns'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Layers className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Columns' : 'ستون‌ها'}</span>
+                                    {struct && (
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-white/10 text-slate-300">
+                                        {struct.columns.length}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('indexes')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'indexes'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Indexes' : 'ایندکس‌ها'}</span>
+                                    {struct && (
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-white/10 text-slate-300">
+                                        {struct.indexes.length}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('foreignKeys')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'foreignKeys'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Link2 className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Foreign Keys' : 'کلیدهای خارجی'}</span>
+                                    {struct && (
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-white/10 text-slate-300">
+                                        {struct.foreignKeys.length}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('options')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'options'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Sliders className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Engine & Options' : 'موتور و تنظیمات'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTableActiveSubTab('ddl')}
+                                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                      tableActiveSubTab === 'ddl'
+                                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                    }`}
+                                  >
+                                    <Code className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'CREATE TABLE DDL' : 'کد DDL'}</span>
+                                  </button>
+                                </div>
+
+                                {/* Loading Structure State */}
+                                {loadingTableStructure && !struct && (
+                                  <div className="p-8 rounded-xl border border-white/10 bg-black/20 text-center space-y-2">
+                                    <RefreshCw className="w-7 h-7 text-orange-400 animate-spin mx-auto" />
+                                    <p className="text-sm font-bold text-slate-200">
+                                      {isEn ? 'Inspecting Table Structure & Metadata...' : 'در حال بررسی ساختار جدول و متادیتا...'}
+                                    </p>
+                                    <p className="text-xs text-slate-400 font-mono">
+                                      {isEn ? 'Querying columns, keys, indexes, and storage engine specifications' : 'واکشی مشخصات ستون‌ها، کلیدها، ایندکس‌ها و موتور ذخیره‌سازی'}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* Error State */}
+                                {tableStructureError && !struct && (
+                                  <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                                      <span>{tableStructureError}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => loadTableStructure(dbName, tableName, true)}
+                                      className="px-2.5 py-1 rounded-md bg-rose-500/20 border border-rose-500/40 font-bold hover:bg-rose-500/30 cursor-pointer"
+                                    >
+                                      {isEn ? 'Retry' : 'تلاش مجدد'}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 1: DATA VIEWER */}
+                                {tableActiveSubTab === 'data' && (
+                                  <div className="space-y-3">
+                                    {/* Data Controls Bar */}
+                                    <div className="p-3 rounded-xl border border-white/10 bg-black/20 flex items-center justify-between gap-3 flex-wrap">
+                                      <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md">
+                                        <div className="relative flex-1">
+                                          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                          <input
+                                            type="text"
+                                            value={tableDataSearch}
+                                            onChange={(e) => setTableDataSearch(e.target.value)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch);
+                                              }
+                                            }}
+                                            placeholder={isEn ? 'Search table records (Press Enter)...' : 'جستجو در رکوردهای جدول (اینتر بزنید)...'}
+                                            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-white/10 bg-slate-900/60 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/50"
+                                          />
+                                        </div>
+                                        {tableDataSearch && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setTableDataSearch('');
+                                              loadTableData(dbName, tableName, 1, undefined, undefined, undefined, '');
+                                            }}
+                                            className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-400 hover:text-white cursor-pointer"
+                                            title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch)}
+                                          className="px-2.5 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold cursor-pointer"
+                                        >
+                                          {isEn ? 'Filter' : 'اعمال'}
+                                        </button>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 flex-wrap text-xs">
+                                        {/* Page Size Selector */}
+                                        <div className="flex items-center gap-1.5 text-slate-400">
+                                          <span className="text-[11px]">{isEn ? 'Rows:' : 'سطرها:'}</span>
+                                          <select
+                                            value={tableDataPageSize}
+                                            onChange={(e) => {
+                                              const newSize = Number(e.target.value);
+                                              setTableDataPageSize(newSize);
+                                              loadTableData(dbName, tableName, 1, newSize);
+                                            }}
+                                            className="px-2 py-1 rounded-lg border border-white/10 bg-slate-900 text-xs text-slate-200 focus:outline-none"
+                                          >
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                            <option value={200}>200</option>
+                                          </select>
+                                        </div>
+
+                                        {/* Export Buttons */}
+                                        <button
+                                          type="button"
+                                          onClick={() => exportTableData('csv')}
+                                          disabled={!tableDataResult || tableDataResult.rows.length === 0}
+                                          className="px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                          title={isEn ? 'Export visible rows as CSV' : 'خروجی CSV از رکوردهای صفحه'}
+                                        >
+                                          <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                          <span className="font-mono text-[11px]">CSV</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => exportTableData('json')}
+                                          disabled={!tableDataResult || tableDataResult.rows.length === 0}
+                                          className="px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                          title={isEn ? 'Export visible rows as JSON' : 'خروجی JSON از رکوردهای صفحه'}
+                                        >
+                                          <Download className="w-3.5 h-3.5 text-cyan-400" />
+                                          <span className="font-mono text-[11px]">JSON</span>
+                                        </button>
+
+                                        {/* Refresh Table Data */}
+                                        <button
+                                          type="button"
+                                          onClick={() => loadTableData(dbName, tableName, tableDataPage)}
+                                          disabled={loadingTableData}
+                                          className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 cursor-pointer disabled:opacity-50"
+                                          title={isEn ? 'Reload table rows' : 'بارگذاری مجدد داده‌ها'}
+                                        >
+                                          <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-orange-400' : ''}`} />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Execution Metrics Info Banner */}
+                                    {tableDataResult && (
+                                      <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-mono">
+                                        <div className="flex items-center gap-2">
+                                          <span>
+                                            {isEn
+                                              ? `Showing ${tableDataResult.rows.length} of ${tableDataResult.totalRows.toLocaleString()} rows`
+                                              : `نمایش ${tableDataResult.rows.length} از ${tableDataResult.totalRows.toLocaleString()} سطر`}
+                                          </span>
+                                          {tableDataSortColumn && (
+                                            <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px]">
+                                              Sorted by: {tableDataSortColumn} {tableDataSortDir}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <Clock className="w-3 h-3 text-cyan-400" />
+                                          <span className="text-cyan-300">{tableDataResult.executionTimeMs} ms</span>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Data Table Grid */}
+                                    <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
+                                      {loadingTableData ? (
+                                        <div className="p-12 text-center space-y-2">
+                                          <RefreshCw className="w-6 h-6 text-orange-400 animate-spin mx-auto" />
+                                          <p className="text-xs text-slate-300 font-bold">
+                                            {isEn ? 'Querying records from MySQL...' : 'در حال خواندن رکوردها از پایگاه داده...'}
+                                          </p>
+                                        </div>
+                                      ) : tableDataError ? (
+                                        <div className="p-6 text-center space-y-2 text-rose-300 text-xs">
+                                          <AlertTriangle className="w-6 h-6 text-rose-400 mx-auto" />
+                                          <p className="font-bold">{tableDataError}</p>
+                                          <button
+                                            type="button"
+                                            onClick={() => loadTableData(dbName, tableName, tableDataPage)}
+                                            className="px-3 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+                                          >
+                                            {isEn ? 'Retry' : 'تلاش مجدد'}
+                                          </button>
+                                        </div>
+                                      ) : !tableDataResult || tableDataResult.rows.length === 0 ? (
+                                        <div className="p-12 text-center space-y-2 text-slate-400">
+                                          <Table className="w-8 h-8 text-slate-600 mx-auto" />
+                                          <p className="text-xs font-bold text-slate-300">
+                                            {isEn ? 'No records found in this table' : 'هیچ رکوردی در این جدول یافت نشد'}
+                                          </p>
+                                          <p className="text-[11px] text-slate-500">
+                                            {isEn ? 'The table is empty or no rows match the filter criteria.' : 'جدول خالی است یا داده‌ای با شرایط جستجو مطابقت ندارد.'}
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
+                                          <table className="w-full text-xs text-left border-collapse font-mono">
+                                            <thead className="sticky top-0 bg-slate-900 border-b border-white/10 z-10 text-slate-300 text-[11px] uppercase tracking-wider">
+                                              <tr>
+                                                <th className="py-2.5 px-3 w-12 text-center text-slate-500 font-sans font-bold">#</th>
+                                                {tableDataResult.columns.map((col) => {
+                                                  const isSorted = tableDataSortColumn === col.name;
+                                                  return (
+                                                    <th
+                                                      key={col.name}
+                                                      onClick={() => {
+                                                        const newDir = isSorted && tableDataSortDir === 'ASC' ? 'DESC' : 'ASC';
+                                                        loadTableData(dbName, tableName, 1, undefined, col.name, newDir);
+                                                      }}
+                                                      className="py-2.5 px-3 font-semibold hover:bg-white/5 cursor-pointer select-none transition"
+                                                      title={isEn ? `Sort by ${col.name}` : `مرتب‌سازی بر اساس ${col.name}`}
+                                                    >
+                                                      <div className="flex items-center gap-1.5">
+                                                        {col.isPrimaryKey && (
+                                                          <Key className="w-3 h-3 text-blue-400 shrink-0" />
+                                                        )}
+                                                        <span className={col.isPrimaryKey ? 'text-blue-300 font-bold' : 'text-slate-200'}>
+                                                          {col.name}
+                                                        </span>
+                                                        <span className="text-[9px] lowercase text-slate-500 font-normal">
+                                                          {col.dataType}
+                                                        </span>
+                                                        <span className="ml-auto text-slate-500">
+                                                          {isSorted ? (
+                                                            tableDataSortDir === 'ASC' ? (
+                                                              <ArrowUp className="w-3 h-3 text-orange-400" />
+                                                            ) : (
+                                                              <ArrowDown className="w-3 h-3 text-orange-400" />
+                                                            )
+                                                          ) : (
+                                                            <ArrowUpDown className="w-3 h-3 opacity-30 hover:opacity-100" />
+                                                          )}
+                                                        </span>
+                                                      </div>
+                                                    </th>
+                                                  );
+                                                })}
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                              {tableDataResult.rows.map((row, rowIdx) => {
+                                                const rowNumber = (tableDataResult.page - 1) * tableDataResult.pageSize + rowIdx + 1;
+                                                return (
+                                                  <tr key={rowIdx} className="hover:bg-white/5 transition group">
+                                                    <td className="py-2 px-3 text-center text-slate-500 font-sans text-[11px] select-none">
+                                                      {rowNumber}
+                                                    </td>
+                                                    {tableDataResult.columns.map((col) => {
+                                                      const cellValue = row[col.name];
+                                                      const cellId = `cell-${rowIdx}-${col.name}`;
+                                                      const isNull = cellValue === null || cellValue === undefined;
+                                                      const isCopied = copiedCellId === cellId;
+
+                                                      return (
+                                                        <td
+                                                          key={col.name}
+                                                          onClick={() => {
+                                                            if (!isNull) {
+                                                              copyToClipboard(String(cellValue), cellId);
+                                                              setCopiedCellId(cellId);
+                                                              setTimeout(() => setCopiedCellId(null), 1500);
+                                                            }
+                                                          }}
+                                                          className="py-2 px-3 text-slate-300 max-w-xs truncate cursor-pointer hover:bg-orange-500/10 transition relative"
+                                                          title={isNull ? 'NULL' : String(cellValue)}
+                                                        >
+                                                          {isNull ? (
+                                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-bold bg-white/5 text-slate-500">
+                                                              NULL
+                                                            </span>
+                                                          ) : typeof cellValue === 'boolean' ? (
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold ${cellValue ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                              {cellValue ? 'TRUE' : 'FALSE'}
+                                                            </span>
+                                                          ) : typeof cellValue === 'object' ? (
+                                                            <span className="text-purple-300 truncate block">
+                                                              {JSON.stringify(cellValue)}
+                                                            </span>
+                                                          ) : (
+                                                            <span className="truncate block">{String(cellValue)}</span>
+                                                          )}
+                                                          {isCopied && (
+                                                            <span className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-bold text-[9px] shadow">
+                                                              Copied
+                                                            </span>
+                                                          )}
+                                                        </td>
+                                                      );
+                                                    })}
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+
+                                      {/* Pagination Footer */}
+                                      {tableDataResult && tableDataResult.totalPages > 1 && (
+                                        <div className="p-3 bg-slate-900 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap text-xs font-mono">
+                                          <div className="text-slate-400">
+                                            {isEn
+                                              ? `Page ${tableDataResult.page} of ${tableDataResult.totalPages}`
+                                              : `صفحه ${tableDataResult.page} از ${tableDataResult.totalPages}`}
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => loadTableData(dbName, tableName, 1)}
+                                              disabled={tableDataResult.page <= 1 || loadingTableData}
+                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                                              title={isEn ? 'First Page' : 'صفحه نخست'}
+                                            >
+                                              <ChevronsLeft className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.page - 1)}
+                                              disabled={tableDataResult.page <= 1 || loadingTableData}
+                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                                              title={isEn ? 'Previous Page' : 'صفحه قبل'}
+                                            >
+                                              <ChevronLeft className="w-3.5 h-3.5" />
+                                            </button>
+                                            <span className="px-2.5 py-1 rounded bg-slate-800 text-orange-400 font-bold border border-white/10">
+                                              {tableDataResult.page}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.page + 1)}
+                                              disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
+                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                                              title={isEn ? 'Next Page' : 'صفحه بعد'}
+                                            >
+                                              <ChevronRight className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.totalPages)}
+                                              disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
+                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                                              title={isEn ? 'Last Page' : 'صفحه آخر'}
+                                            >
+                                              <ChevronsRight className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 2: COLUMNS INSPECTOR */}
+                                {tableActiveSubTab === 'columns' && (
+                                  <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
+                                    <div className="overflow-x-auto custom-scrollbar">
+                                      <table className="w-full text-xs text-left border-collapse font-mono">
+                                        <thead className="bg-slate-900 border-b border-white/10 text-slate-300 text-[11px] uppercase tracking-wider">
+                                          <tr>
+                                            <th className="py-2.5 px-3 w-12 text-center text-slate-500 font-sans font-bold">#</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Column Name' : 'نام ستون'}</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Data Type' : 'نوع داده'}</th>
+                                            <th className="py-2.5 px-3 text-center">{isEn ? 'Nullable' : 'مقدار خالی (NULL)'}</th>
+                                            <th className="py-2.5 px-3 text-center">{isEn ? 'Key' : 'کلید'}</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Default' : 'مقدار پیش‌فرض'}</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Extra' : 'ویژگی‌های مازاد'}</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Collation' : 'تطبیق کاراکتر'}</th>
+                                            <th className="py-2.5 px-3">{isEn ? 'Comment' : 'توضیحات'}</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                          {struct?.columns.map((col) => (
+                                            <tr key={col.name} className="hover:bg-white/5 transition">
+                                              <td className="py-2.5 px-3 text-center text-slate-500 font-sans text-[11px]">
+                                                {col.ordinalPosition}
+                                              </td>
+                                              <td className="py-2.5 px-3 font-bold text-slate-200 flex items-center gap-1.5">
+                                                {col.isPrimaryKey && <Key className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
+                                                <span>{col.name}</span>
+                                              </td>
+                                              <td className="py-2.5 px-3 text-cyan-300">{col.columnType}</td>
+                                              <td className="py-2.5 px-3 text-center">
+                                                {col.isNullable ? (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-sans font-bold">
+                                                    YES
+                                                  </span>
+                                                ) : (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300 font-sans font-bold">
+                                                    NO
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="py-2.5 px-3 text-center">
+                                                {col.columnKey === 'PRI' && (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-bold">
+                                                    PRI
+                                                  </span>
+                                                )}
+                                                {col.columnKey === 'UNI' && (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-bold">
+                                                    UNI
+                                                  </span>
+                                                )}
+                                                {col.columnKey === 'MUL' && (
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-bold">
+                                                    MUL
+                                                  </span>
+                                                )}
+                                                {!col.columnKey && <span className="text-slate-600">—</span>}
+                                              </td>
+                                              <td className="py-2.5 px-3 text-slate-400">
+                                                {col.columnDefault !== null ? (
+                                                  <span className="text-emerald-300 font-mono">{col.columnDefault}</span>
+                                                ) : (
+                                                  <span className="text-slate-600 font-sans italic">NULL</span>
+                                                )}
+                                              </td>
+                                              <td className="py-2.5 px-3 text-amber-300">{col.extra || '—'}</td>
+                                              <td className="py-2.5 px-3 text-slate-400">{col.collation || '—'}</td>
+                                              <td className="py-2.5 px-3 text-slate-400 font-sans">{col.comment || '—'}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 3: INDEXES INSPECTOR */}
+                                {tableActiveSubTab === 'indexes' && (
+                                  <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
+                                    {struct && struct.indexes.length === 0 ? (
+                                      <div className="p-8 text-center text-slate-500 text-xs">
+                                        {isEn ? 'No indexes defined on this table' : 'هیچ ایندکسی بر روی این جدول تعریف نشده است'}
+                                      </div>
+                                    ) : (
+                                      <div className="overflow-x-auto custom-scrollbar">
+                                        <table className="w-full text-xs text-left border-collapse font-mono">
+                                          <thead className="bg-slate-900 border-b border-white/10 text-slate-300 text-[11px] uppercase tracking-wider">
+                                            <tr>
+                                              <th className="py-2.5 px-3">{isEn ? 'Index Name' : 'نام ایندکس'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? 'Type' : 'نوع'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? 'Method' : 'متد'}</th>
+                                              <th className="py-2.5 px-3">{isEn ? 'Indexed Columns' : 'ستون‌های ایندکس‌شده'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? 'Cardinality' : 'یکتایی تخمینی'}</th>
+                                              <th className="py-2.5 px-3">{isEn ? 'Comment' : 'توضیحات'}</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-white/5">
+                                            {struct?.indexes.map((idx) => (
+                                              <tr key={idx.name} className="hover:bg-white/5 transition">
+                                                <td className="py-2.5 px-3 font-bold text-slate-200 flex items-center gap-1.5">
+                                                  {idx.isPrimary ? (
+                                                    <Key className="w-3.5 h-3.5 text-blue-400" />
+                                                  ) : (
+                                                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                                  )}
+                                                  <span>{idx.name}</span>
+                                                </td>
+                                                <td className="py-2.5 px-3 text-center">
+                                                  {idx.isPrimary ? (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-bold">
+                                                      PRIMARY
+                                                    </span>
+                                                  ) : idx.isUnique ? (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-bold">
+                                                      UNIQUE
+                                                    </span>
+                                                  ) : (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold">
+                                                      INDEX
+                                                    </span>
+                                                  )}
+                                                </td>
+                                                <td className="py-2.5 px-3 text-center text-cyan-300">{idx.indexType}</td>
+                                                <td className="py-2.5 px-3 text-emerald-300">
+                                                  {idx.columns.map((c) => c.name).join(', ')}
+                                                </td>
+                                                <td className="py-2.5 px-3 text-center text-slate-300">
+                                                  {idx.cardinality !== null ? idx.cardinality.toLocaleString() : '—'}
+                                                </td>
+                                                <td className="py-2.5 px-3 text-slate-400 font-sans">{idx.comment || '—'}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 4: FOREIGN KEYS */}
+                                {tableActiveSubTab === 'foreignKeys' && (
+                                  <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
+                                    {struct && struct.foreignKeys.length === 0 ? (
+                                      <div className="p-8 text-center text-slate-500 text-xs">
+                                        {isEn ? 'No foreign key constraints defined' : 'هیچ کلید خارجی برای این جدول تعریف نشده است'}
+                                      </div>
+                                    ) : (
+                                      <div className="overflow-x-auto custom-scrollbar">
+                                        <table className="w-full text-xs text-left border-collapse font-mono">
+                                          <thead className="bg-slate-900 border-b border-white/10 text-slate-300 text-[11px] uppercase tracking-wider">
+                                            <tr>
+                                              <th className="py-2.5 px-3">{isEn ? 'Constraint Name' : 'نام محدودیت'}</th>
+                                              <th className="py-2.5 px-3">{isEn ? 'Source Column' : 'ستون مبدا'}</th>
+                                              <th className="py-2.5 px-3">{isEn ? 'Referenced Table' : 'جدول مرجع'}</th>
+                                              <th className="py-2.5 px-3">{isEn ? 'Referenced Column' : 'ستون مرجع'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? 'On Update' : 'در بروزرسانی'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? 'On Delete' : 'در حذف'}</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-white/5">
+                                            {struct?.foreignKeys.map((fk) => (
+                                              <tr key={fk.name} className="hover:bg-white/5 transition">
+                                                <td className="py-2.5 px-3 font-bold text-slate-200 flex items-center gap-1.5">
+                                                  <Link2 className="w-3.5 h-3.5 text-indigo-400" />
+                                                  <span>{fk.name}</span>
+                                                </td>
+                                                <td className="py-2.5 px-3 text-cyan-300 font-bold">{fk.column}</td>
+                                                <td className="py-2.5 px-3 text-purple-300 font-bold">
+                                                  {fk.referencedSchema !== dbName ? `${fk.referencedSchema}.${fk.referencedTable}` : fk.referencedTable}
+                                                </td>
+                                                <td className="py-2.5 px-3 text-emerald-300 font-bold">{fk.referencedColumn}</td>
+                                                <td className="py-2.5 px-3 text-center">
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold">
+                                                    {fk.updateRule}
+                                                  </span>
+                                                </td>
+                                                <td className="py-2.5 px-3 text-center">
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold">
+                                                    {fk.deleteRule}
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 5: OPTIONS & METADATA */}
+                                {tableActiveSubTab === 'options' && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs font-mono">
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Storage Engine' : 'موتور ذخیره‌سازی'}</div>
+                                      <div className="text-sm font-bold text-emerald-300">{struct?.metadata.engine || 'InnoDB'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Row Format' : 'فرمت سطرها'}</div>
+                                      <div className="text-sm font-bold text-slate-200">{struct?.metadata.rowFormat || 'Dynamic'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Next Auto-Increment' : 'شناسه بعدی شمارنده'}</div>
+                                      <div className="text-sm font-bold text-orange-400">{struct?.metadata.autoIncrementNext ?? 'N/A'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Avg Row Length' : 'طول میانگین هر سطر'}</div>
+                                      <div className="text-sm font-bold text-slate-300">{struct?.metadata.avgRowLength?.toLocaleString() || 0} bytes</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Free Storage Space' : 'فضای آزاد در فایل'}</div>
+                                      <div className="text-sm font-bold text-cyan-300">{struct?.metadata.dataFreePretty || '0 B'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Collation' : 'تطبیق کاراکتر جدول'}</div>
+                                      <div className="text-sm font-bold text-slate-300 truncate">{struct?.metadata.collation || 'utf8mb4_general_ci'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1 sm:col-span-2">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Table Comment' : 'توضیحات جدول'}</div>
+                                      <div className="text-xs text-slate-300 font-sans">{struct?.metadata.comment || '—'}</div>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl border border-white/10 bg-black/20 space-y-1">
+                                      <div className="text-[10px] text-slate-400 uppercase font-sans font-bold">{isEn ? 'Created At' : 'تاریخ ساخت'}</div>
+                                      <div className="text-xs text-slate-400">{struct?.metadata.createTime ? new Date(struct.metadata.createTime).toLocaleString() : '—'}</div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB 6: CREATE TABLE DDL */}
+                                {tableActiveSubTab === 'ddl' && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-xs text-slate-400">
+                                      <span className="font-bold flex items-center gap-1.5">
+                                        <Code className="w-3.5 h-3.5 text-orange-400" />
+                                        <span>{isEn ? 'Generated CREATE TABLE DDL Statement' : 'دستور ایجاد جدول (SHOW CREATE TABLE)'}</span>
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => copyToClipboard(struct?.createTableSql || '', `ddl-${tableName}`)}
+                                          className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-xs font-mono text-slate-300 flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                          {copiedSnippet === `ddl-${tableName}` ? (
+                                            <Check className="w-3 h-3 text-emerald-400" />
+                                          ) : (
+                                            <Copy className="w-3 h-3" />
+                                          )}
+                                          <span>{isEn ? 'Copy DDL' : 'کپی DDL'}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenSqlForDatabase(dbName, tableName, struct?.createTableSql)}
+                                          className="px-2.5 py-1 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Terminal className="w-3 h-3" />
+                                          <span>{isEn ? 'Open in Console' : 'کنسول SQL'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="p-4 rounded-xl border border-orange-500/20 bg-slate-950 font-mono text-xs text-orange-200 overflow-x-auto whitespace-pre leading-relaxed custom-scrollbar shadow-inner">
+                                      {struct?.createTableSql || '-- Loading CREATE TABLE statement...'}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             );
                           }

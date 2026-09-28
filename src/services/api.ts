@@ -24,6 +24,9 @@ import {
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
+  MysqlTableStructure,
+  MysqlTableDataRequest,
+  MysqlTableDataResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1319,6 +1322,34 @@ export async function fetchRemoteServerMysqlDatabaseObjects(
   databaseName: string
 ): Promise<{ success: boolean; objects?: MysqlDatabaseObjects; error?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}/objects`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlTableStructure(
+  id: string,
+  databaseName: string,
+  tableName: string
+): Promise<{ success: boolean; structure?: MysqlTableStructure; error?: string }> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}/tables/${encodeURIComponent(tableName)}/structure`
+  );
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlTableData(
+  id: string,
+  databaseName: string,
+  tableName: string,
+  request: MysqlTableDataRequest
+): Promise<{ success: boolean; data?: MysqlTableDataResult; error?: string }> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/databases/${encodeURIComponent(databaseName)}/tables/${encodeURIComponent(tableName)}/data`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
   return res.json();
 }
 

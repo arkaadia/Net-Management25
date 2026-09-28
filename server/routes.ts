@@ -69,6 +69,8 @@ import {
   getMysqlProcesslist,
   killMysqlProcess,
   getMysqlVariables,
+  getMysqlTableStructure,
+  getMysqlTableData,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4316,6 +4318,40 @@ apiRouter.get('/remote-servers/:id/mysql/databases/:databaseName/objects', async
     }
     const objects = await getMysqlDatabaseObjects(server, databaseName);
     return res.json({ success: true, objects });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/databases/:databaseName/tables/:tableName/structure - Get table structure, columns, keys & indexes
+apiRouter.get('/remote-servers/:id/mysql/databases/:databaseName/tables/:tableName/structure', async (req: Request, res: Response) => {
+  try {
+    const { id, databaseName, tableName } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const structure = await getMysqlTableStructure(server, databaseName, tableName);
+    return res.json({ success: true, structure });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/databases/:databaseName/tables/:tableName/data - Query live table data with pagination & filters
+apiRouter.post('/remote-servers/:id/mysql/databases/:databaseName/tables/:tableName/data', async (req: Request, res: Response) => {
+  try {
+    const { id, databaseName, tableName } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    const data = await getMysqlTableData(server, {
+      ...req.body,
+      database: databaseName,
+      table: tableName,
+    });
+    return res.json({ success: true, data });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
