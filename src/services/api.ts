@@ -25,6 +25,7 @@ import {
   MysqlProcessItem,
   MysqlVariableItem,
   MysqlQueryResult,
+  MysqlSqlQuerySafetyReport,
   MysqlTableStructure,
   MysqlTableDataRequest,
   MysqlTableDataResult,
@@ -1451,12 +1452,35 @@ export async function fetchRemoteServerMysqlUsers(
 export async function executeRemoteServerMysqlQuery(
   id: string,
   query: string,
-  database?: string
+  database?: string,
+  options?: {
+    confirmedDestructive?: boolean;
+    auditNotes?: string;
+    maxRows?: number;
+  }
 ): Promise<MysqlQueryResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, database }),
+    body: JSON.stringify({
+      query,
+      database,
+      confirmedDestructive: options?.confirmedDestructive,
+      auditNotes: options?.auditNotes,
+      maxRows: options?.maxRows,
+    }),
+  });
+  return res.json();
+}
+
+export async function checkRemoteServerMysqlQuerySafety(
+  id: string,
+  query: string
+): Promise<{ success: boolean; safetyReport: MysqlSqlQuerySafetyReport; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/query/safety-check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
   });
   return res.json();
 }

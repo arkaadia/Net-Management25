@@ -1829,6 +1829,42 @@ export interface MysqlVariableItem {
   value: string;
 }
 
+export type MysqlSqlClassificationType =
+  | 'read_only'
+  | 'write'
+  | 'ddl'
+  | 'administrative'
+  | 'destructive';
+
+export type MysqlSqlRiskLevel =
+  | 'safe'
+  | 'low'
+  | 'moderate'
+  | 'high'
+  | 'critical';
+
+export interface MysqlSqlStatementAnalysis {
+  sql: string;
+  command: string;
+  type: MysqlSqlClassificationType;
+  riskLevel: MysqlSqlRiskLevel;
+  isDestructive: boolean;
+  targetObject?: string;
+  reasons: string[];
+  reasonsFa: string[];
+}
+
+export interface MysqlSqlQuerySafetyReport {
+  overallType: MysqlSqlClassificationType;
+  overallRiskLevel: MysqlSqlRiskLevel;
+  isDestructive: boolean;
+  requiresConfirmation: boolean;
+  statementCount: number;
+  destructiveReasons: string[];
+  destructiveReasonsFa: string[];
+  statements: MysqlSqlStatementAnalysis[];
+}
+
 export interface MysqlQueryResult {
   success: boolean;
   columns?: string[];
@@ -1838,6 +1874,8 @@ export interface MysqlQueryResult {
   durationMs?: number;
   error?: string;
   errorFa?: string;
+  requiresConfirmation?: boolean;
+  safetyReport?: MysqlSqlQuerySafetyReport;
 }
 
 export interface MysqlQueryTab {
@@ -1859,6 +1897,9 @@ export interface MysqlQueryHistoryItem {
   affectedRows?: number;
   error?: string;
   timestamp: number;
+  classificationType?: MysqlSqlClassificationType;
+  riskLevel?: MysqlSqlRiskLevel;
+  requiresConfirmation?: boolean;
 }
 
 export interface PostgresConnectionTestResult {

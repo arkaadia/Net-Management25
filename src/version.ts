@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.218.0';
+export const APP_VERSION = '1.219.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.219.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۹ سیستم مدیریت MySQL: امنیت کوئری، دسته‌بندی ریسک و کنترل‌های پیشرفته اجرای دستورات پرخطر',
+    title_en: 'Phase 9: MySQL Query Safety Guard, Multi-Level Risk Classification & Destructive Execution Controls',
+    changes: [
+      'طراحی و پیاده‌سازی موتور جامع تحلیل ایمنی کوئری‌های MySQL (`server/mysqlSqlSafety.ts` و `src/utils/mysqlSqlSafety.ts`) با دسته‌بندی پنج‌گانه عملیات: فقط‌خواندنی (Read-Only)، نوشتن (Write)، ساختاری (DDL)، اداری و سیستمی (Administrative)، و مخرب/پرخطر (Destructive).',
+      'سطح‌بندی ریسک بر اساس ۵ لایه استاندارد: Safe, Low, Moderate, High, Critical همراه با شناسایی دقیق اهداف عملیات (دیتابیس، جدول، ستون، کاربر و ایندکس).',
+      'شناسایی و مهار هوشمند تمام دستورات خطرناک و پرریسک بومی MySQL شامل DROP DATABASE, DROP TABLE, DROP VIEW, DROP PROCEDURE, DROP FUNCTION, DROP TRIGGER, DROP EVENT, DROP USER, TRUNCATE TABLE, REVOKE, ALTER TABLE ... DROP و دستورات DELETE و UPDATE غیرمقید و فاقد شرط معتبر WHERE.',
+      'اعمال کنترل امنیتی الزامی در سمت سرور (Server-Side Authorization & Safety Guard): جلوگیری قطعی از اجرای کدهای پرخطر توسط سرور بدون تایید صریح اپراتور (حتی در صورت دور زدن فرانت‌اند).',
+      'طراحی و پیاده‌سازی مودال اختصاصی تایید اپراتور برای عملیات مخرب MySQL (`MysqlDestructiveConfirmModal`) با دکمه‌های کنترلی سه‌گانه، حریم ایمن فوتر (bottom-8)، نمایش فهرست صریح خطرات شناسایی‌شده، پیش‌نمایش کوئری با کپی سریع، الزام به تایید چک‌باکس مسئولیت‌پذیری، تایپ کلمه تایید یا CONFIRM و فیلد اختیاری توضیحات و تیکت پشتیبانی.',
+      'افزودن نشانگر و بج لحظه‌ای دسته‌بندی ایمنی و ریسک در نوار ابزار کنسول کوئری با نمایش دینامیک نوع عملیات و وضعیت نیازمند تایید قبل از ارسال.',
+      'ثبت و تفکیک دسته‌بندی امنیتی و سطح ریسک در تاریخچه کوئری‌های MySQL به همراه بج‌های رنگی در کشوی تاریخچه.',
+      'لاگینگ ساختاریافته ممیزی (Audit Logging) در کنسول بک‌اند برای تمامی عملیات مخرب اجراشده همراه با مشخصات سرور، دیتابیس، دلایل و یادداشت اپراتور.',
+      'انطباق صددرصدی با استانداردهای دوزبانه (فارسی و انگلیسی)، تم‌های تیره و روشن، و حفظ کامل استقلال از مدیریت پایگاه داده PostgreSQL.'
+    ],
+    changes_en: [
+      'Engineered comprehensive MySQL Query Safety & Risk Classification engine (`server/mysqlSqlSafety.ts` and `src/utils/mysqlSqlSafety.ts`) supporting 5 distinct operational classifications: Read-Only, Write, DDL, Administrative, and Destructive.',
+      'Standardized 5-tier risk ranking (Safe, Low, Moderate, High, Critical) with automatic extraction and identification of target objects (databases, tables, columns, users, and indexes).',
+      'Deep pattern detection for hazardous MySQL operations including DROP DATABASE, DROP TABLE, DROP VIEW, DROP PROCEDURE, DROP FUNCTION, DROP TRIGGER, DROP EVENT, DROP USER, TRUNCATE TABLE, REVOKE, ALTER TABLE ... DROP, and unconstrained DELETE / UPDATE statements without WHERE.',
+      'Enforced mandatory server-side authorization: backend server strictly blocks destructive query execution unless explicitly authorized by the operator with confirmedDestructive flag.',
+      'Implemented dedicated MySQL Destructive Confirmation Modal (`MysqlDestructiveConfirmModal`) adhering to all universal modal standards: window controls, strict footer boundary clearance (bottom-8), explicit hazard listings, SQL preview with one-click copy, responsibility acknowledgment checkbox, typed "CONFIRM" verification keyword, and optional operator audit note / ticket reference.',
+      'Added real-time visual safety badge in query console toolbar indicating query type and risk level before execution with animated alert on destructive statements.',
+      'Persistent security classification and risk tagging in MySQL Query History drawer with colored badges.',
+      'Structured server-side audit logging for confirmed destructive executions recording server metadata, target database, operator notes, and hazard reasons without exposing passwords.',
+      'Strict bilingual compliance (English/Persian), seamless dark/light ergonomics, and preserved complete stability of PostgreSQL management.'
+    ]
+  },
   {
     version: '1.218.0',
     releaseDate: '2026-09-29',

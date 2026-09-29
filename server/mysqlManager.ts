@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise';
 import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
+import { analyzeMysqlSqlSafety, MysqlSqlQuerySafetyReport } from './mysqlSqlSafety';
 import {
   MysqlConnectionTestResult,
   MysqlOverview,
@@ -759,17 +760,58 @@ export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem
   }
 }
 
+export { analyzeMysqlSqlSafety } from './mysqlSqlSafety';
+
+export interface MysqlQueryExecutionOptions {
+  confirmedDestructive?: boolean;
+  auditNotes?: string;
+  maxRows?: number;
+}
+
 /**
- * Executes a custom SQL statement against MySQL with timing and safety limits.
+ * Phase 8 & 9: Executes a custom SQL statement against MySQL with server-side safety guard,
+ * risk classification, and timing limits. Destructive operations require explicit confirmation.
  */
 export async function executeMysqlQuery(
   server: RemoteServer,
   query: string,
-  targetDb?: string
+  targetDb?: string,
+  options?: MysqlQueryExecutionOptions
 ): Promise<MysqlQueryResult> {
+  const startTime = Date.now();
+  if (!query || !query.trim()) {
+    return {
+      success: false,
+      durationMs: 0,
+      error: 'Query string cannot be empty.',
+      errorFa: 'متن کوئری نمی‌تواند خالی باشد.',
+    };
+  }
+
+  // Phase 9: Server-Side SQL Safety Guard & Risk Classification
+  const safetyReport = analyzeMysqlSqlSafety(query);
+
+  // If query contains destructive operations and user hasn't explicitly confirmed it, block execution server-side
+  if (safetyReport.isDestructive && !options?.confirmedDestructive) {
+    return {
+      success: false,
+      requiresConfirmation: true,
+      safetyReport,
+      durationMs: 0,
+      error: `Destructive operation blocked by MySQL Safety Guard: ${safetyReport.destructiveReasons.join('; ')}. Explicit operator confirmation is required.`,
+      errorFa: `عملیات مخرب توسط سامانه ایمنی MySQL متوقف شد: ${safetyReport.destructiveReasonsFa.join('؛ ')}. نیاز به تأیید صریح اپراتور دارد.`,
+    };
+  }
+
+  // If confirmed destructive, log operator audit details
+  if (safetyReport.isDestructive && options?.confirmedDestructive) {
+    console.log(
+      `[MYSQL AUDIT] Destructive query executed on server ${server.name} (${server.ip}), database: ${targetDb || 'default'}, reasons: ${safetyReport.destructiveReasons.join('; ')}, operator notes: ${options.auditNotes || 'None'}`
+    );
+  }
+
   const config = getMysqlConfig(server, { database: targetDb });
   let conn: mysql.Connection | null = null;
-  const startTime = Date.now();
 
   try {
     conn = await mysql.createConnection({
@@ -785,9 +827,11 @@ export async function executeMysqlQuery(
     const durationMs = Date.now() - startTime;
     await conn.end();
 
+    const maxLimit = options?.maxRows || 1000;
+
     if (Array.isArray(results)) {
       const columns = Array.isArray(fields) ? fields.map((f: any) => f.name) : Object.keys(results[0] || {});
-      const sanitizedRows = results.slice(0, 1000).map((r: any) => {
+      const sanitizedRows = results.slice(0, maxLimit).map((r: any) => {
         const sanitized: Record<string, any> = {};
         for (const [k, v] of Object.entries(r || {})) {
           if (v === null || v === undefined) {
@@ -811,6 +855,7 @@ export async function executeMysqlQuery(
         rows: sanitizedRows,
         rowCount: results.length,
         durationMs,
+        safetyReport,
       };
     } else {
       // OkPacket / ResultSetHeader (e.g. INSERT, UPDATE, DELETE, DDL)
@@ -819,6 +864,7 @@ export async function executeMysqlQuery(
         affectedRows: results?.affectedRows ?? 0,
         rowCount: results?.affectedRows ?? 0,
         durationMs,
+        safetyReport,
       };
     }
   } catch (err: any) {
@@ -830,6 +876,7 @@ export async function executeMysqlQuery(
     return {
       success: false,
       durationMs: Date.now() - startTime,
+      safetyReport,
       error: err.message,
       errorFa: `خطا در اجرای کوئری MySQL: ${err.message}`,
     };

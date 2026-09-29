@@ -47,8 +47,13 @@ import {
   MysqlQueryResult,
   MysqlQueryTab,
   MysqlQueryHistoryItem,
+  MysqlSqlQuerySafetyReport,
+  MysqlSqlClassificationType,
+  MysqlSqlRiskLevel,
 } from '../../types';
 import { executeRemoteServerMysqlQuery } from '../../services/api';
+import { analyzeMysqlSqlSafety } from '../../utils/mysqlSqlSafety';
+import { MysqlDestructiveConfirmModal } from './MysqlDestructiveConfirmModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MysqlSqlEditorTabProps {
@@ -190,8 +195,18 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
   const [executionError, setExecutionError] = useState<string | null>(null);
 
   // Destructive Query Confirmation
-  const [showDestructiveWarning, setShowDestructiveWarning] = useState(false);
-  const [pendingQueryToExecute, setPendingQueryToExecute] = useState<string | null>(null);
+  const [showDestructiveModal, setShowDestructiveModal] = useState(false);
+  const [pendingDestructiveQuery, setPendingDestructiveQuery] = useState<{
+    query: string;
+    safetyReport: MysqlSqlQuerySafetyReport;
+    database?: string;
+  } | null>(null);
+  const [isExecutingDestructive, setIsExecutingDestructive] = useState(false);
+
+  // Phase 9: Real-time SQL Safety Analysis
+  const currentSafetyReport = useMemo(() => {
+    return analyzeMysqlSqlSafety(activeTab?.query || '');
+  }, [activeTab?.query]);
 
   // Results display state
   const [resultsSearchQuery, setResultsSearchQuery] = useState('');
@@ -287,30 +302,61 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
     setEditingTabTitleId(null);
   };
 
-  // Check destructive queries in MySQL
-  const isDestructiveSql = (query: string): boolean => {
-    const upper = query.toUpperCase();
-    if (upper.includes('DROP DATABASE') || upper.includes('DROP TABLE') || upper.includes('TRUNCATE TABLE')) {
-      return true;
+  // Phase 9: Helper for rendering the real-time classification badge
+  const renderSafetyBadge = (type: MysqlSqlClassificationType, risk: MysqlSqlRiskLevel) => {
+    let bg = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+    let icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
+    let label = isEn ? 'Read-Only' : 'فقط‌خواندنی';
+
+    if (type === 'destructive') {
+      bg = 'bg-rose-500/15 text-rose-400 border-rose-500/40 animate-pulse';
+      icon = <Flame className="w-3.5 h-3.5 text-rose-400 shrink-0" />;
+      label = isEn ? 'Destructive' : 'مخرب / پرخطر';
+    } else if (type === 'write') {
+      bg = 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+      icon = <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />;
+      label = isEn ? 'Write / Mutation' : 'نوشتن / تغییر داده';
+    } else if (type === 'ddl') {
+      bg = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+      icon = <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />;
+      label = isEn ? 'DDL Schema' : 'تغییر ساختار DDL';
+    } else if (type === 'administrative') {
+      bg = 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+      icon = <Sliders className="w-3.5 h-3.5 text-purple-400 shrink-0" />;
+      label = isEn ? 'Administrative' : 'اداری و سیستمی';
     }
-    // Check DELETE or UPDATE without WHERE
-    if (/DELETE\s+FROM\s+[`\w.]+\s*;/i.test(query) || (upper.includes('DELETE FROM') && !upper.includes('WHERE'))) {
-      return true;
-    }
-    if (/UPDATE\s+[`\w.]+\s+SET\s+[^;]+;/i.test(query) && !upper.includes('WHERE')) {
-      return true;
-    }
-    return false;
+
+    return (
+      <div className={`px-2.5 py-1 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 font-mono ${bg}`}>
+        {icon}
+        <span>{label}</span>
+        <span className="opacity-80 uppercase text-[9px] px-1 py-0.2 rounded bg-black/20 font-bold">
+          {risk}
+        </span>
+      </div>
+    );
   };
 
-  // Execute SQL Query
-  const executeQuery = async (queryText: string, bypassDestructiveCheck = false) => {
+  // Phase 9: Execute SQL Query with Safety Analysis & Execution Controls
+  const executeQuery = async (
+    queryText: string,
+    options?: {
+      confirmedDestructive?: boolean;
+      auditNotes?: string;
+    }
+  ) => {
     const trimmed = queryText.trim();
     if (!trimmed) return;
 
-    if (!bypassDestructiveCheck && isDestructiveSql(trimmed)) {
-      setPendingQueryToExecute(trimmed);
-      setShowDestructiveWarning(true);
+    // 1. Client-Side Safety Scan
+    const safetyCheck = analyzeMysqlSqlSafety(trimmed);
+    if (safetyCheck.isDestructive && !options?.confirmedDestructive) {
+      setPendingDestructiveQuery({
+        query: trimmed,
+        safetyReport: safetyCheck,
+        database: activeTab?.database,
+      });
+      setShowDestructiveModal(true);
       return;
     }
 
@@ -324,10 +370,26 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
       const res = await executeRemoteServerMysqlQuery(
         server.id,
         trimmed,
-        activeTab?.database
+        activeTab?.database,
+        {
+          confirmedDestructive: options?.confirmedDestructive,
+          auditNotes: options?.auditNotes,
+        }
       );
 
       const durationMs = res.durationMs ?? (Date.now() - startTime);
+
+      // 2. Server-Side Safety Intercept
+      if (res.requiresConfirmation && res.safetyReport) {
+        setPendingDestructiveQuery({
+          query: trimmed,
+          safetyReport: res.safetyReport,
+          database: activeTab?.database,
+        });
+        setShowDestructiveModal(true);
+        setIsExecuting(false);
+        return;
+      }
 
       if (res.success) {
         setQueryResult({
@@ -341,6 +403,8 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
           durationMs,
           rowCount: res.rowCount,
           affectedRows: res.affectedRows,
+          classificationType: res.safetyReport?.overallType || safetyCheck.overallType,
+          riskLevel: res.safetyReport?.overallRiskLevel || safetyCheck.overallRiskLevel,
         });
       } else {
         const errMsg = isEn ? res.error || 'Query failed' : res.errorFa || res.error || 'خطا در اجرای کوئری';
@@ -351,6 +415,8 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
           success: false,
           durationMs,
           error: errMsg,
+          classificationType: res.safetyReport?.overallType || safetyCheck.overallType,
+          riskLevel: res.safetyReport?.overallRiskLevel || safetyCheck.overallRiskLevel,
         });
       }
     } catch (err: any) {
@@ -362,11 +428,26 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
         success: false,
         durationMs: Date.now() - startTime,
         error: errMsg,
+        classificationType: safetyCheck.overallType,
+        riskLevel: safetyCheck.overallRiskLevel,
       });
     } finally {
       setIsExecuting(false);
-      setPendingQueryToExecute(null);
-      setShowDestructiveWarning(false);
+    }
+  };
+
+  const handleConfirmDestructiveExecution = async (auditNotes?: string) => {
+    if (!pendingDestructiveQuery) return;
+    setIsExecutingDestructive(true);
+    try {
+      await executeQuery(pendingDestructiveQuery.query, {
+        confirmedDestructive: true,
+        auditNotes,
+      });
+    } finally {
+      setIsExecutingDestructive(false);
+      setShowDestructiveModal(false);
+      setPendingDestructiveQuery(null);
     }
   };
 
@@ -730,13 +811,24 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
 
         {/* Execution Bar */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+          <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono flex-wrap">
             <span className="flex items-center gap-1">
               <span className="px-1.5 py-0.2 rounded bg-black/20 text-slate-300 text-[10px] border border-white/10">
                 Ctrl+Enter
               </span>
               <span>{isEn ? 'to run' : 'جهت اجرا'}</span>
             </span>
+
+            {/* Real-time Safety Classification Pill */}
+            {renderSafetyBadge(currentSafetyReport.overallType, currentSafetyReport.overallRiskLevel)}
+
+            {currentSafetyReport.isDestructive && (
+              <span className="text-[10px] font-bold text-rose-400 flex items-center gap-1 font-mono bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                <Flame className="w-3 h-3 text-rose-500" />
+                <span>{isEn ? 'Confirmation Required' : 'نیاز به تأیید اپراتور'}</span>
+              </span>
+            )}
+
             {queryResult?.durationMs !== undefined && (
               <span className="flex items-center gap-1 text-emerald-400 font-semibold">
                 <Clock className="w-3 h-3" />
@@ -766,12 +858,21 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
               type="button"
               onClick={() => executeQuery(activeTab?.query || '')}
               disabled={isExecuting || !activeTab?.query?.trim()}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-600/20 disabled:opacity-50 transition-all cursor-pointer"
+              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-white font-bold text-xs shadow-lg disabled:opacity-50 transition-all cursor-pointer ${
+                currentSafetyReport.isDestructive
+                  ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                  : 'bg-orange-600 hover:bg-orange-500 shadow-orange-600/20'
+              }`}
             >
               {isExecuting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>{isEn ? 'Executing...' : 'در حال اجرا...'}</span>
+                </>
+              ) : currentSafetyReport.isDestructive ? (
+                <>
+                  <Flame className="w-4 h-4 fill-current text-rose-200" />
+                  <span>{isEn ? 'Run Dangerous Query' : 'اجرای دستور پرخطر'}</span>
                 </>
               ) : (
                 <>
@@ -784,57 +885,24 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
         </div>
       </div>
 
-      {/* 3. DESTRUCTIVE QUERY CONFIRMATION DIALOG */}
-      {showDestructiveWarning && pendingQueryToExecute && (
-        <div className="fixed inset-0 z-[999995] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div
-            className={`w-full max-w-lg rounded-2xl border shadow-2xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150 ${
-              isLightMode ? 'bg-white border-red-300 text-slate-900' : 'bg-slate-900 border-red-500/40 text-slate-100'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-red-500">
-                  {isEn ? 'Potentially Destructive Query Warning' : 'هشدار اجرای کوئری مخرب'}
-                </h4>
-                <p className="text-xs opacity-75">
-                  {isEn
-                    ? 'The SQL statement contains potentially irreversible modifications (DROP, TRUNCATE, or unrestricted DELETE/UPDATE).'
-                    : 'دستور ارسالی شامل عملیات غیرقابل بازگشت (حذف جدول، پایگاه‌داده یا ویرایش سراسری بدون شرط) است.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-black/40 border border-white/10 font-mono text-xs max-h-36 overflow-y-auto text-red-300">
-              {pendingQueryToExecute}
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDestructiveWarning(false);
-                  setPendingQueryToExecute(null);
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
-                  isLightMode ? 'border-slate-300 text-slate-700 hover:bg-slate-100' : 'border-white/10 text-slate-300 hover:bg-white/10'
-                }`}
-              >
-                {isEn ? 'Cancel' : 'انصراف'}
-              </button>
-              <button
-                type="button"
-                onClick={() => executeQuery(pendingQueryToExecute, true)}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/30 cursor-pointer"
-              >
-                {isEn ? 'I understand the risks, execute' : 'خطرات را می‌دانم، اجرا شود'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 3. DESTRUCTIVE QUERY CONFIRMATION MODAL */}
+      {showDestructiveModal && pendingDestructiveQuery && (
+        <MysqlDestructiveConfirmModal
+          isOpen={showDestructiveModal}
+          onClose={() => {
+            setShowDestructiveModal(false);
+            setPendingDestructiveQuery(null);
+          }}
+          onConfirm={handleConfirmDestructiveExecution}
+          serverName={server.name}
+          serverIp={server.ip}
+          databaseName={pendingDestructiveQuery.database || activeTab?.database || 'default'}
+          query={pendingDestructiveQuery.query}
+          safetyReport={pendingDestructiveQuery.safetyReport}
+          isExecuting={isExecutingDestructive}
+          isEn={isEn}
+          isLightMode={isLightMode}
+        />
       )}
 
       {/* 4. EXECUTION ERROR BANNER */}
@@ -1200,6 +1268,23 @@ export const MysqlSqlEditorTab: React.FC<MysqlSqlEditorTabProps> = ({
                         ) : (
                           <span className="px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-400 font-bold border border-rose-500/20">
                             FAILED
+                          </span>
+                        )}
+                        {item.classificationType && (
+                          <span
+                            className={`px-1.5 py-0.2 rounded uppercase text-[10px] font-bold border ${
+                              item.classificationType === 'destructive'
+                                ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                : item.classificationType === 'write'
+                                ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                                : item.classificationType === 'ddl'
+                                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                : item.classificationType === 'administrative'
+                                ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                                : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            }`}
+                          >
+                            {item.classificationType}
                           </span>
                         )}
                         {item.database && (

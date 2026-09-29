@@ -67,6 +67,7 @@ import {
   getMysqlDatabaseObjects,
   getMysqlUsers,
   executeMysqlQuery,
+  analyzeMysqlSqlSafety,
   getMysqlProcesslist,
   killMysqlProcess,
   getMysqlVariables,
@@ -4555,7 +4556,7 @@ apiRouter.get('/remote-servers/:id/mysql/users', async (req: Request, res: Respo
   }
 });
 
-// POST /api/remote-servers/:id/mysql/query - Run SQL query on MySQL
+// POST /api/remote-servers/:id/mysql/query - Run SQL query on MySQL with server-side safety checks
 apiRouter.post('/remote-servers/:id/mysql/query', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -4563,12 +4564,30 @@ apiRouter.post('/remote-servers/:id/mysql/query', async (req: Request, res: Resp
     if (!server) {
       return res.status(404).json({ success: false, error: 'Server not found' });
     }
-    const { query, database } = req.body || {};
+    const { query, database, confirmedDestructive, auditNotes, maxRows } = req.body || {};
     if (!query || typeof query !== 'string' || !query.trim()) {
       return res.status(400).json({ success: false, error: 'Query is required' });
     }
-    const result = await executeMysqlQuery(server, query, database);
+    const result = await executeMysqlQuery(server, query, database, {
+      confirmedDestructive: Boolean(confirmedDestructive),
+      auditNotes: typeof auditNotes === 'string' ? auditNotes.trim() : undefined,
+      maxRows: typeof maxRows === 'number' ? maxRows : undefined,
+    });
     return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/query/safety-check - Pre-flight server-side safety analysis for MySQL query
+apiRouter.post('/remote-servers/:id/mysql/query/safety-check', async (req: Request, res: Response) => {
+  try {
+    const { query } = req.body || {};
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ success: false, error: 'Query string is required' });
+    }
+    const safetyReport = analyzeMysqlSqlSafety(query);
+    return res.json({ success: true, safetyReport });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
