@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.212.0';
+export const APP_VERSION = '1.213.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.213.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'اصلاح خودکار و عیب‌یابی تعاملی عدم برقراری ارتباط (Connection Refused) در مدیریت PostgreSQL',
+    title_en: 'PostgreSQL Remote Access Auto-Remediation & Interactive Connection Refused Diagnostic Suite',
+    changes: [
+      'پیاده‌سازی هدایت مستقیم و تعاملی نشانگر وضعیت "ارتباط رد شد (Refused)" در هدر مودال PostgreSQL به تب Connection & Security با انیمیشن و نشانگر کلیک‌پذیر.',
+      'طراحی بخش تحلیلی Connection Validation Issue با شرح کامل سه دلیل ریشه‌ای: بسته بودن پورت/بلاک توسط فایروال سرور، کامنت بودن listen_addresses = \'*\' در postgresql.conf، و عدم درج قاعده IP پنل با متد scram-sha-256 در pg_hba.conf.',
+      'افزودن کارت هوشمند و اختصاصی «می‌خواهم خودم همه این‌ها را انجام دهم» جهت اجرای خودکار و بلادرنگ کلیه مراحل اصلاح از طریق SSH.',
+      'پیکربندی هوشمند و خودکار فایروال سرور (UFW, Firewalld, iptables) بر اساس پورت اختصاصی ثبت‌شده برای دستگاه در سرورهای ریموت.',
+      'جستجو و شناسایی خودکار فایل postgresql.conf در مسیرهای استاندارد دیسک سرور لینوکس، ایجاد نسخه پشتیبان، و فعال‌سازی پارامتر listen_addresses = \'*\' جهت پذیرش اتصالات خارجی.',
+      'جستجو و کشف خودکار فایل pg_hba.conf، تهیه بکاپ، و درج قاعده رسمی دسترسی برای آدرس IP پنل با متد هش مدرن scram-sha-256 (قاعده: host all all <Panel IP> scram-sha-256).',
+      'راه‌اندازی مجدد خودکار سرویس PostgreSQL (systemctl restart postgresql) و آزمایش مجدد اتصال در لحظه جهت تایید قطعی رفع مشکل.',
+      'ارائه گزارش مرحله‌به‌مرحله چک‌لیست اصلاح با نشانگرهای سبز تایید، دوزبانگی صددرصدی فارسی و انگلیسی بدون نشت زبان، و انطباق با تم تیره و روشن.'
+    ],
+    changes_en: [
+      'Interactive clickable "Connection Refused" status badge in PostgreSQL management modal header redirecting directly to Connection & Security tab.',
+      'Comprehensive Connection Validation Issue diagnostic panel covering all 3 root causes: host firewall / closed port, commented listen_addresses in postgresql.conf, and missing panel IP entry with scram-sha-256 in pg_hba.conf.',
+      'Dedicated 1-click Auto-Remediation Suite ("I Want to Automatically Resolve All of These") executing end-to-end resolution over SSH.',
+      'Adaptive host firewall adjustment (UFW, Firewalld, iptables) automatically configured for the registered PostgreSQL port.',
+      'Automatic discovery of postgresql.conf on the remote Linux filesystem, automated backup creation, and configuring listen_addresses = \'*\' for remote listening.',
+      'Automatic discovery of pg_hba.conf, backup creation, and inserting panel IP access rule with modern scram-sha-256 (host all all <Panel IP> scram-sha-256).',
+      'Automated PostgreSQL service restart (systemctl restart postgresql) and immediate post-remediation connection re-verification.',
+      'Detailed visual step-by-step audit checklist with success badges, strict bilingual Persian/English localization, and dark/light mode ergonomics.'
+    ]
+  },
   {
     version: '1.212.0',
     releaseDate: '2026-09-28',

@@ -35,6 +35,12 @@ import {
   Zap,
   GitFork,
   ScrollText,
+  Wrench,
+  Sparkles,
+  Globe,
+  FileCode,
+  ArrowRight,
+  Shield,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -43,11 +49,15 @@ import {
   PostgresEngineOverview,
   PostgresDatabaseItem,
   PostgresMaintenanceAction,
+  PostgresRemediateConnectionResult,
+  PostgresRemediateStepResult,
 } from '../../types';
 import {
   testRemoteServerPostgresConnection,
   fetchRemoteServerPostgresOverview,
   fetchRemoteServerPostgresDatabases,
+  fetchRemoteServerPostgresPanelIp,
+  remediateRemoteServerPostgresConnection,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
@@ -120,6 +130,58 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
   const [databasesError, setDatabasesError] = useState<{ en: string; fa?: string } | null>(null);
   const [includeTemplates, setIncludeTemplates] = useState(false);
   const [dbSearchQuery, setDbSearchQuery] = useState('');
+
+  // Phase 25: PostgreSQL Connection Auto-Remediation States
+  const [panelIp, setPanelIp] = useState<string>('');
+  const [loadingPanelIp, setLoadingPanelIp] = useState<boolean>(false);
+  const [remediating, setRemediating] = useState<boolean>(false);
+  const [remediationResult, setRemediationResult] = useState<PostgresRemediateConnectionResult | null>(null);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [isEditingPanelIp, setIsEditingPanelIp] = useState<boolean>(false);
+
+  // Fetch detected Panel IP
+  const handleFetchPanelIp = useCallback(async () => {
+    if (!server?.id) return;
+    setLoadingPanelIp(true);
+    try {
+      const data = await fetchRemoteServerPostgresPanelIp(server.id);
+      if (data?.panelIp) {
+        setPanelIp(data.panelIp);
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setLoadingPanelIp(false);
+    }
+  }, [server?.id]);
+
+  useEffect(() => {
+    handleFetchPanelIp();
+  }, [handleFetchPanelIp]);
+
+  // Execute Auto-Remediation
+  const handleAutoRemediate = async () => {
+    if (!server?.id) return;
+    setRemediating(true);
+    setRemediationError(null);
+    try {
+      const res = await remediateRemoteServerPostgresConnection(server.id, {
+        panelIp: panelIp.trim() || undefined,
+        port: server.postgres_port || 5432,
+      });
+      setRemediationResult(res);
+      if (res.testResult) {
+        setConnectionResult(res.testResult);
+        setLastTestedAt(new Date().toLocaleTimeString());
+      } else if (res.success) {
+        handleTestConnection();
+      }
+    } catch (err: any) {
+      setRemediationError(err.message || (isEn ? 'Failed to execute auto-remediation' : 'خطا در اجرای خودکار رفع مشکل'));
+    } finally {
+      setRemediating(false);
+    }
+  };
 
   // Run connection test
   const handleTestConnection = useCallback(async () => {
@@ -283,10 +345,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
         );
       case 'connection_refused':
         return (
-          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-rose-500/15 text-rose-400 border border-rose-500/30">
-            <XCircle className="w-3.5 h-3.5 text-rose-400" />
-            <span className="font-bold">{isEn ? 'Refused' : 'ارتباط رد شد'}</span>
-          </span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('connection')}
+            title={
+              isEn
+                ? 'Connection Refused! Click to inspect diagnosis & auto-remediate in Connection & Security'
+                : 'ارتباط با پورت رد شد! جهت مشاهده عیب‌یابی و اصلاح خودکار در تب اتصال و امنیت کلیک کنید'
+            }
+            className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 hover:border-rose-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-sm shadow-rose-950/20"
+          >
+            <XCircle className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+            <span className="font-bold underline decoration-dotted underline-offset-2">
+              {isEn ? 'Refused' : 'ارتباط رد شد'}
+            </span>
+            <ChevronRight className="w-3 h-3 text-rose-400/80 group-hover:translate-x-0.5 transition-transform" />
+          </button>
         );
       case 'timeout':
         return (
@@ -1424,76 +1498,347 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                   </div>
                 </div>
 
-                {/* Error Diagnosis Banner if failed */}
+                {/* Error Diagnosis & Automated Remediation Suite */}
                 {connectionResult && !connectionResult.success && (
-                  <div
-                    className={`mt-4 p-3 rounded-xl border text-xs space-y-1.5 ${
-                      isLightMode
-                        ? 'bg-rose-100/60 border-rose-300 text-rose-900'
-                        : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>{isEn ? 'Diagnostic Recommendations:' : 'راهنمای رفع مشکل:'}</span>
-                    </div>
-                    <div className="text-[11px] leading-relaxed opacity-90 pl-5">
-                      {connectionResult.status === 'authentication_failed' && (
-                        <p>
-                          {isEn
-                            ? 'The database rejected the credentials. Verify that the username exists and password matches. Check pg_hba.conf for md5/scram-sha-256 authentication rules.'
-                            : 'رمز عبور یا نام کاربری توسط PostgreSQL رد شد. مطمئن شوید نام کاربری وجود دارد و رمز صحیح است. همچنین متد احراز هویت (md5 یا scram-sha-256) در فایل pg_hba.conf را بررسی نمایید.'}
-                        </p>
-                      )}
-                      {connectionResult.status === 'connection_refused' && (
-                        <p>
-                          {isEn
-                            ? `Port ${server.postgres_port || 5432} is not accepting connections. Ensure PostgreSQL service is running ("systemctl status postgresql") and listen_addresses is set to '*' in postgresql.conf.`
-                            : `پورت ${server.postgres_port || 5432} درخواست را رد کرد. بررسی کنید سرویس فعال باشد ("systemctl status postgresql") و در فایل postgresql.conf عبارت listen_addresses برابر '*' تنظیم شده باشد.`}
-                        </p>
-                      )}
-                      {connectionResult.status === 'timeout' && (
-                        <p>
-                          {isEn
-                            ? `Connection timed out after 5000ms. Check host firewall (UFW/iptables: "ufw allow ${server.postgres_port || 5432}/tcp") and network security groups.`
-                            : `مهلت ارتباط به پایان رسید (Timeout). فایروال سرور (دستور ufw allow ${server.postgres_port || 5432}/tcp) و گروه‌های امنیتی شبکه را بررسی فرمایید.`}
-                        </p>
-                      )}
-                      {connectionResult.status === 'permission_denied' && (
-                        <p>
-                          {isEn
-                            ? 'User has insufficient privileges to connect to the initial database. Grant CONNECT permissions to this role.'
-                            : 'کاربر مجوز دسترسی لازم جهت اتصال به این پایگاه داده را ندارد. مجوز CONNECT را به این نقش اعطا نمایید.'}
-                        </p>
-                      )}
-                      {connectionResult.status === 'database_unavailable' && (
-                        <p>
-                          {isEn
-                            ? `The targeted database does not exist. Ensure the default database "postgres" exists or configure a valid database.`
-                            : 'پایگاه داده مورد نظر روی سرور وجود ندارد. از وجود دیتابیس پیش‌فرض "postgres" مطمئن شوید.'}
-                        </p>
-                      )}
-                      {connectionResult.status === 'connection_failed' && (
-                        <p>
-                          {isEn
-                            ? `Generic network error: ${connectionResult.errorDetail || connectionResult.message}`
-                            : `خطای شبکه: ${connectionResult.errorDetail || connectionResult.message}`}
-                        </p>
+                  <div className="mt-4 space-y-4">
+                    {/* Diagnosis Card */}
+                    <div
+                      className={`p-4 rounded-xl border text-xs space-y-3 ${
+                        isLightMode
+                          ? 'bg-rose-50/80 border-rose-200 text-rose-950'
+                          : 'bg-rose-950/30 border-rose-500/30 text-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-rose-500/20 pb-2">
+                        <div className="flex items-center gap-2 font-bold text-sm text-rose-400">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span>
+                            {isEn
+                              ? 'Connection Validation Issues & Root Cause Diagnosis:'
+                              : 'دلایل ریشه‌ای عدم برقراری ارتباط (Connection Validation Issues):'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20">
+                          {connectionResult.status}
+                        </span>
+                      </div>
+
+                      {/* 3 Core Requirements / Causes List */}
+                      <div className="space-y-2.5 text-xs">
+                        {/* Cause 1: Firewall / Closed Port */}
+                        <div
+                          className={`p-2.5 rounded-lg border flex items-start gap-2.5 ${
+                            isLightMode ? 'bg-white/80 border-rose-200' : 'bg-slate-900/60 border-slate-800'
+                          }`}
+                        >
+                          <div className="w-6 h-6 rounded-md bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 font-mono font-bold shrink-0 text-[11px]">
+                            1
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                              <Shield className="w-3.5 h-3.5 text-amber-400" />
+                              <span className={isLightMode ? 'text-slate-900' : 'text-slate-100'}>
+                                {isEn
+                                  ? `Port Closed or Blocked by Host Firewall (${server.postgres_port || 5432}/tcp)`
+                                  : `بسته بودن پورت یا مسدودیت توسط فایروال سرور (پورت ${server.postgres_port || 5432}/tcp)`}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                              {isEn
+                                ? `Port ${server.postgres_port || 5432} configured for this remote server is not open, or incoming packets are rejected by Linux firewall (UFW, Firewalld, or iptables).`
+                                : `پورت ${server.postgres_port || 5432} که برای این سرور ثبت شده بسته است یا ترافیک ورودی آن توسط فایروال لینوکس (UFW، Firewalld یا iptables) بلاک گردیده است.`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Cause 2: postgresql.conf listen_addresses */}
+                        <div
+                          className={`p-2.5 rounded-lg border flex items-start gap-2.5 ${
+                            isLightMode ? 'bg-white/80 border-rose-200' : 'bg-slate-900/60 border-slate-800'
+                          }`}
+                        >
+                          <div className="w-6 h-6 rounded-md bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 font-mono font-bold shrink-0 text-[11px]">
+                            2
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                              <span className={isLightMode ? 'text-slate-900' : 'text-slate-100'}>
+                                {isEn
+                                  ? 'Directive listen_addresses = \'*\' is Commented or Restricted in postgresql.conf'
+                                  : 'گزینه listen_addresses = \'*\' در فایل postgresql.conf کامنت یا محدود به localhost است'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                              {isEn
+                                ? 'By default, PostgreSQL only listens on loopback ("localhost"). To allow remote connections, "listen_addresses = \'*\'" must be uncommented and enabled in postgresql.conf.'
+                                : 'به طور پیش‌فرض، PostgreSQL فقط به اینترفیس لوپ‌بک ("localhost") گوش می‌دهد. جهت پذیرش اتصالات ریموت، باید خط "listen_addresses = \'*\'" در فایل postgresql.conf از حالت کامنت خارج و فعال گردد.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Cause 3: pg_hba.conf Client Authentication */}
+                        <div
+                          className={`p-2.5 rounded-lg border flex items-start gap-2.5 ${
+                            isLightMode ? 'bg-white/80 border-rose-200' : 'bg-slate-900/60 border-slate-800'
+                          }`}
+                        >
+                          <div className="w-6 h-6 rounded-md bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 font-mono font-bold shrink-0 text-[11px]">
+                            3
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <Key className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className={isLightMode ? 'text-slate-900' : 'text-slate-100'}>
+                                {isEn
+                                  ? 'Panel IP Address Missing in pg_hba.conf with scram-sha-256'
+                                  : 'آدرس IP پنل در فایل pg_hba.conf ثبت نشده است (قاعده scram-sha-256)'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                              {isEn
+                                ? `Client authentication table (pg_hba.conf) must include an explicit rule allowing this Panel's IP address (${panelIp || 'Panel IP'}):`
+                                : `فایل کنترل دسترسی کلاینت‌ها (pg_hba.conf) باید حاوی قاعده دسترسی برای آدرس IP این پنل (${panelIp || 'آدرس IP پنل'}) باشد:`}
+                            </p>
+                            <div className="mt-1.5 px-2.5 py-1 rounded bg-black/40 border border-slate-700/40 font-mono text-[11px] text-emerald-400 flex items-center justify-between">
+                              <span>host all all {panelIp ? (panelIp.includes('/') ? panelIp : `${panelIp}/32`) : '<Panel IP Address>'} scram-sha-256</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {onOpenTerminal && (
+                        <div className="pt-1 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => onOpenTerminal(server)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono bg-slate-900 text-slate-200 hover:bg-black transition cursor-pointer border border-slate-700"
+                          >
+                            <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{isEn ? 'Open SSH Terminal for Manual Inspection' : 'بازگشایی ترمینال SSH جهت بررسی دستی'}</span>
+                          </button>
+                        </div>
                       )}
                     </div>
 
-                    {onOpenTerminal && (
-                      <div className="pt-2 pl-5">
-                        <button
-                          type="button"
-                          onClick={() => onOpenTerminal(server)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono bg-slate-900 text-slate-200 hover:bg-black transition cursor-pointer"
-                        >
-                          <Terminal className="w-3 h-3 text-emerald-400" />
-                          <span>{isEn ? 'Open SSH Terminal to Troubleshoot' : 'بازگشایی ترمینال SSH جهت عیب‌یابی'}</span>
-                        </button>
+                    {/* ======================================================== */}
+                    {/* AUTOMATED REMEDIATION CARD: "می‌خواهم خودم همه این‌ها را انجام دهم" */}
+                    {/* ======================================================== */}
+                    <div
+                      className={`p-4 sm:p-5 rounded-2xl border transition-all relative overflow-hidden ${
+                        isLightMode
+                          ? 'bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/60 border-blue-200 shadow-sm'
+                          : 'bg-gradient-to-br from-blue-950/30 via-slate-900/60 to-indigo-950/20 border-blue-500/30 shadow-lg'
+                      }`}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3.5">
+                          <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                            <Sparkles className="w-5 h-5 animate-pulse" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm sm:text-base text-blue-400 flex items-center gap-2">
+                              <span>
+                                {isEn
+                                  ? 'I Want to Automatically Resolve All of These'
+                                  : 'می‌خواهم خودم همه این‌ها را انجام دهم (اصلاح خودکار سیستم)'}
+                              </span>
+                            </h4>
+                            <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                              {isEn
+                                ? `The system will automatically connect via SSH, allow port ${server.postgres_port || 5432} in the host firewall (UFW/Firewalld/iptables), locate postgresql.conf and enable listen_addresses = '*', locate pg_hba.conf and append the panel access rule with scram-sha-256, restart PostgreSQL, and verify the connection.`
+                                : `سیستم به صورت هوشمند از طریق SSH متصل شده، پورت ${server.postgres_port || 5432} را در فایروال (UFW/Firewalld/iptables) باز می‌کند، فایل postgresql.conf را پیدا کرده و listen_addresses = '*' را فعال می‌نماید، فایل pg_hba.conf را یافته و دسترسی IP پنل را با scram-sha-256 ثبت می‌کند، و در انتها سرویس PostgreSQL را ریستارت و اتصال را تایید می‌نماید.`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Execute Button */}
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={remediating}
+                            onClick={handleAutoRemediate}
+                            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white transition flex items-center gap-2 shadow-md hover:shadow-blue-500/20 cursor-pointer disabled:opacity-50 active:scale-95"
+                          >
+                            {remediating ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                                <span>{isEn ? 'Remediating via SSH...' : 'در حال اصلاح خودکار از طریق SSH...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Wrench className="w-4 h-4" />
+                                <span>
+                                  {isEn
+                                    ? 'Auto-Remediate All Settings Now'
+                                    : 'انجام خودکار کلیه مراحل توسط سیستم'}
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                    )}
+
+                      {/* Parameters Summary & IP Adjustment */}
+                      <div className="mt-4 pt-3 border-t border-slate-700/20 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 font-medium">
+                              {isEn ? 'Target Port:' : 'پورت هدف:'}
+                            </span>
+                            <span className="font-mono font-bold text-blue-400 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                              {server.postgres_port || 5432}/tcp
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 font-medium">
+                              {isEn ? 'Panel IP for pg_hba:' : 'آدرس IP پنل برای pg_hba:'}
+                            </span>
+                            {isEditingPanelIp ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={panelIp}
+                                  onChange={(e) => setPanelIp(e.target.value)}
+                                  placeholder="e.g. 192.168.1.100"
+                                  className={`px-2 py-0.5 rounded text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                                    isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-white'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingPanelIp(false)}
+                                  className="px-2 py-0.5 rounded text-[11px] bg-blue-600 text-white cursor-pointer"
+                                >
+                                  {isEn ? 'Done' : 'تایید'}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                                  {panelIp || (loadingPanelIp ? (isEn ? 'Detecting...' : 'شناسایی...') : '127.0.0.1')}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingPanelIp(true)}
+                                  className="text-[11px] text-blue-400 hover:underline cursor-pointer"
+                                >
+                                  {isEn ? 'Edit IP' : 'تغییر IP'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-slate-400">
+                          {isEn
+                            ? 'Requires SSH access credentials on the remote server'
+                            : 'نیاز به دسترسی SSH معتبر بر روی سرور ریموت'}
+                        </div>
+                      </div>
+
+                      {/* Remediation Error Message if any */}
+                      {remediationError && (
+                        <div className="mt-3 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">{isEn ? 'Remediation Error: ' : 'خطا در اصلاح: '}</span>
+                            <span>{remediationError}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Remediation Step Results Live Log */}
+                      {remediationResult && (
+                        <div className="mt-4 pt-4 border-t border-slate-700/20 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs flex items-center gap-1.5">
+                              {remediationResult.success ? (
+                                <>
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                  <span className="text-emerald-400">
+                                    {isEn ? 'Auto-Remediation Completed Successfully' : 'عملیات اصلاح خودکار با موفقیت انجام شد'}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                  <span className="text-amber-400">
+                                    {isEn ? 'Auto-Remediation Finished with Warnings' : 'عملیات اصلاح با هشدار به پایان رسید'}
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {new Date(remediationResult.executedAt).toLocaleTimeString()}
+                            </span>
+                          </div>
+
+                          {/* Step Checklist */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            {remediationResult.steps.map((st, idx) => (
+                              <div
+                                key={idx}
+                                className={`p-2.5 rounded-lg border flex items-start gap-2 ${
+                                  st.status === 'success'
+                                    ? isLightMode
+                                      ? 'bg-emerald-50/50 border-emerald-200'
+                                      : 'bg-emerald-950/20 border-emerald-500/30'
+                                    : st.status === 'error'
+                                    ? isLightMode
+                                      ? 'bg-rose-50/50 border-rose-200'
+                                      : 'bg-rose-950/20 border-rose-500/30'
+                                    : isLightMode
+                                    ? 'bg-amber-50/50 border-amber-200'
+                                    : 'bg-amber-950/20 border-amber-500/30'
+                                }`}
+                              >
+                                {st.status === 'success' && (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                )}
+                                {st.status === 'error' && (
+                                  <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                                )}
+                                {st.status === 'warning' && (
+                                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-xs truncate">
+                                    {isEn ? st.title : st.titleFa}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
+                                    {isEn ? st.details : st.detailsFa}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Success CTA */}
+                          {remediationResult.testResult?.success && (
+                            <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                                <span className="text-xs text-emerald-300 font-semibold">
+                                  {isEn
+                                    ? 'PostgreSQL engine is now fully accessible and connected!'
+                                    : 'موتور PostgreSQL هم‌اکنون به طور کامل متصل و در دسترس است!'}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab('browser')}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0"
+                              >
+                                <span>{isEn ? 'Go to Database Browser' : 'مشاهده جداول و کاوشگر دیتابیس'}</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

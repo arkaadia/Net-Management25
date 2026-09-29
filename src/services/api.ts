@@ -14,6 +14,7 @@ import {
   RemoteServer,
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
+  PostgresRemediateConnectionResult,
   PostgresEngineOverview,
   MysqlConnectionTestResult,
   MysqlOverview,
@@ -1256,6 +1257,33 @@ export async function testRemoteServerPostgresConnection(
   }
 ): Promise<PostgresConnectionTestResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresPanelIp(id: string): Promise<{
+  success: boolean;
+  panelIp: string;
+  clientIp?: string;
+  localIp?: string;
+  serverPort: number;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/panel-ip`);
+  return res.json();
+}
+
+export async function remediateRemoteServerPostgresConnection(
+  id: string,
+  data?: {
+    panelIp?: string;
+    port?: number;
+    sessionPassword?: string;
+  }
+): Promise<PostgresRemediateConnectionResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/remediate-connection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),

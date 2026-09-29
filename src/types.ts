@@ -2917,6 +2917,36 @@ export interface PostgresHbaRestoreRequest {
 }
 
 // ============================================================================
+// POSTGRESQL REMOTE ACCESS AUTO-REMEDIATION
+// ============================================================================
+
+export interface PostgresRemediateStepResult {
+  step: 'firewall' | 'postgresql_conf' | 'pg_hba_conf' | 'restart_service' | 'connection_test';
+  title: string;
+  titleFa: string;
+  status: 'success' | 'warning' | 'error' | 'skipped';
+  details: string;
+  detailsFa: string;
+  target?: string;
+}
+
+export interface PostgresRemediateConnectionResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  panelIp: string;
+  port: number;
+  steps: PostgresRemediateStepResult[];
+  confFilePath?: string;
+  hbaFilePath?: string;
+  firewallAction?: string;
+  serviceRestarted?: boolean;
+  testResult?: PostgresConnectionTestResult;
+  executedAt: string;
+  rawLog?: string;
+}
+
+// ============================================================================
 // PHASE 18: Database Maintenance & Optimization (VACUUM, ANALYZE, REINDEX)
 // ============================================================================
 

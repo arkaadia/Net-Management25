@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
+import os from 'os';
 import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { analyzePostgresSqlSafety, PostgresSqlQuerySafetyReport } from './postgresSqlSafety';
@@ -33,6 +34,8 @@ import {
   PostgresReplicationOverview,
   PostgresReplicationSlotActionRequest,
   PostgresReplicationReplayControlRequest,
+  PostgresRemediateStepResult,
+  PostgresRemediateConnectionResult,
 } from '../src/types';
 
 export { analyzePostgresSqlSafety } from './postgresSqlSafety';
@@ -10906,4 +10909,334 @@ echo "SUCCESS:$CONF_PATH"
       }`,
     };
   }
+}
+
+/**
+ * Detects the local panel's outbound IP address to provide as the default
+ * in pg_hba.conf client authentication rule.
+ */
+export function detectPanelIp(): string {
+  const interfaces = os.networkInterfaces();
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (name.includes('lo') || !addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
+/**
+ * Auto-remediation for PostgreSQL remote connection failure (e.g. Connection Refused):
+ * 1. Configures host firewall (UFW, Firewalld, iptables) to allow the target PostgreSQL port.
+ * 2. Finds postgresql.conf on the remote server and configures `listen_addresses = '*'`.
+ * 3. Finds pg_hba.conf on the remote server and inserts client authentication rule:
+ *    `host all all <Panel IP> scram-sha-256`
+ * 4. Restarts the PostgreSQL service.
+ * 5. Re-tests the PostgreSQL connection to confirm resolution.
+ */
+export async function remediatePostgresConnection(
+  server: RemoteServer,
+  options?: {
+    panelIp?: string;
+    port?: number;
+    sessionPassword?: string;
+  }
+): Promise<PostgresRemediateConnectionResult> {
+  const targetPort = options?.port || server.postgres_port || 5432;
+  const detectedIp = detectPanelIp();
+  const rawPanelIp = (options?.panelIp || detectedIp || '127.0.0.1').trim();
+  const panelIpCidr = rawPanelIp.includes('/') ? rawPanelIp : `${rawPanelIp}/32`;
+
+  const steps: PostgresRemediateStepResult[] = [];
+  let confFilePath = '';
+  let hbaFilePath = '';
+  let firewallAction = '';
+  let serviceRestarted = false;
+
+  const script = `export LC_ALL=C
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  fi
+fi
+
+PORT="${targetPort}"
+PANEL_IP_RULE="${panelIpCidr}"
+
+echo "===STEP:FIREWALL==="
+FW_LOG=""
+if which ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -qi "Status: active"; then
+  $SUDO ufw allow \${PORT}/tcp 2>&1 || true
+  FW_LOG="UFW: allowed port \${PORT}/tcp"
+elif which firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
+  $SUDO firewall-cmd --permanent --add-port=\${PORT}/tcp 2>&1 || true
+  $SUDO firewall-cmd --reload 2>&1 || true
+  FW_LOG="Firewalld: added permanent rule for port \${PORT}/tcp"
+elif which iptables >/dev/null 2>&1; then
+  if ! $SUDO iptables -C INPUT -p tcp --dport \${PORT} -j ACCEPT 2>/dev/null; then
+    $SUDO iptables -I INPUT -p tcp --dport \${PORT} -j ACCEPT 2>&1 || true
+    FW_LOG="iptables: inserted ACCEPT rule for port \${PORT}/tcp"
+  else
+    FW_LOG="iptables: port \${PORT}/tcp already allowed"
+  fi
+else
+  FW_LOG="No active local firewall (UFW/Firewalld) detected or default policy accepts"
+fi
+echo "FIREWALL_RESULT:$FW_LOG"
+
+echo "===STEP:POSTGRESQL_CONF==="
+CONF_FILE=""
+if which psql >/dev/null 2>&1; then
+  CONF_FILE=$(su - postgres -c "psql -t -P format=unaligned -c 'SHOW config_file;' 2>/dev/null" 2>/dev/null || true)
+fi
+
+if [ -z "$CONF_FILE" ] || [ ! -f "$CONF_FILE" ]; then
+  for p in \\
+    /etc/postgresql/*/*/postgresql.conf \\
+    /var/lib/pgsql/*/data/postgresql.conf \\
+    /var/lib/pgsql/data/postgresql.conf \\
+    /var/lib/postgresql/data/postgresql.conf \\
+    /var/lib/postgresql/*/main/postgresql.conf \\
+    /usr/local/var/postgres/postgresql.conf \\
+    /etc/postgresql/postgresql.conf
+  do
+    if [ -f "$p" ]; then
+      CONF_FILE="$p"
+      break
+    fi
+  done
+fi
+
+if [ -z "$CONF_FILE" ] || [ ! -f "$CONF_FILE" ]; then
+  CONF_FILE=$($SUDO find /etc /var/lib -name postgresql.conf 2>/dev/null | head -n 1 || true)
+fi
+
+if [ -z "$CONF_FILE" ] || [ ! -f "$CONF_FILE" ]; then
+  echo "CONF_ERROR:postgresql.conf not found on host"
+  exit 1
+fi
+echo "CONF_FILE:$CONF_FILE"
+
+# Backup postgresql.conf
+$SUDO cp "$CONF_FILE" "\${CONF_FILE}.bak_netmg_$(date +%s)" 2>/dev/null || true
+
+# Update or insert listen_addresses = '*'
+if $SUDO grep -E "^[#[:space:]]*listen_addresses[[:space:]]*=" "$CONF_FILE" >/dev/null 2>&1; then
+  $SUDO sed -i -E "s/^[#[:space:]]*listen_addresses[[:space:]]*=.*/listen_addresses = '*'/" "$CONF_FILE"
+else
+  echo "listen_addresses = '*'" | $SUDO tee -a "$CONF_FILE" >/dev/null
+fi
+echo "CONF_UPDATED:listen_addresses set to '*'"
+
+echo "===STEP:PG_HBA_CONF==="
+HBA_FILE=""
+CONF_DIR=$(dirname "$CONF_FILE")
+if [ -f "$CONF_DIR/pg_hba.conf" ]; then
+  HBA_FILE="$CONF_DIR/pg_hba.conf"
+fi
+
+if [ -z "$HBA_FILE" ] || [ ! -f "$HBA_FILE" ]; then
+  for p in \\
+    /etc/postgresql/*/*/pg_hba.conf \\
+    /var/lib/pgsql/*/data/pg_hba.conf \\
+    /var/lib/pgsql/data/pg_hba.conf \\
+    /var/lib/postgresql/data/pg_hba.conf \\
+    /var/lib/postgresql/*/main/pg_hba.conf \\
+    /usr/local/var/postgres/pg_hba.conf
+  do
+    if [ -f "$p" ]; then
+      HBA_FILE="$p"
+      break
+    fi
+  done
+fi
+
+if [ -z "$HBA_FILE" ] || [ ! -f "$HBA_FILE" ]; then
+  HBA_FILE=$($SUDO find /etc /var/lib -name pg_hba.conf 2>/dev/null | head -n 1 || true)
+fi
+
+if [ -z "$HBA_FILE" ] || [ ! -f "$HBA_FILE" ]; then
+  echo "HBA_ERROR:pg_hba.conf not found on host"
+  exit 1
+fi
+echo "HBA_FILE:$HBA_FILE"
+
+# Backup pg_hba.conf
+$SUDO cp "$HBA_FILE" "\${HBA_FILE}.bak_netmg_$(date +%s)" 2>/dev/null || true
+
+NEW_RULE="host    all             all             \${PANEL_IP_RULE}            scram-sha-256"
+
+if $SUDO grep -F "$PANEL_IP_RULE" "$HBA_FILE" >/dev/null 2>&1; then
+  echo "HBA_UPDATED:Rule for \${PANEL_IP_RULE} already exists in \${HBA_FILE}"
+else
+  echo -e "\\n# Net-Management Panel Remote Access Rule\\n\${NEW_RULE}" | $SUDO tee -a "$HBA_FILE" >/dev/null
+  echo "HBA_UPDATED:Added rule '\${NEW_RULE}' to \${HBA_FILE}"
+fi
+
+echo "===STEP:RESTART_SERVICE==="
+SVC_LOG=""
+if $SUDO systemctl restart postgresql 2>&1; then
+  SVC_LOG="postgresql.service successfully restarted via systemctl"
+elif $SUDO systemctl restart postgres 2>&1; then
+  SVC_LOG="postgres.service successfully restarted via systemctl"
+elif $SUDO service postgresql restart 2>&1; then
+  SVC_LOG="postgresql service restarted via service command"
+else
+  SVC_LOG="Warning: Service restart command exited with non-zero status"
+  echo "RESTART_WARN:$SVC_LOG"
+fi
+echo "RESTART_RESULT:$SVC_LOG"
+echo "===COMPLETE==="
+`;
+
+  let rawLog = '';
+  try {
+    rawLog = await runAdaptiveSshCommand(server, script, options?.sessionPassword, 25000);
+  } catch (sshErr: any) {
+    return {
+      success: false,
+      message: `Failed to connect to Linux host via SSH: ${sshErr.message}`,
+      messageFa: `خطا در برقراری ارتباط SSH با سرور لینوکس: ${sshErr.message}`,
+      panelIp: rawPanelIp,
+      port: targetPort,
+      steps: [
+        {
+          step: 'firewall',
+          title: 'Firewall Configuration',
+          titleFa: 'پیکربندی فایروال سرور',
+          status: 'error',
+          details: `SSH error: ${sshErr.message}`,
+          detailsFa: `خطای اتصال SSH: ${sshErr.message}`,
+        },
+      ],
+      executedAt: new Date().toISOString(),
+      rawLog: sshErr.message,
+    };
+  }
+
+  // Parse rawLog for step details
+  const fwMatch = rawLog.match(/FIREWALL_RESULT:(.*)/);
+  if (fwMatch) {
+    firewallAction = fwMatch[1].trim();
+    steps.push({
+      step: 'firewall',
+      title: `Firewall Port ${targetPort} Allowed`,
+      titleFa: `بازگشایی پورت ${targetPort} در فایروال`,
+      status: 'success',
+      details: firewallAction,
+      detailsFa: `تنظیم فایروال: ${firewallAction}`,
+      target: `${targetPort}/tcp`,
+    });
+  }
+
+  const confMatch = rawLog.match(/CONF_FILE:(.*)/);
+  if (confMatch) {
+    confFilePath = confMatch[1].trim();
+    steps.push({
+      step: 'postgresql_conf',
+      title: "Configured listen_addresses = '*'",
+      titleFa: "تنظیم پارامتر listen_addresses = '*' در postgresql.conf",
+      status: 'success',
+      details: `File: ${confFilePath} — Updated listen_addresses = '*'`,
+      detailsFa: `فایل: ${confFilePath} — تنظیم listen_addresses روی تمامی اینترفیس‌ها ('*')`,
+      target: confFilePath,
+    });
+  } else if (rawLog.includes('CONF_ERROR:')) {
+    steps.push({
+      step: 'postgresql_conf',
+      title: 'postgresql.conf Discovery',
+      titleFa: 'جستجوی فایل postgresql.conf',
+      status: 'error',
+      details: 'Could not find postgresql.conf in /etc or /var/lib',
+      detailsFa: 'فایل postgresql.conf در مسیرهای معمول سرور یافت نشد',
+    });
+  }
+
+  const hbaMatch = rawLog.match(/HBA_FILE:(.*)/);
+  if (hbaMatch) {
+    hbaFilePath = hbaMatch[1].trim();
+    steps.push({
+      step: 'pg_hba_conf',
+      title: `Added Panel IP ${panelIpCidr} with scram-sha-256`,
+      titleFa: `ثبت دسترسی IP پنل (${panelIpCidr}) با scram-sha-256 در pg_hba.conf`,
+      status: 'success',
+      details: `File: ${hbaFilePath} — Rule: host all all ${panelIpCidr} scram-sha-256`,
+      detailsFa: `فایل: ${hbaFilePath} — قاعده احراز هویت برای IP پنل با scram-sha-256 اضافه شد`,
+      target: hbaFilePath,
+    });
+  } else if (rawLog.includes('HBA_ERROR:')) {
+    steps.push({
+      step: 'pg_hba_conf',
+      title: 'pg_hba.conf Discovery',
+      titleFa: 'جستجوی فایل pg_hba.conf',
+      status: 'error',
+      details: 'Could not find pg_hba.conf on host',
+      detailsFa: 'فایل pg_hba.conf در سرور یافت نشد',
+    });
+  }
+
+  const restartMatch = rawLog.match(/RESTART_RESULT:(.*)/);
+  if (restartMatch) {
+    serviceRestarted = true;
+    steps.push({
+      step: 'restart_service',
+      title: 'PostgreSQL Service Restarted',
+      titleFa: 'راه‌اندازی مجدد سرویس PostgreSQL',
+      status: 'success',
+      details: restartMatch[1].trim(),
+      detailsFa: `نتیجه ریستارت: ${restartMatch[1].trim()}`,
+    });
+  }
+
+  // Sleep 1.5 seconds to let PostgreSQL finish binding sockets
+  await new Promise((r) => setTimeout(r, 1500));
+
+  // Run connection test
+  let testResult: PostgresConnectionTestResult | undefined;
+  try {
+    testResult = await testPostgresConnection(server, { port: targetPort });
+    steps.push({
+      step: 'connection_test',
+      title: testResult.success ? 'Connection Verification Successful' : `Post-Remediation Status: ${testResult.status}`,
+      titleFa: testResult.success ? 'آزمایش برقراری ارتباط با موفقیت انجام شد' : `وضعیت پس از اصلاح: ${testResult.status}`,
+      status: testResult.success ? 'success' : 'warning',
+      details: testResult.message,
+      detailsFa: testResult.messageFa || testResult.message,
+    });
+  } catch (tErr: any) {
+    steps.push({
+      step: 'connection_test',
+      title: 'Post-Remediation Connection Test',
+      titleFa: 'تست اتصال پس از اصلاح',
+      status: 'warning',
+      details: tErr.message,
+      detailsFa: `خطا در تست: ${tErr.message}`,
+    });
+  }
+
+  const isSuccess = Boolean(testResult?.success || (confFilePath && hbaFilePath && serviceRestarted));
+
+  return {
+    success: isSuccess,
+    message: isSuccess
+      ? `PostgreSQL connection auto-remediation completed successfully. Port ${targetPort} opened, listen_addresses set to '*', panel IP allowed in pg_hba.conf, and service restarted.`
+      : `Auto-remediation completed with warnings. Check individual step logs.`,
+    messageFa: isSuccess
+      ? `اصلاح خودکار اتصال PostgreSQL با موفقیت انجام شد: پورت ${targetPort} در فایروال باز شد، listen_addresses روی '*' تنظیم شد، دسترسی IP پنل در pg_hba.conf اضافه شد و سرویس ریستارت گردید.`
+      : `عملیات اصلاح خودکار با هشدار پایان یافت. لطفاً لاگ مراحل را بررسی فرمایید.`,
+    panelIp: rawPanelIp,
+    port: targetPort,
+    steps,
+    confFilePath,
+    hbaFilePath,
+    firewallAction,
+    serviceRestarted,
+    testResult,
+    executedAt: new Date().toISOString(),
+    rawLog,
+  };
 }

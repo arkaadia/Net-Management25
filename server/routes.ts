@@ -130,6 +130,8 @@ import {
   getPostgresTuningReport,
   applyPostgresTuningConfiguration,
   getPostgresHardwareProfile,
+  detectPanelIp,
+  remediatePostgresConnection,
 } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1367,6 +1369,69 @@ apiRouter.post('/remote-servers/:id/postgres/test-connection', async (req: Reque
       port: 5432,
       username: 'postgres',
       testedAt: new Date().toISOString(),
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/postgres/panel-ip - Get detected outbound panel IP
+apiRouter.get('/remote-servers/:id/postgres/panel-ip', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    const clientIp = getClientIp(req);
+    const localIp = detectPanelIp();
+    res.json({
+      success: true,
+      panelIp: localIp !== '127.0.0.1' ? localIp : (clientIp !== '127.0.0.1' && clientIp !== '::1' ? clientIp : '127.0.0.1'),
+      clientIp,
+      localIp,
+      serverPort: server?.postgres_port || 5432,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message, panelIp: '127.0.0.1' });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/remediate-connection - Auto-remediate PostgreSQL remote access
+apiRouter.post('/remote-servers/:id/postgres/remediate-connection', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        message: 'Server not found in fleet.',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { panelIp, port, sessionPassword } = req.body || {};
+    const effectivePanelIp = (panelIp && typeof panelIp === 'string' && panelIp.trim()) ? panelIp.trim() : detectPanelIp();
+    const effectivePort = port !== undefined && port !== null && port !== '' ? Number(port) : (server.postgres_port || 5432);
+
+    const result = await remediatePostgresConnection(server, {
+      panelIp: effectivePanelIp,
+      port: effectivePort,
+      sessionPassword,
+    });
+
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'PostgreSQL Auto-Remediation',
+      category: 'device',
+      target: `${server.name} (${server.ip}:${effectivePort})`,
+      status: result.success ? 'success' : 'failure',
+      details: `Remediated PostgreSQL connection: firewall, listen_addresses, pg_hba (${effectivePanelIp}), restart service`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to execute PostgreSQL auto-remediation',
+      messageFa: `خطا در اجرای خودکار اصلاح اتصال PostgreSQL: ${err.message}`,
     });
   }
 });
