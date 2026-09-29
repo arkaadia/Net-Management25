@@ -449,10 +449,19 @@ function createPostgresClient(
   const targetDatabase = (options?.database || server.postgres_database || targetUser || 'postgres').trim();
 
   let plainPassword = '';
-  if (options?.password !== undefined && options.password.trim() !== '') {
-    plainPassword = options.password.trim();
+  if (options?.password !== undefined && options?.password !== null) {
+    plainPassword = String(options.password);
   } else if (server.postgres_password) {
-    plainPassword = decryptServerSecret(server.postgres_password);
+    plainPassword = decryptServerSecret(String(server.postgres_password));
+  }
+
+  // Graceful fallback to server SSH password if postgres_password is empty
+  // (In common Linux deployments, root or server admin password is often reused for postgresql)
+  if (!plainPassword && server.ssh_password) {
+    const fallbackPass = decryptServerSecret(String(server.ssh_password));
+    if (fallbackPass) {
+      plainPassword = fallbackPass;
+    }
   }
 
   const client = new Client({
@@ -465,6 +474,11 @@ function createPostgresClient(
     statement_timeout: 7000,
     ssl: false,
   });
+
+  // Explicitly ensure client.password is set to a string on the instance
+  // This completely eliminates: "SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string"
+  // which node-postgres throws when connectionParameters.password resolves to null (because empty string is falsy)
+  client.password = plainPassword;
 
   return { client, targetHost, targetPort, targetUser, targetDatabase };
 }
@@ -542,20 +556,34 @@ export async function testPostgresConnection(
     const code = err.code || '';
     const errMessage = (err.message || '').toLowerCase();
 
-    // 1. Authentication failure
-    if (code === '28P01' || errMessage.includes('password authentication failed')) {
+    // 1. Authentication failure (password mismatch, missing credentials, or SCRAM/SASL challenge errors)
+    if (
+      code === '28P01' ||
+      code === '28000' ||
+      errMessage.includes('password authentication failed') ||
+      errMessage.includes('client password must be a string') ||
+      errMessage.includes('client password must be a non-empty string') ||
+      errMessage.includes('scram-server-first-message') ||
+      errMessage.includes('sasl') ||
+      errMessage.includes('scram')
+    ) {
+      const isMissingPassword = !client.password || errMessage.includes('client password must be a');
       return {
         success: false,
         status: 'authentication_failed',
-        message: `Authentication failed for user "${targetUser}". Verify PostgreSQL username and password.`,
-        messageFa: `احراز هویت ناموفق بود: رمز عبور یا نام کاربری "${targetUser}" در PostgreSQL اشتباه است.`,
+        message: isMissingPassword
+          ? `Authentication failed for user "${targetUser}". PostgreSQL server requires SCRAM-SHA-256 password authentication, but no valid password is configured. Please enter the PostgreSQL password.`
+          : `Authentication failed for user "${targetUser}". Verify PostgreSQL username and password.`,
+        messageFa: isMissingPassword
+          ? `احراز هویت ناموفق بود: سرویس PostgreSQL نیاز به رمز عبور (SCRAM-SHA-256) دارد، اما رمز عبور تنظیم نشده یا نامعتبر است. لطفاً رمز عبور پایگاه داده را وارد نمایید.`
+          : `احراز هویت ناموفق بود: رمز عبور یا نام کاربری "${targetUser}" در PostgreSQL اشتباه است.`,
         serverAddress: targetHost,
         port: targetPort,
         username: targetUser,
         database: targetDatabase,
         latencyMs,
         testedAt,
-        errorDetail: 'Invalid password or user credentials',
+        errorDetail: err.message,
       };
     }
 
@@ -10988,6 +11016,9 @@ export async function remediatePostgresConnection(
     panelIp?: string;
     port?: number;
     sessionPassword?: string;
+    password?: string;
+    user?: string;
+    database?: string;
   }
 ): Promise<PostgresRemediateConnectionResult> {
   const targetPort = options?.port || server.postgres_port || 5432;
@@ -11243,7 +11274,12 @@ echo "===COMPLETE==="
   // Run connection test
   let testResult: PostgresConnectionTestResult | undefined;
   try {
-    testResult = await testPostgresConnection(server, { port: targetPort });
+    testResult = await testPostgresConnection(server, {
+      port: targetPort,
+      user: options?.user,
+      database: options?.database,
+      password: options?.password,
+    });
     steps.push({
       step: 'connection_test',
       title: testResult.success ? 'Connection Verification Successful' : `Post-Remediation Status: ${testResult.status}`,

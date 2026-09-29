@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.215.0';
+export const APP_VERSION = '1.215.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.215.1',
+    releaseDate: '2026-09-29',
+    type: 'patch',
+    title: 'رفع خطای احراز هویت SCRAM در اتصال به PostgreSQL و بهبود مدیریت کلمه عبور',
+    title_en: 'Fix PostgreSQL SCRAM SASL Password Error & Enhance Credentials Management',
+    changes: [
+      'رفع ریشه‌ای خطای SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string هنگام برقراری ارتباط با PostgreSQL.',
+      'تضمین سازگاری کلاینت node-postgres و مقداردهی صریح پراپرتی password روی شیء کلاینت جهت جلوگیری از ارجاع مقدار خالی به null.',
+      'افزودن امکان ثبت، ویرایش و ذخیره رمز عبور پایگاه داده به صورت مستقیم در مودال مدیریت PostgreSQL همراه با رمزنگاری سروری AES-256-GCM.',
+      'ارتقای قابلیت اصلاح خودکار اتصال (Auto-Remediation) جهت دریافت، ذخیره و ارسال ایمن رمز عبور در صورت نیاز به احراز هویت.',
+      'افزودن فالبک هوشمند به رمز سرور (SSH Password) در صورت خالی بودن رمز اختصاصی پایگاه داده.',
+      'بهبود دسته‌بندی خطاهای احراز هویت و نمایش راهنمای شفاف به دو زبان فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Resolved root cause of "SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string" runtime exception during PostgreSQL connection attempts.',
+      'Guaranteed node-postgres client compatibility by explicitly ensuring the password client instance property is always a string to prevent null coercion.',
+      'Added direct inline database password configuration and update options inside PostgreSQLManagementModal protected with AES-256-GCM encryption.',
+      'Enhanced Auto-Remediation workflow to accept, persist, and securely pass database credentials when SCRAM-SHA-256 authentication is required.',
+      'Implemented smart fallback to server SSH password when a dedicated PostgreSQL password is not explicitly set.',
+      'Improved error diagnostics for authentication failures with clear bilingual actionable guidance in English and Persian.'
+    ]
+  },
   {
     version: '1.215.0',
     releaseDate: '2026-09-29',

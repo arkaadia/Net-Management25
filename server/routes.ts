@@ -1405,14 +1405,31 @@ apiRouter.post('/remote-servers/:id/postgres/remediate-connection', async (req: 
       });
     }
 
-    const { panelIp, port, sessionPassword } = req.body || {};
+    const { panelIp, port, sessionPassword, password, postgresPassword, user, database } = req.body || {};
     const effectivePanelIp = (panelIp && typeof panelIp === 'string' && panelIp.trim()) ? panelIp.trim() : detectPanelIp();
     const effectivePort = port !== undefined && port !== null && port !== '' ? Number(port) : (server.postgres_port || 5432);
+    const effectivePassword = (password && typeof password === 'string' && password.trim())
+      ? password.trim()
+      : (postgresPassword && typeof postgresPassword === 'string' && postgresPassword.trim())
+      ? postgresPassword.trim()
+      : undefined;
+
+    // If an explicit password was passed, persist it securely to avoid future connection failures
+    if (effectivePassword) {
+      await updateRemoteServer(server.id, {
+        postgres_password: effectivePassword,
+      });
+      server.postgres_password = effectivePassword;
+      server.postgres_password_set = true;
+    }
 
     const result = await remediatePostgresConnection(server, {
       panelIp: effectivePanelIp,
       port: effectivePort,
       sessionPassword,
+      password: effectivePassword,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      database: typeof database === 'string' && database.trim() ? database.trim() : undefined,
     });
 
     await addAuditLog({
@@ -1432,6 +1449,46 @@ apiRouter.post('/remote-servers/:id/postgres/remediate-connection', async (req: 
       success: false,
       message: err.message || 'Failed to execute PostgreSQL auto-remediation',
       messageFa: `خطا در اجرای خودکار اصلاح اتصال PostgreSQL: ${err.message}`,
+    });
+  }
+});
+
+// PUT /api/remote-servers/:id/postgres/credentials - Update PostgreSQL database credentials directly
+apiRouter.put('/remote-servers/:id/postgres/credentials', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        message: 'Server not found in fleet.',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { user, password, port, database } = req.body || {};
+    const updates: Partial<RemoteServer> = {};
+
+    if (user !== undefined && typeof user === 'string') updates.postgres_user = user.trim() || 'postgres';
+    if (port !== undefined && port !== null && port !== '') updates.postgres_port = Number(port) || 5432;
+    if (database !== undefined && typeof database === 'string') updates.postgres_database = database.trim() || 'postgres';
+    if (password !== undefined && typeof password === 'string' && password.trim().length > 0) {
+      updates.postgres_password = password.trim();
+      updates.postgres_password_set = true;
+    }
+
+    const updated = await updateRemoteServer(id, updates);
+    res.json({
+      success: true,
+      message: 'PostgreSQL credentials updated successfully',
+      messageFa: 'اطلاعات اتصال PostgreSQL با موفقیت ذخیره شد',
+      server: sanitizeRemoteServerForClient(updated || server),
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to update PostgreSQL credentials',
+      messageFa: `خطا در به‌روزرسانی اطلاعات اتصال: ${err.message}`,
     });
   }
 });

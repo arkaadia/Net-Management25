@@ -1281,12 +1281,32 @@ export async function remediateRemoteServerPostgresConnection(
     panelIp?: string;
     port?: number;
     sessionPassword?: string;
+    password?: string;
+    user?: string;
+    database?: string;
   }
 ): Promise<PostgresRemediateConnectionResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/remediate-connection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerPostgresCredentials(
+  id: string,
+  data: {
+    user?: string;
+    password?: string;
+    port?: number;
+    database?: string;
+  }
+): Promise<{ success: boolean; message: string; messageFa?: string; server?: RemoteServer }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/credentials`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
   return res.json();
 }

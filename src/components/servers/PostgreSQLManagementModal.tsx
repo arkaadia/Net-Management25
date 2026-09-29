@@ -41,6 +41,10 @@ import {
   FileCode,
   ArrowRight,
   Shield,
+  Eye,
+  EyeOff,
+  Save,
+  Edit3,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -58,6 +62,7 @@ import {
   fetchRemoteServerPostgresDatabases,
   fetchRemoteServerPostgresPanelIp,
   remediateRemoteServerPostgresConnection,
+  updateRemoteServerPostgresCredentials,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
@@ -139,6 +144,14 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
   const [remediationError, setRemediationError] = useState<string | null>(null);
   const [isEditingPanelIp, setIsEditingPanelIp] = useState<boolean>(false);
 
+  // PostgreSQL password configuration & prompt states
+  const [editingPassword, setEditingPassword] = useState(false);
+  const [newPostgresPassword, setNewPostgresPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordSaveError, setPasswordSaveError] = useState<string | null>(null);
+  const [passwordSaveSuccess, setPasswordSaveSuccess] = useState<string | null>(null);
+
   // Fetch detected Panel IP
   const handleFetchPanelIp = useCallback(async () => {
     if (!server?.id) return;
@@ -168,8 +181,12 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
       const res = await remediateRemoteServerPostgresConnection(server.id, {
         panelIp: panelIp.trim() || undefined,
         port: server.postgres_port || 5432,
+        password: newPostgresPassword.trim() || undefined,
       });
       setRemediationResult(res);
+      if (newPostgresPassword.trim()) {
+        server.postgres_password_set = true;
+      }
       if (res.testResult) {
         setConnectionResult(res.testResult);
         setLastTestedAt(new Date().toLocaleTimeString());
@@ -180,6 +197,41 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
       setRemediationError(err.message || (isEn ? 'Failed to execute auto-remediation' : 'خطا در اجرای خودکار رفع مشکل'));
     } finally {
       setRemediating(false);
+    }
+  };
+
+  // Save / Update PostgreSQL Credentials Handler
+  const handleSavePostgresPassword = async (passToSave?: string) => {
+    if (!server?.id) return;
+    const pwd = passToSave !== undefined ? passToSave : newPostgresPassword;
+    if (!pwd || !pwd.trim()) {
+      setPasswordSaveError(isEn ? 'Password cannot be empty.' : 'رمز عبور نمی‌تواند خالی باشد.');
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordSaveError(null);
+    setPasswordSaveSuccess(null);
+    try {
+      const res = await updateRemoteServerPostgresCredentials(server.id, {
+        password: pwd.trim(),
+      });
+      if (res.success) {
+        server.postgres_password_set = true;
+        setPasswordSaveSuccess(
+          isEn
+            ? 'Password updated & encrypted with AES-256-GCM successfully!'
+            : 'رمز عبور با موفقیت به‌روزرسانی و با AES-256 رمزنگاری شد!'
+        );
+        setEditingPassword(false);
+        // Automatically re-test connection
+        await handleTestConnection();
+      } else {
+        setPasswordSaveError(res.message || (isEn ? 'Failed to update credentials' : 'خطا در ذخیره رمز عبور'));
+      }
+    } catch (err: any) {
+      setPasswordSaveError(err.message || (isEn ? 'Network error saving password' : 'خطای شبکه در ذخیره رمز'));
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -1815,6 +1867,66 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                             ))}
                           </div>
 
+                          {/* Dedicated Password Prompt if Connection Test Failed or Requires Auth */}
+                          {!remediationResult.testResult?.success && (
+                            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                              <div className="flex items-start gap-2">
+                                <Key className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                                <div className="text-xs">
+                                  <div className="font-bold text-amber-300">
+                                    {isEn
+                                      ? 'Provide PostgreSQL User Password to Authenticate'
+                                      : 'رمز عبور کاربر پایگاه داده را برای برقراری اتصال وارد کنید'}
+                                  </div>
+                                  <div className="text-[11px] text-slate-300 mt-0.5">
+                                    {isEn
+                                      ? 'Firewall and network rules were configured. Enter the password for user "' + (server.postgres_user || 'postgres') + '" to verify SCRAM-SHA-256 access.'
+                                      : 'قواعد شبکه و دسترسی فایروال با موفقیت اعمال شد. جهت تایید احراز هویت با پروتکل SCRAM-SHA-256، رمز عبور کاربر "' + (server.postgres_user || 'postgres') + '" را وارد فرمایید.'}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                  <input
+                                    type={showNewPassword ? 'text' : 'password'}
+                                    value={newPostgresPassword}
+                                    onChange={(e) => setNewPostgresPassword(e.target.value)}
+                                    placeholder={isEn ? 'Enter password for ' + (server.postgres_user || 'postgres') : 'رمز عبور کاربر ' + (server.postgres_user || 'postgres')}
+                                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono pr-8 ${
+                                      isLightMode ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-200'
+                                    }`}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowNewPassword(!showNewPassword)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
+                                  >
+                                    {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePostgresPassword()}
+                                  disabled={savingPassword || !newPostgresPassword.trim()}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-sm"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                  <span>{savingPassword ? (isEn ? 'Connecting...' : 'در حال اتصال...') : (isEn ? 'Save & Connect' : 'ذخیره و اتصال')}</span>
+                                </button>
+                              </div>
+                              {passwordSaveError && (
+                                <div className="text-[11px] text-rose-400 font-medium">
+                                  {passwordSaveError}
+                                </div>
+                              )}
+                              {passwordSaveSuccess && (
+                                <div className="text-[11px] text-emerald-400 font-medium">
+                                  {passwordSaveSuccess}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {/* Success CTA */}
                           {remediationResult.testResult?.success && (
                             <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between gap-3">
@@ -1932,15 +2044,101 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
                     </div>
                     <div className="flex items-center justify-between py-1 border-b border-dashed border-slate-700/20">
                       <span className="text-slate-400">{isEn ? 'Password Storage' : 'وضعیت ذخیره‌سازی رمز'}</span>
-                      <span className="flex items-center gap-1 font-mono text-[11px] text-emerald-400 font-medium">
-                        <Lock className="w-3 h-3 text-emerald-400" />
-                        <span>
-                          {server.postgres_password_set
-                            ? isEn ? 'AES-256-GCM Encrypted' : 'رمزنگاری‌شده با AES-256'
-                            : isEn ? 'Not Set' : 'تنظیم‌نشده'}
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 font-mono text-[11px] text-emerald-400 font-medium">
+                          <Lock className="w-3 h-3 text-emerald-400" />
+                          <span>
+                            {server.postgres_password_set
+                              ? isEn ? 'AES-256-GCM Encrypted' : 'رمزنگاری‌شده با AES-256'
+                              : isEn ? 'Not Set' : 'تنظیم‌نشده'}
+                          </span>
                         </span>
-                      </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPassword(!editingPassword);
+                            setPasswordSaveError(null);
+                            setPasswordSaveSuccess(null);
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 cursor-pointer transition flex items-center gap-1"
+                          title={isEn ? 'Update or configure database password' : 'ثبت یا ویرایش کلمه عبور دیتابیس'}
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          <span>
+                            {server.postgres_password_set
+                              ? isEn ? 'Change' : 'تغییر رمز'
+                              : isEn ? 'Set Password' : 'ثبت رمز'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Inline Password Edit Form */}
+                    {editingPassword && (
+                      <div
+                        className={`p-3 rounded-lg border text-xs space-y-2 mt-1.5 ${
+                          isLightMode
+                            ? 'bg-blue-50/70 border-blue-200 text-slate-800'
+                            : 'bg-blue-950/30 border-blue-500/30 text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[11px] text-blue-400">
+                            {isEn ? 'Configure Database Password' : 'ثبت / ویرایش کلمه عبور دیتابیس'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setEditingPassword(false)}
+                            className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
+                          >
+                            {isEn ? 'Cancel' : 'انصراف'}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <input
+                              type={showNewPassword ? 'text' : 'password'}
+                              value={newPostgresPassword}
+                              onChange={(e) => setNewPostgresPassword(e.target.value)}
+                              placeholder={isEn ? 'Enter password...' : 'رمز عبور را وارد کنید...'}
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono pr-8 ${
+                                isLightMode
+                                  ? 'bg-white border-slate-300 text-slate-800'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowNewPassword(!showNewPassword)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
+                            >
+                              {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSavePostgresPassword()}
+                            disabled={savingPassword || !newPostgresPassword.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>
+                              {savingPassword ? (isEn ? 'Saving...' : 'در حال ذخیره...') : (isEn ? 'Save' : 'ذخیره')}
+                            </span>
+                          </button>
+                        </div>
+                        {passwordSaveError && (
+                          <div className="text-[11px] text-rose-400 font-medium">
+                            {passwordSaveError}
+                          </div>
+                        )}
+                        {passwordSaveSuccess && (
+                          <div className="text-[11px] text-emerald-400 font-medium">
+                            {passwordSaveSuccess}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between py-1 border-b border-dashed border-slate-700/20">
                       <span className="text-slate-400">{isEn ? 'Default Context DB' : 'دیتابیس پیش‌فرض اتصال'}</span>
                       <span className="font-mono font-bold">{server.postgres_database || 'postgres'}</span>
