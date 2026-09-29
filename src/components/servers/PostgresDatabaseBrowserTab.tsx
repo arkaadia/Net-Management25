@@ -3358,6 +3358,27 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                 >
                                   <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-cyan-400' : ''}`} />
                                 </button>
+
+                                {/* Primary Insert Row Action in Data Toolbar */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTargetTableForEditModal({
+                                      dbName: selectedNode.dbName || '',
+                                      schemaName: selectedNode.schemaName || '',
+                                      tableName: selectedNode.name || '',
+                                    });
+                                    setCloningRowForModal(null);
+                                    setEditingRowForModal(null);
+                                    setDeletingRowForModal(null);
+                                    setIsInsertRowModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer bg-emerald-500 hover:bg-emerald-600 text-black font-bold border border-emerald-400 shadow-sm shrink-0"
+                                  title={isEn ? `Insert New Row into ${selectedNode.name}` : `افزودن سطر جدید به ${selectedNode.name}`}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Insert Row' : 'افزودن سطر'}</span>
+                                </button>
                               </div>
                             </div>
 
@@ -3606,9 +3627,20 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                         return (
                                           <tr
                                             key={rIdx}
-                                            className={`transition ${
+                                            onDoubleClick={() => {
+                                              setTargetTableForEditModal({
+                                                dbName: selectedNode.dbName || '',
+                                                schemaName: selectedNode.schemaName || '',
+                                                tableName: selectedNode.name || '',
+                                              });
+                                              setEditingRowForModal(row);
+                                              setCloningRowForModal(null);
+                                              setDeletingRowForModal(null);
+                                            }}
+                                            className={`transition cursor-pointer ${
                                               isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-900/60'
                                             }`}
+                                            title={isEn ? 'Double-click to edit this row' : 'دوبار کلیک جهت ویرایش این سطر'}
                                           >
                                             <td className="py-2 px-3 text-slate-500 text-[11px]">
                                               {absoluteRowNum}
@@ -3625,8 +3657,17 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  onClick={() => setEditingRowForModal(row)}
-                                                  className="p-1 rounded hover:bg-amber-950/40 text-slate-400 hover:text-amber-400 transition"
+                                                  onClick={() => {
+                                                    setTargetTableForEditModal({
+                                                      dbName: selectedNode.dbName || '',
+                                                      schemaName: selectedNode.schemaName || '',
+                                                      tableName: selectedNode.name || '',
+                                                    });
+                                                    setEditingRowForModal(row);
+                                                    setCloningRowForModal(null);
+                                                    setDeletingRowForModal(null);
+                                                  }}
+                                                  className="p-1 rounded hover:bg-amber-950/40 text-slate-400 hover:text-amber-400 transition cursor-pointer"
                                                   title={isEn ? 'Edit row' : 'ویرایش سطر'}
                                                 >
                                                   <Pencil className="w-3 h-3" />
@@ -3644,15 +3685,24 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                     setDeletingRowForModal(null);
                                                     setIsInsertRowModalOpen(true);
                                                   }}
-                                                  className="p-1 rounded hover:bg-emerald-950/40 text-slate-400 hover:text-emerald-400 transition"
+                                                  className="p-1 rounded hover:bg-emerald-950/40 text-slate-400 hover:text-emerald-400 transition cursor-pointer"
                                                   title={isEn ? 'Duplicate / Clone row' : 'تکثیر و کپی این سطر'}
                                                 >
                                                   <Copy className="w-3 h-3" />
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  onClick={() => setDeletingRowForModal(row)}
-                                                  className="p-1 rounded hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition"
+                                                  onClick={() => {
+                                                    setTargetTableForEditModal({
+                                                      dbName: selectedNode.dbName || '',
+                                                      schemaName: selectedNode.schemaName || '',
+                                                      tableName: selectedNode.name || '',
+                                                    });
+                                                    setDeletingRowForModal(row);
+                                                    setEditingRowForModal(null);
+                                                    setCloningRowForModal(null);
+                                                  }}
+                                                  className="p-1 rounded hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                                   title={isEn ? 'Delete row' : 'حذف سطر'}
                                                 >
                                                   <Trash2 className="w-3 h-3" />
@@ -3724,15 +3774,35 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                               <span>{isEn ? 'Loading rows...' : 'در حال بارگذاری سطرها...'}</span>
                                             </div>
                                           ) : (
-                                            <div className="space-y-1">
-                                              <p className="font-semibold text-slate-300">
-                                                {isEn ? 'No rows found in this table.' : 'هیچ سطری در این جدول یافت نشد.'}
-                                              </p>
-                                              <p className="text-xs text-slate-500">
-                                                {isEn
-                                                  ? 'Try adjusting or clearing your filters and search query.'
-                                                  : 'فیلترها یا عبارت جستجوی خود را تغییر دهید.'}
-                                              </p>
+                                            <div className="space-y-3 py-3">
+                                              <div className="space-y-1">
+                                                <p className="font-semibold text-slate-300">
+                                                  {isEn ? 'No rows found in this table.' : 'هیچ سطری در این جدول یافت نشد.'}
+                                                </p>
+                                                <p className="text-xs text-slate-500">
+                                                  {isEn
+                                                    ? 'The table is empty or your active filters and search query returned no matches.'
+                                                    : 'این جدول خالی است یا فیلترهای فعال و عبارت جستجو نتیجه‌ای نداشته‌اند.'}
+                                                </p>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setTargetTableForEditModal({
+                                                    dbName: selectedNode.dbName || '',
+                                                    schemaName: selectedNode.schemaName || '',
+                                                    tableName: selectedNode.name || '',
+                                                  });
+                                                  setCloningRowForModal(null);
+                                                  setEditingRowForModal(null);
+                                                  setDeletingRowForModal(null);
+                                                  setIsInsertRowModalOpen(true);
+                                                }}
+                                                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer bg-emerald-500 hover:bg-emerald-600 text-black font-bold border border-emerald-400 shadow-sm"
+                                              >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>{isEn ? 'Insert Row' : 'افزودن سطر جدید'}</span>
+                                              </button>
                                             </div>
                                           )}
                                         </td>

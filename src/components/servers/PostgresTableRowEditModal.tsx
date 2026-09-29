@@ -112,13 +112,20 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
 
     for (const col of columns) {
       if (mode === 'insert') {
+        const lowerType = col.dataType.toLowerCase();
+        const lowerDef = (col.defaultValue || '').toLowerCase();
         const isAuto =
-          col.isPrimaryKey ||
           col.isIdentity ||
           col.isGenerated ||
-          col.dataType.includes('serial') ||
-          col.formattedType.includes('serial') ||
-          Boolean(col.defaultValue && col.defaultValue.toLowerCase().includes('nextval'));
+          lowerType.includes('serial') ||
+          col.formattedType.toLowerCase().includes('serial') ||
+          Boolean(
+            lowerDef &&
+              (lowerDef.includes('nextval') ||
+                lowerDef.includes('gen_random_uuid') ||
+                lowerDef.includes('uuid_generate') ||
+                lowerDef.includes('identity'))
+          );
 
         // If cloning / duplicating an existing row, initialRow is passed!
         const prefilledVal = initialRow ? initialRow[col.name] : undefined;
@@ -217,6 +224,12 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
   const handleInsertCurrentTimestamp = (colName: string, dataType: string) => {
     const now = new Date().toISOString();
     handleValueChange(colName, now, dataType);
+  };
+
+  // Quick helper: Insert Today's Date (YYYY-MM-DD)
+  const handleInsertTodayDate = (colName: string, dataType: string) => {
+    const today = new Date().toISOString().slice(0, 10);
+    handleValueChange(colName, today, dataType);
   };
 
   // Quick helper: Format / Beautify JSON
@@ -917,15 +930,27 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                               )}
 
                               {isTimestamp && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleInsertCurrentTimestamp(col.name, col.dataType)}
-                                  className="absolute right-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 flex items-center gap-1 transition"
-                                  title={isEn ? 'Set to current timestamp (NOW)' : 'تنظیم روی زمان جاری (NOW)'}
-                                >
-                                  <Clock className="w-3 h-3 text-emerald-400" />
-                                  <span>NOW</span>
-                                </button>
+                                <div className="absolute right-1.5 flex items-center gap-1">
+                                  {lowerType.includes('date') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleInsertTodayDate(col.name, col.dataType)}
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30 flex items-center gap-0.5 transition"
+                                      title={isEn ? "Set to today's date (YYYY-MM-DD)" : 'تنظیم روی تاریخ امروز'}
+                                    >
+                                      <span>TODAY</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleInsertCurrentTimestamp(col.name, col.dataType)}
+                                    className="px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 flex items-center gap-1 transition"
+                                    title={isEn ? 'Set to current timestamp (NOW)' : 'تنظیم روی زمان جاری (NOW)'}
+                                  >
+                                    <Clock className="w-3 h-3 text-emerald-400" />
+                                    <span>NOW</span>
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>

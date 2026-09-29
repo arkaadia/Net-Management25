@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.214.1';
+export const APP_VERSION = '1.215.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.215.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'تکمیل و ارتقای مجموعه مدیریت و دستکاری ویژوال داده‌های جداول در PostgreSQL Object Explorer',
+    title_en: 'Enhanced Visual Table Data Manipulation Suite in PostgreSQL Object Explorer',
+    changes: [
+      'تعبیه دکمه برجسته «افزودن سطر» (Insert Row) در نوار ابزار اصلی مشاهده داده‌های جدول برای دسترسی آنی و مستقیم بدون نیاز به جستجو در منوها.',
+      'افزودن قابلیت ویرایش سریع با دوبار کلیک (Double-Click to Edit) بر روی هر سطر در گرید جدول داده‌ها به سبک ابزارهای مدیریت دیتابیس حرفه‌ای (مانند pgAdmin و DBeaver).',
+      'تجهیز حالت جدول خالی (Empty Table State) به دکمه مستقیم «افزودن سطر جدید» جهت تسهیل درج اولین رکورد در جداول تازه ایجاد شده.',
+      'اصلاح منطق تشخیص ستون‌های خودکار (isAuto) در مودال درج جهت عدم فعال‌سازی نادرست DEFAULT در کلیدهای اصلی فاقد Sequence یا مقدار پیش‌فرض.',
+      'افزودن دکمه‌های کمکی هوشمند TODAY برای درج خودکار تاریخ امروز (YYYY-MM-DD) و NOW برای زمان جاری در فیلدهای تاریخ و زمان.',
+      'حفظ و تضمین کانتکست جدول انتخابی (dbName, schemaName, tableName) در تمام عملیات‌های ویرایش، حذف، کپی و درج سطر.'
+    ],
+    changes_en: [
+      'Added prominent "Insert Row" button directly in the Table Data viewer toolbar for instant 1-click access.',
+      'Introduced intuitive double-click row editing (Double-Click to Edit) in the live data table matching professional GUI tools like pgAdmin and DBeaver.',
+      'Empowered the empty table view state with a direct "Insert Row" action button for seamless entry of first records into empty relations.',
+      'Refined auto-increment (isAuto) detection in row edit modal to prevent false DEFAULT modes on manual Primary Keys lacking sequences or defaults.',
+      'Added smart TODAY (YYYY-MM-DD) and NOW helper buttons for rapid date and timestamp column population.',
+      'Guaranteed robust table context targeting across all row mutation handlers (Insert, Update, Delete, Clone).'
+    ]
+  },
   {
     version: '1.214.1',
     releaseDate: '2026-09-29',
