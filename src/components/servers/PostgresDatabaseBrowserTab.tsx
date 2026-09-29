@@ -340,8 +340,14 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
 
   // Phase 7: Table Data Editing state & handlers
   const [isInsertRowModalOpen, setIsInsertRowModalOpen] = useState(false);
+  const [cloningRowForModal, setCloningRowForModal] = useState<Record<string, any> | null>(null);
   const [editingRowForModal, setEditingRowForModal] = useState<Record<string, any> | null>(null);
   const [deletingRowForModal, setDeletingRowForModal] = useState<Record<string, any> | null>(null);
+  const [targetTableForEditModal, setTargetTableForEditModal] = useState<{
+    dbName: string;
+    schemaName: string;
+    tableName: string;
+  } | null>(null);
   const [rowMutationNotice, setRowMutationNotice] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -356,16 +362,58 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
     return () => clearTimeout(timer);
   }, [rowMutationNotice]);
 
+  const handleOpenInsertRowModalForTable = useCallback(
+    (dbName: string, schemaName: string, tableName: string) => {
+      setTargetTableForEditModal({ dbName, schemaName, tableName });
+      handleFetchTableStructure(dbName, schemaName, tableName);
+      handleFetchTableData(dbName, schemaName, tableName);
+      setCloningRowForModal(null);
+      setEditingRowForModal(null);
+      setDeletingRowForModal(null);
+      setIsInsertRowModalOpen(true);
+    },
+    [handleFetchTableStructure, handleFetchTableData]
+  );
+
+  const activeColumns = useMemo((): PostgresTableDataColumnInfo[] => {
+    const currentDb = targetTableForEditModal?.dbName || selectedNode.dbName;
+    const currentSchema = targetTableForEditModal?.schemaName || selectedNode.schemaName;
+    const currentTable = targetTableForEditModal?.tableName || selectedNode.name;
+    const structKey = `${currentDb}:${currentSchema}:${currentTable}`;
+
+    if (tableData?.columns && tableData.columns.length > 0 && (!targetTableForEditModal || targetTableForEditModal.tableName === selectedNode.name)) {
+      return tableData.columns;
+    }
+    if (structKey && tableStructures[structKey]?.columns) {
+      return tableStructures[structKey].columns.map((col) => ({
+        name: col.name,
+        dataType: col.dataType,
+        formattedType: col.dataType,
+        isPrimaryKey: col.isPrimaryKey,
+        isNullable: col.isNullable,
+        defaultValue: col.defaultValue,
+        isIdentity: col.isIdentity,
+        isGenerated: col.isGenerated,
+        isForeignKey: col.isForeignKey,
+      }));
+    }
+    return tableData?.columns || [];
+  }, [tableData, tableStructures, targetTableForEditModal, selectedNode]);
+
   const handleInsertRowSubmit = useCallback(
     async (values: Record<string, PostgresRowColumnValue>): Promise<{ success: boolean; error?: string }> => {
-      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+      const dbName = targetTableForEditModal?.dbName || selectedNode.dbName;
+      const schemaName = targetTableForEditModal?.schemaName || selectedNode.schemaName;
+      const tableName = targetTableForEditModal?.tableName || selectedNode.name;
+
+      if (!server?.id || !dbName || !schemaName || !tableName) {
         return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
       }
       try {
         const res = await insertRemoteServerPostgresTableRow(server.id, {
-          database: selectedNode.dbName,
-          schema: selectedNode.schemaName,
-          table: selectedNode.name,
+          database: dbName,
+          schema: schemaName,
+          table: tableName,
           values,
         });
 
@@ -376,7 +424,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
               ? (res.message || 'Row successfully inserted.')
               : (res.messageFa || 'سطر با موفقیت در جدول درج شد.'),
           });
-          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          handleFetchTableData(dbName, schemaName, tableName);
+          handleFetchTableStructure(dbName, schemaName, tableName, true);
           return { success: true };
         } else {
           return {
@@ -388,7 +437,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
         return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
       }
     },
-    [server?.id, selectedNode, isEn, handleFetchTableData]
+    [server?.id, targetTableForEditModal, selectedNode, isEn, handleFetchTableData, handleFetchTableStructure]
   );
 
   const handleUpdateRowSubmit = useCallback(
@@ -398,14 +447,18 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
       ctid?: string,
       originalRow?: Record<string, any>
     ): Promise<{ success: boolean; error?: string }> => {
-      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+      const dbName = targetTableForEditModal?.dbName || selectedNode.dbName;
+      const schemaName = targetTableForEditModal?.schemaName || selectedNode.schemaName;
+      const tableName = targetTableForEditModal?.tableName || selectedNode.name;
+
+      if (!server?.id || !dbName || !schemaName || !tableName) {
         return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
       }
       try {
         const res = await updateRemoteServerPostgresTableRow(server.id, {
-          database: selectedNode.dbName,
-          schema: selectedNode.schemaName,
-          table: selectedNode.name,
+          database: dbName,
+          schema: schemaName,
+          table: tableName,
           primaryKeyValues,
           ctid,
           originalRow,
@@ -419,7 +472,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
               ? (res.message || 'Row successfully updated.')
               : (res.messageFa || 'سطر با موفقیت به‌روزرسانی شد.'),
           });
-          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          handleFetchTableData(dbName, schemaName, tableName);
           return { success: true };
         } else {
           return {
@@ -431,7 +484,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
         return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
       }
     },
-    [server?.id, selectedNode, isEn, handleFetchTableData]
+    [server?.id, targetTableForEditModal, selectedNode, isEn, handleFetchTableData]
   );
 
   const handleDeleteRowSubmit = useCallback(
@@ -440,14 +493,18 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
       ctid?: string,
       originalRow?: Record<string, any>
     ): Promise<{ success: boolean; error?: string }> => {
-      if (!server?.id || !selectedNode.dbName || !selectedNode.schemaName || !selectedNode.name) {
+      const dbName = targetTableForEditModal?.dbName || selectedNode.dbName;
+      const schemaName = targetTableForEditModal?.schemaName || selectedNode.schemaName;
+      const tableName = targetTableForEditModal?.tableName || selectedNode.name;
+
+      if (!server?.id || !dbName || !schemaName || !tableName) {
         return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول مشخص نیست' };
       }
       try {
         const res = await deleteRemoteServerPostgresTableRow(server.id, {
-          database: selectedNode.dbName,
-          schema: selectedNode.schemaName,
-          table: selectedNode.name,
+          database: dbName,
+          schema: schemaName,
+          table: tableName,
           primaryKeyValues,
           ctid,
           originalRow,
@@ -460,7 +517,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
               ? (res.message || 'Row successfully deleted.')
               : (res.messageFa || 'سطر با موفقیت از جدول حذف شد.'),
           });
-          handleFetchTableData(selectedNode.dbName, selectedNode.schemaName, selectedNode.name);
+          handleFetchTableData(dbName, schemaName, tableName);
+          handleFetchTableStructure(dbName, schemaName, tableName, true);
           return { success: true };
         } else {
           return {
@@ -472,7 +530,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
         return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
       }
     },
-    [server?.id, selectedNode, isEn, handleFetchTableData]
+    [server?.id, targetTableForEditModal, selectedNode, isEn, handleFetchTableData, handleFetchTableStructure]
   );
 
   // Fetch roles
@@ -966,30 +1024,128 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                   {isSchemaExpanded && (
                                                     <div className="pl-4 mt-0.5 space-y-0.5 border-l border-slate-700/30 ml-2">
                                                       {/* Tables Node */}
-                                                      <div
-                                                        onClick={() => {
-                                                          setSelectedNode({
-                                                            type: 'tables_folder',
-                                                            id: `tables:${db.name}:${schema.name}`,
-                                                            name: isEn ? 'Tables' : 'جداول',
-                                                            dbName: db.name,
-                                                            schemaName: schema.name,
-                                                            data: schema.tables,
-                                                          });
-                                                        }}
-                                                        className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition ${
-                                                          selectedNode.id === `tables:${db.name}:${schema.name}`
-                                                            ? 'bg-emerald-500/20 text-emerald-400 font-bold'
-                                                            : 'hover:bg-slate-800/40 text-slate-400'
-                                                        }`}
-                                                      >
-                                                        <TableIcon className="w-3 h-3 text-emerald-400 shrink-0" />
-                                                        <span className="font-sans text-[11px]">
-                                                          {isEn ? 'Tables' : 'جداول'}
-                                                        </span>
-                                                        <span className="text-[10px] ml-auto text-emerald-400 font-mono">
-                                                          {schema.tables.length}
-                                                        </span>
+                                                      <div>
+                                                        <div
+                                                          onClick={() => {
+                                                            setSelectedNode({
+                                                              type: 'tables_folder',
+                                                              id: `tables:${db.name}:${schema.name}`,
+                                                              name: isEn ? 'Tables' : 'جداول',
+                                                              dbName: db.name,
+                                                              schemaName: schema.name,
+                                                              data: schema.tables,
+                                                            });
+                                                            setSchemaTab('tables');
+                                                          }}
+                                                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition ${
+                                                            selectedNode.id === `tables:${db.name}:${schema.name}`
+                                                              ? 'bg-emerald-500/20 text-emerald-400 font-bold'
+                                                              : 'hover:bg-slate-800/40 text-slate-400'
+                                                          }`}
+                                                        >
+                                                          {schema.tables.length > 0 && (
+                                                            <button
+                                                              type="button"
+                                                              onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleNode(`tables:${db.name}:${schema.name}`);
+                                                              }}
+                                                              className="p-0.5 hover:text-white"
+                                                              title={expandedNodes.has(`tables:${db.name}:${schema.name}`) ? (isEn ? 'Collapse tables' : 'بستن لیست جداول') : (isEn ? 'Expand tables' : 'نمایش جداول')}
+                                                            >
+                                                              {expandedNodes.has(`tables:${db.name}:${schema.name}`) ? (
+                                                                <ChevronDown className="w-3 h-3" />
+                                                              ) : (
+                                                                <ChevronRight className="w-3 h-3" />
+                                                              )}
+                                                            </button>
+                                                          )}
+                                                          <TableIcon className="w-3 h-3 text-emerald-400 shrink-0" />
+                                                          <span className="font-sans text-[11px]">
+                                                            {isEn ? 'Tables' : 'جداول'}
+                                                          </span>
+                                                          <span className="text-[10px] ml-auto text-emerald-400 font-mono">
+                                                            {schema.tables.length}
+                                                          </span>
+                                                        </div>
+
+                                                        {/* Individual Tables List in Object Explorer Tree */}
+                                                        {expandedNodes.has(`tables:${db.name}:${schema.name}`) && (
+                                                          <div className="pl-4 mt-0.5 space-y-0.5 border-l border-emerald-500/20 ml-2">
+                                                            {schema.tables.map((table) => {
+                                                              const tableNodeId = `table:${db.name}:${schema.name}:${table.name}`;
+                                                              const isTableSelected = selectedNode.type === 'table' && selectedNode.id === tableNodeId;
+                                                              return (
+                                                                <div
+                                                                  key={table.name}
+                                                                  onClick={() => {
+                                                                    setSelectedNode({
+                                                                      type: 'table',
+                                                                      id: tableNodeId,
+                                                                      name: table.name,
+                                                                      dbName: db.name,
+                                                                      schemaName: schema.name,
+                                                                      data: table,
+                                                                    });
+                                                                    setTableSubTab('data');
+                                                                  }}
+                                                                  className={`group flex items-center justify-between gap-1 px-2 py-0.5 rounded cursor-pointer transition ${
+                                                                    isTableSelected
+                                                                      ? 'bg-emerald-500/25 text-emerald-300 font-bold'
+                                                                      : 'hover:bg-slate-800/40 text-slate-300'
+                                                                  }`}
+                                                                >
+                                                                  <div className="flex items-center gap-1.5 min-w-0 truncate">
+                                                                    <TableIcon className="w-3 h-3 text-emerald-400 shrink-0" />
+                                                                    <span className="truncate text-xs font-mono">{table.name}</span>
+                                                                  </div>
+                                                                  {/* Quick Actions in Tree */}
+                                                                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                                                                    <button
+                                                                      type="button"
+                                                                      onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSelectedNode({
+                                                                          type: 'table',
+                                                                          id: tableNodeId,
+                                                                          name: table.name,
+                                                                          dbName: db.name,
+                                                                          schemaName: schema.name,
+                                                                          data: table,
+                                                                        });
+                                                                        setTableSubTab('data');
+                                                                        handleOpenInsertRowModalForTable(db.name, schema.name, table.name);
+                                                                      }}
+                                                                      className="p-0.5 rounded hover:bg-emerald-500/30 text-emerald-400 transition"
+                                                                      title={isEn ? `Insert Row into ${table.name}` : `افزودن سطر به ${table.name}`}
+                                                                    >
+                                                                      <Plus className="w-3 h-3" />
+                                                                    </button>
+                                                                    <button
+                                                                      type="button"
+                                                                      onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSelectedNode({
+                                                                          type: 'table',
+                                                                          id: tableNodeId,
+                                                                          name: table.name,
+                                                                          dbName: db.name,
+                                                                          schemaName: schema.name,
+                                                                          data: table,
+                                                                        });
+                                                                        setTableSubTab('data');
+                                                                      }}
+                                                                      className="p-0.5 rounded hover:bg-cyan-500/30 text-cyan-400 transition"
+                                                                      title={isEn ? `Browse Data of ${table.name}` : `مشاهده داده‌های ${table.name}`}
+                                                                    >
+                                                                      <Database className="w-3 h-3" />
+                                                                    </button>
+                                                                  </div>
+                                                                </div>
+                                                              );
+                                                            })}
+                                                          </div>
+                                                        )}
                                                       </div>
 
                                                       {/* Views Node */}
@@ -2043,6 +2199,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                             <th className="py-2.5 px-3">{isEn ? 'Estimated Rows' : 'تخمین سطرها'}</th>
                             <th className="py-2.5 px-3">{isEn ? 'Disk Size' : 'فضای دیسک'}</th>
                             <th className="py-2.5 px-3">{isEn ? 'Attributes' : 'ویژگی‌ها'}</th>
+                            <th className="py-2.5 px-3 text-center w-28">{isEn ? 'Actions' : 'عملیات'}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/40 font-mono">
@@ -2060,6 +2217,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                   schemaName: table.schema,
                                   data: table,
                                 });
+                                setTableSubTab('data');
                               }}
                               className={`cursor-pointer transition ${
                                 isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
@@ -2088,6 +2246,48 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                 <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-sans">
                                   {table.persistence}
                                 </span>
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedNode({
+                                        type: 'table',
+                                        id: `table:${selectedNode.dbName}:${table.schema}:${table.name}`,
+                                        name: table.name,
+                                        dbName: selectedNode.dbName,
+                                        schemaName: table.schema,
+                                        data: table,
+                                      });
+                                      setTableSubTab('data');
+                                    }}
+                                    className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 transition"
+                                    title={isEn ? `Browse ${table.name} Data` : `مشاهده داده‌های ${table.name}`}
+                                  >
+                                    <Database className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedNode({
+                                        type: 'table',
+                                        id: `table:${selectedNode.dbName}:${table.schema}:${table.name}`,
+                                        name: table.name,
+                                        dbName: selectedNode.dbName,
+                                        schemaName: table.schema,
+                                        data: table,
+                                      });
+                                      setTableSubTab('data');
+                                      handleOpenInsertRowModalForTable(selectedNode.dbName || '', table.schema, table.name);
+                                    }}
+                                    className="px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 transition"
+                                    title={isEn ? `Insert Row into ${table.name}` : `افزودن سطر به ${table.name}`}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>{isEn ? 'Insert' : 'درج'}</span>
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -2474,6 +2674,25 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                           IDX: {struct.indexes.length}
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTargetTableForEditModal({
+                            dbName: selectedNode.dbName || '',
+                            schemaName: selectedNode.schemaName || '',
+                            tableName: selectedNode.name || '',
+                          });
+                          setCloningRowForModal(null);
+                          setEditingRowForModal(null);
+                          setDeletingRowForModal(null);
+                          setIsInsertRowModalOpen(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 font-semibold bg-emerald-500 hover:bg-emerald-600 text-black font-bold border-emerald-400 shadow-sm transition"
+                        title={isEn ? `Insert New Row into ${selectedNode.name}` : `افزودن سطر جدید به ${selectedNode.name}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Insert Row' : 'افزودن سطر'}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -3412,6 +3631,24 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                 </button>
                                                 <button
                                                   type="button"
+                                                  onClick={() => {
+                                                    setCloningRowForModal(row);
+                                                    setTargetTableForEditModal({
+                                                      dbName: selectedNode.dbName || '',
+                                                      schemaName: selectedNode.schemaName || '',
+                                                      tableName: selectedNode.name || '',
+                                                    });
+                                                    setEditingRowForModal(null);
+                                                    setDeletingRowForModal(null);
+                                                    setIsInsertRowModalOpen(true);
+                                                  }}
+                                                  className="p-1 rounded hover:bg-emerald-950/40 text-slate-400 hover:text-emerald-400 transition"
+                                                  title={isEn ? 'Duplicate / Clone row' : 'تکثیر و کپی این سطر'}
+                                                >
+                                                  <Copy className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
                                                   onClick={() => setDeletingRowForModal(row)}
                                                   className="p-1 rounded hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition"
                                                   title={isEn ? 'Delete row' : 'حذف سطر'}
@@ -3672,26 +3909,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                 </div>
                               </div>
                             )}
-                            {/* Phase 7: Table Row Edit / Insert / Delete Modal */}
-                            <PostgresTableRowEditModal
-                              isOpen={isInsertRowModalOpen || !!editingRowForModal || !!deletingRowForModal}
-                              onClose={() => {
-                                setIsInsertRowModalOpen(false);
-                                setEditingRowForModal(null);
-                                setDeletingRowForModal(null);
-                              }}
-                              mode={isInsertRowModalOpen ? 'insert' : editingRowForModal ? 'edit' : 'delete'}
-                              databaseName={selectedNode.dbName || ''}
-                              schemaName={selectedNode.schemaName || ''}
-                              tableName={selectedNode.name || ''}
-                              columns={tableData?.columns || []}
-                              initialRow={editingRowForModal || deletingRowForModal}
-                              onSubmitInsert={handleInsertRowSubmit}
-                              onSubmitUpdate={handleUpdateRowSubmit}
-                              onSubmitDelete={handleDeleteRowSubmit}
-                              isEn={isEn}
-                              isLightMode={isLightMode}
-                            />
+                            {/* End of table data container */}
                           </div>
                         );
                       })()}
@@ -5288,6 +5506,29 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
           </div>
         </div>
       </div>
+
+      {/* Universal Phase 7: Table Row Edit / Insert / Delete / Clone Modal */}
+      <PostgresTableRowEditModal
+        isOpen={isInsertRowModalOpen || !!cloningRowForModal || !!editingRowForModal || !!deletingRowForModal}
+        onClose={() => {
+          setIsInsertRowModalOpen(false);
+          setCloningRowForModal(null);
+          setEditingRowForModal(null);
+          setDeletingRowForModal(null);
+          setTargetTableForEditModal(null);
+        }}
+        mode={isInsertRowModalOpen || !!cloningRowForModal ? 'insert' : editingRowForModal ? 'edit' : 'delete'}
+        databaseName={targetTableForEditModal?.dbName || selectedNode.dbName || ''}
+        schemaName={targetTableForEditModal?.schemaName || selectedNode.schemaName || ''}
+        tableName={targetTableForEditModal?.tableName || selectedNode.name || ''}
+        columns={activeColumns}
+        initialRow={cloningRowForModal || editingRowForModal || deletingRowForModal}
+        onSubmitInsert={handleInsertRowSubmit}
+        onSubmitUpdate={handleUpdateRowSubmit}
+        onSubmitDelete={handleDeleteRowSubmit}
+        isEn={isEn}
+        isLightMode={isLightMode}
+      />
     </div>
   );
 };

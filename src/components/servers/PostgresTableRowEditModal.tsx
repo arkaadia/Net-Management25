@@ -18,8 +18,13 @@ import {
   Shield,
   FileCode,
   Check,
+  Sparkles,
+  Clock,
+  Link2,
+  Copy,
 } from 'lucide-react';
 import { PostgresTableDataColumnInfo, PostgresRowColumnValue } from '../../types';
+import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface PostgresTableRowEditModalProps {
   isOpen: boolean;
@@ -107,16 +112,27 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
 
     for (const col of columns) {
       if (mode === 'insert') {
-        // If column is primary key or has SERIAL / auto type, default to 'default' mode
         const isAuto =
           col.isPrimaryKey ||
+          col.isIdentity ||
+          col.isGenerated ||
           col.dataType.includes('serial') ||
-          col.formattedType.includes('serial');
+          col.formattedType.includes('serial') ||
+          Boolean(col.defaultValue && col.defaultValue.toLowerCase().includes('nextval'));
+
+        // If cloning / duplicating an existing row, initialRow is passed!
+        const prefilledVal = initialRow ? initialRow[col.name] : undefined;
+        const hasPrefill = initialRow && prefilledVal !== null && prefilledVal !== undefined;
+
+        let strVal = '';
+        if (hasPrefill) {
+          strVal = typeof prefilledVal === 'object' ? JSON.stringify(prefilledVal, null, 2) : String(prefilledVal);
+        }
 
         newStates[col.name] = {
-          value: '',
-          mode: isAuto ? 'default' : 'value',
-          isModified: false,
+          value: hasPrefill && !isAuto ? strVal : '',
+          mode: isAuto ? 'default' : hasPrefill ? 'value' : col.defaultValue ? 'default' : 'value',
+          isModified: hasPrefill && !isAuto,
           jsonError: null,
         };
       } else if (mode === 'edit' && initialRow) {
@@ -188,6 +204,32 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
     });
   };
 
+  // Quick helper: Generate UUID v4
+  const handleGenerateUuid = (colName: string, dataType: string) => {
+    const uuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+    handleValueChange(colName, uuid, dataType);
+  };
+
+  // Quick helper: Insert Current ISO Timestamp
+  const handleInsertCurrentTimestamp = (colName: string, dataType: string) => {
+    const now = new Date().toISOString();
+    handleValueChange(colName, now, dataType);
+  };
+
+  // Quick helper: Format / Beautify JSON
+  const handleFormatJson = (colName: string, dataType: string) => {
+    const current = colStates[colName]?.value;
+    if (!current || !current.trim()) return;
+    try {
+      const parsed = JSON.parse(current);
+      const beautified = JSON.stringify(parsed, null, 2);
+      handleValueChange(colName, beautified, dataType);
+    } catch {}
+  };
+
   // Count modified columns in edit mode
   const modifiedCount = Object.values(colStates).filter((s) => s.isModified).length;
 
@@ -205,6 +247,34 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
           : 'لطفاً خطاهای نحوی JSON را قبل از ارسال برطرف کنید.'
       );
       return;
+    }
+
+    // Validate NOT NULL constraints without default values
+    for (const col of columns) {
+      const st = colStates[col.name];
+      if (!st) continue;
+
+      const isColNotNull = col.isNullable === false;
+      const hasDefault = Boolean(col.defaultValue || col.isPrimaryKey || col.dataType.includes('serial'));
+
+      if (isColNotNull && !hasDefault) {
+        if (st.mode === 'null') {
+          setSubmitError(
+            isEn
+              ? `Column "${col.name}" has a NOT NULL constraint and cannot be set to NULL.`
+              : `ستون "${col.name}" دارای قید NOT NULL است و نمی‌تواند تهی (NULL) باشد.`
+          );
+          return;
+        }
+        if (st.mode === 'value' && st.value.trim() === '') {
+          setSubmitError(
+            isEn
+              ? `Column "${col.name}" is NOT NULL and requires a valid value.`
+              : `ستون "${col.name}" دارای قید NOT NULL است و وارد کردن مقدار برای آن الزامی است.`
+          );
+          return;
+        }
+      }
     }
 
     setIsSubmitting(true);
@@ -237,6 +307,12 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                 parsedVal = JSON.parse(st.value);
               } catch {
                 parsedVal = st.value;
+              }
+            } else if (st.value.trim() === '' && col.isNullable !== false) {
+              // Nullable non-string empty inputs treated as null
+              if (!lowerType.includes('char') && !lowerType.includes('text')) {
+                payload[col.name] = { value: null, isNull: true };
+                continue;
               }
             }
             payload[col.name] = { value: parsedVal };
@@ -282,6 +358,11 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
               } catch {
                 parsedVal = st.value;
               }
+            } else if (st.value.trim() === '' && col.isNullable !== false) {
+              if (!lowerType.includes('char') && !lowerType.includes('text')) {
+                payload[col.name] = { value: null, isNull: true };
+                continue;
+              }
             }
             payload[col.name] = { value: parsedVal };
           }
@@ -306,6 +387,20 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Helper to generate column practical examples based on type
+  const getColumnExample = (dataType: string, colName: string) => {
+    const lower = dataType.toLowerCase();
+    if (lower.includes('uuid')) return 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    if (lower.includes('bool')) return 'TRUE / FALSE';
+    if (lower.includes('json')) return '{"status": "active", "roles": ["admin"]}';
+    if (lower.includes('int') || lower.includes('serial')) return '1024';
+    if (lower.includes('numeric') || lower.includes('float') || lower.includes('double')) return '99.95';
+    if (lower.includes('timestamp') || lower.includes('date')) return '2026-09-29T12:00:00Z';
+    if (colName.toLowerCase().includes('email')) return 'user@example.com';
+    if (colName.toLowerCase().includes('ip')) return '192.168.1.100';
+    return 'Sample text value';
   };
 
   return createPortal(
@@ -574,6 +669,21 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                     const isJson = lowerType.includes('json');
                     const isNumeric = lowerType.includes('int') || lowerType.includes('numeric') || lowerType.includes('float') || lowerType.includes('double');
                     const isLongText = lowerType.includes('text') || isJson;
+                    const isUuid = lowerType.includes('uuid');
+                    const isTimestamp = lowerType.includes('timestamp') || lowerType.includes('date') || lowerType.includes('time');
+
+                    const isNotNull = col.isNullable === false;
+                    const hasDefault = Boolean(col.defaultValue || col.isPrimaryKey || col.dataType.includes('serial'));
+
+                    const infoWhatEn = `PostgreSQL column "${col.name}" of data type "${col.formattedType}".`;
+                    const infoWhatFa = `ستون "${col.name}" در جدول با نوع داده "${col.formattedType}".`;
+
+                    const infoWhyEn = `Defines attribute "${col.name}". Constraints: ${isNotNull ? 'NOT NULL (required)' : 'Nullable'} • ${col.defaultValue ? `Default expression: ${col.defaultValue}` : 'No default'}.`;
+                    const infoWhyFa = `تعریف مشخصه "${col.name}". قیود: ${isNotNull ? 'عدم پذیرش مقدار تهی (NOT NULL - الزامی)' : 'امکان مقدار تهی (NULL)'} • ${col.defaultValue ? `مقدار پیش‌فرض: ${col.defaultValue}` : 'فاقد مقدار پیش‌فرض'}.`;
+
+                    const exampleVal = getColumnExample(col.dataType, col.name);
+                    const infoExampleEn = `Valid PostgreSQL value: ${exampleVal}`;
+                    const infoExampleFa = `نمونه مقدار معتبر: ${exampleVal}`;
 
                     return (
                       <div
@@ -588,7 +698,7 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                       >
                         {/* Column Header & Metadata */}
                         <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {col.isPrimaryKey && (
                               <span title="Primary Key">
                                 <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -597,14 +707,60 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                             <span className={`text-xs font-mono font-bold ${col.isPrimaryKey ? 'text-amber-400' : isLightMode ? 'text-slate-900' : 'text-slate-100'}`}>
                               {col.name}
                             </span>
+                            {isNotNull && (
+                              <span className="text-rose-400 text-xs font-bold" title={isEn ? 'NOT NULL (Required)' : 'الزامی (NOT NULL)'}>
+                                *
+                              </span>
+                            )}
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-black/30 text-cyan-400 border border-cyan-500/20">
                               {col.formattedType}
                             </span>
+
+                            {/* Constraints Badges */}
+                            {col.isPrimaryKey && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                PK
+                              </span>
+                            )}
+                            {isNotNull ? (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                NOT NULL
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-normal uppercase bg-slate-800/60 text-slate-400">
+                                NULLABLE
+                              </span>
+                            )}
+                            {col.isForeignKey && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-0.5">
+                                <Link2 className="w-2.5 h-2.5" />
+                                <span>FK</span>
+                              </span>
+                            )}
+                            {col.defaultValue && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 truncate max-w-[140px]" title={`DEFAULT: ${col.defaultValue}`}>
+                                DEF: {col.defaultValue}
+                              </span>
+                            )}
+
                             {st.isModified && (
                               <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                 {isEn ? 'Modified' : 'ویرایش‌شده'}
                               </span>
                             )}
+
+                            {/* Standard 3-part Field Info Tooltip */}
+                            <FieldInfoTooltip
+                              fieldName={col.name}
+                              infoWhatEn={infoWhatEn}
+                              infoWhatFa={infoWhatFa}
+                              infoWhyEn={infoWhyEn}
+                              infoWhyFa={infoWhyFa}
+                              infoExampleEn={infoExampleEn}
+                              infoExampleFa={infoExampleFa}
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
                           </div>
 
                           {/* Mode Options: Value / NULL / DEFAULT */}
@@ -622,12 +778,19 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleModeChange(col.name, 'null')}
+                              onClick={() => {
+                                if (isNotNull && !hasDefault) return;
+                                handleModeChange(col.name, 'null');
+                              }}
+                              disabled={isNotNull && !hasDefault}
                               className={`px-2 py-0.5 rounded transition ${
                                 st.mode === 'null'
                                   ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
+                                  : isNotNull && !hasDefault
+                                  ? 'opacity-30 cursor-not-allowed text-slate-600'
                                   : 'text-slate-500 hover:text-slate-300'
                               }`}
+                              title={isNotNull && !hasDefault ? (isEn ? 'Cannot be NULL (NOT NULL constraint)' : 'این ستون به دلیل قید NOT NULL نمی‌تواند تهی باشد') : 'NULL'}
                             >
                               NULL
                             </button>
@@ -652,23 +815,58 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                             NULL — {isEn ? 'Column will be set to database NULL' : 'این ستون برابر با مقدار تهی (NULL) قرار خواهد گرفت'}
                           </div>
                         ) : st.mode === 'default' ? (
-                          <div className="py-2 px-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-500/5 text-emerald-300 text-xs font-mono">
-                            DEFAULT — {isEn ? 'PostgreSQL will auto-assign default value or sequence' : 'مقدار پیش‌فرض یا سکوئنس خودکار توسط دیتابیس اختصاص می‌یابد'}
+                          <div className="py-2 px-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-500/5 text-emerald-300 text-xs font-mono flex items-center justify-between gap-2">
+                            <span>DEFAULT — {isEn ? 'PostgreSQL will auto-assign default expression or sequence' : 'مقدار پیش‌فرض یا سکوئنس خودکار توسط دیتابیس اختصاص می‌یابد'}</span>
+                            {col.defaultValue && (
+                              <span className="text-[11px] text-emerald-400 font-bold truncate max-w-xs">{col.defaultValue}</span>
+                            )}
                           </div>
                         ) : isBool ? (
-                          <select
-                            value={st.value}
-                            onChange={(e) => handleValueChange(col.name, e.target.value, col.dataType)}
-                            className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${
-                              isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
-                            }`}
-                          >
-                            <option value="">{isEn ? '-- Select Boolean --' : '-- انتخاب وضعیت بولی --'}</option>
-                            <option value="true">TRUE</option>
-                            <option value="false">FALSE</option>
-                          </select>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleValueChange(col.name, 'true', col.dataType)}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition flex items-center gap-1.5 ${
+                                st.value === 'true' || st.value === 't'
+                                  ? 'bg-emerald-500/25 border-emerald-500 text-emerald-300 shadow-sm'
+                                  : isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                              }`}
+                            >
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>TRUE</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleValueChange(col.name, 'false', col.dataType)}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition flex items-center gap-1.5 ${
+                                st.value === 'false' || st.value === 'f'
+                                  ? 'bg-rose-500/25 border-rose-500 text-rose-300 shadow-sm'
+                                  : isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                              }`}
+                            >
+                              <X className="w-3.5 h-3.5 text-rose-400" />
+                              <span>FALSE</span>
+                            </button>
+                          </div>
                         ) : isLongText ? (
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              {isJson && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleFormatJson(col.name, col.dataType)}
+                                  className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
+                                  title={isEn ? 'Format and beautify JSON' : 'مرتب‌سازی و زیباسازی JSON'}
+                                >
+                                  <FileCode className="w-3 h-3" />
+                                  <span>{isEn ? 'Beautify JSON' : 'مرتب‌سازی JSON'}</span>
+                                </button>
+                              )}
+                            </div>
                             <textarea
                               rows={isJson ? 4 : 2}
                               value={st.value}
@@ -676,10 +874,10 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                               placeholder={isJson ? '{\n  "key": "value"\n}' : isEn ? 'Enter text...' : 'متن را وارد کنید...'}
                               className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none resize-y ${
                                 st.jsonError
-                                  ? 'border-rose-500/60 bg-rose-500/5'
+                                  ? 'border-rose-500/60 bg-rose-500/5 text-rose-200'
                                   : isLightMode
-                                  ? 'bg-white border-slate-300 text-slate-900'
-                                  : 'bg-slate-950 border-slate-800 text-slate-200'
+                                  ? 'bg-white border-slate-300 text-slate-900 focus:border-cyan-500'
+                                  : 'bg-slate-950 border-slate-800 text-slate-200 focus:border-cyan-500/50'
                               }`}
                             />
                             {st.jsonError && (
@@ -690,16 +888,47 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
                             )}
                           </div>
                         ) : (
-                          <input
-                            type={isNumeric ? 'number' : 'text'}
-                            step={isNumeric ? 'any' : undefined}
-                            value={st.value}
-                            onChange={(e) => handleValueChange(col.name, e.target.value, col.dataType)}
-                            placeholder={isEn ? `Enter ${col.formattedType}...` : `مقدار ${col.formattedType}...`}
-                            className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${
-                              isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
-                            }`}
-                          />
+                          <div className="space-y-1">
+                            <div className="relative flex items-center">
+                              <input
+                                type={isNumeric ? 'number' : 'text'}
+                                step={isNumeric ? 'any' : undefined}
+                                value={st.value}
+                                onChange={(e) => handleValueChange(col.name, e.target.value, col.dataType)}
+                                placeholder={isEn ? `Enter ${col.formattedType}...` : `مقدار ${col.formattedType}...`}
+                                className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${
+                                  isUuid || isTimestamp ? 'pr-20' : ''
+                                } ${
+                                  isLightMode ? 'bg-white border-slate-300 text-slate-900 focus:border-cyan-500' : 'bg-slate-950 border-slate-800 text-slate-200 focus:border-cyan-500/50'
+                                }`}
+                              />
+
+                              {/* Helper Action Buttons inside input */}
+                              {isUuid && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateUuid(col.name, col.dataType)}
+                                  className="absolute right-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 flex items-center gap-1 transition"
+                                  title={isEn ? 'Generate random UUID v4' : 'تولید شناسه تصادفی UUID'}
+                                >
+                                  <Sparkles className="w-3 h-3 text-purple-400" />
+                                  <span>UUID</span>
+                                </button>
+                              )}
+
+                              {isTimestamp && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleInsertCurrentTimestamp(col.name, col.dataType)}
+                                  className="absolute right-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 flex items-center gap-1 transition"
+                                  title={isEn ? 'Set to current timestamp (NOW)' : 'تنظیم روی زمان جاری (NOW)'}
+                                >
+                                  <Clock className="w-3 h-3 text-emerald-400" />
+                                  <span>NOW</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
                     );
@@ -787,3 +1016,4 @@ export const PostgresTableRowEditModal: React.FC<PostgresTableRowEditModalProps>
     document.body
   );
 };
+

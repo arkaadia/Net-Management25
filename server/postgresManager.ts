@@ -2085,14 +2085,21 @@ export async function getPostgresTableData(
         a.attname as column_name,
         pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
         a.atttypid::regtype::text as base_type,
+        a.attnotnull as is_not_null,
+        pg_get_expr(ad.adbin, ad.adrelid) as column_default,
         EXISTS(
           SELECT 1 FROM pg_catalog.pg_constraint con 
           WHERE con.conrelid = c.oid AND con.contype = 'p' AND a.attnum = ANY(con.conkey)
         ) as is_primary_key,
+        EXISTS(
+          SELECT 1 FROM pg_catalog.pg_constraint con 
+          WHERE con.conrelid = c.oid AND con.contype = 'f' AND a.attnum = ANY(con.conkey)
+        ) as is_foreign_key,
         GREATEST(c.reltuples::bigint, 0) as estimated_rows
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
       JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+      LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = c.oid AND ad.adnum = a.attnum
       WHERE n.nspname = $1 AND c.relname = $2
         AND a.attnum > 0 AND NOT a.attisdropped
       ORDER BY a.attnum ASC;
@@ -2115,6 +2122,10 @@ export async function getPostgresTableData(
       dataType: String(r.base_type || r.data_type || 'text'),
       formattedType: String(r.data_type || r.base_type || 'text'),
       isPrimaryKey: Boolean(r.is_primary_key),
+      isNullable: !Boolean(r.is_not_null),
+      defaultValue: r.column_default ? String(r.column_default) : null,
+      isIdentity: Boolean(r.column_default && String(r.column_default).includes('nextval')),
+      isForeignKey: Boolean(r.is_foreign_key),
     }));
 
     const columnMap = new Map<string, PostgresTableDataColumnInfo>();
@@ -2473,7 +2484,8 @@ export async function insertPostgresTableRow(
     let paramIndex = 1;
 
     for (const [colName, colVal] of Object.entries(values || {})) {
-      if (!colMap.has(colName)) continue;
+      const catalogCol = colMap.get(colName);
+      if (!catalogCol) continue;
       // If DEFAULT requested, omit column so PostgreSQL assigns DEFAULT
       if (colVal.isDefault) continue;
 
@@ -2481,8 +2493,24 @@ export async function insertPostgresTableRow(
       if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
         valPlaceholders.push('NULL');
       } else {
+        let finalVal = colVal.value;
+        const lowerType = catalogCol.dataType.toLowerCase();
+
+        // Safety check for empty strings on non-string types
+        if (typeof finalVal === 'string' && finalVal.trim() === '') {
+          if (!lowerType.includes('char') && !lowerType.includes('text')) {
+            valPlaceholders.push('NULL');
+            continue;
+          }
+        }
+
+        // Safety conversion for booleans
+        if (lowerType.includes('bool') && typeof finalVal === 'string') {
+          finalVal = finalVal === 'true' || finalVal === 't';
+        }
+
         valPlaceholders.push(`$${paramIndex++}`);
-        queryParams.push(colVal.value);
+        queryParams.push(finalVal);
       }
     }
 
@@ -2590,7 +2618,8 @@ export async function updatePostgresTableRow(
     let paramIndex = 1;
 
     for (const [colName, colVal] of Object.entries(updatedValues)) {
-      if (!colMap.has(colName)) continue;
+      const catalogCol = colMap.get(colName);
+      if (!catalogCol) continue;
 
       const safeColIdent = `"${colName.replace(/"/g, '""')}"`;
       if (colVal.isDefault) {
@@ -2598,8 +2627,24 @@ export async function updatePostgresTableRow(
       } else if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
         setClauses.push(`${safeColIdent} = NULL`);
       } else {
+        let finalVal = colVal.value;
+        const lowerType = catalogCol.dataType.toLowerCase();
+
+        // Safety check for empty strings on non-string types
+        if (typeof finalVal === 'string' && finalVal.trim() === '') {
+          if (!lowerType.includes('char') && !lowerType.includes('text')) {
+            setClauses.push(`${safeColIdent} = NULL`);
+            continue;
+          }
+        }
+
+        // Safety conversion for booleans
+        if (lowerType.includes('bool') && typeof finalVal === 'string') {
+          finalVal = finalVal === 'true' || finalVal === 't';
+        }
+
         setClauses.push(`${safeColIdent} = $${paramIndex++}`);
-        queryParams.push(colVal.value);
+        queryParams.push(finalVal);
       }
     }
 

@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.213.0';
+export const APP_VERSION = '1.214.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.214.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'ویرایشگر بصری کامل داده‌های جداول PostgreSQL (درج، ویرایش، حذف، تکثیر و مدیریت اعتبارسنجی)',
+    title_en: 'Visual PostgreSQL Table Data Management Suite (Insert, Edit, Delete, Clone & Constraint Engine)',
+    changes: [
+      'تجهیز PostgreSQL Object Explorer به قابلیت‌های ویژوال و تعاملی دستکاری داده‌ها (Data Manipulation) شامل درج سطر جدید (INSERT)، ویرایش سطر (UPDATE)، حذف سطر (DELETE) و تکثیر و کپی سطر (CLONE).',
+      'دسترسی سریع و آسان به عملیات درج داده از ۴ نقطه کلیدی پنل: دکمه درج در نوار ابزار داده‌های جدول، دکمه سریع هدر جدول انتخابی، ستون عملیات (Actions) در فهرست جداول اسکیما، و دکمه‌های هاور روی هر جدول در ساختار درختی Object Explorer.',
+      'طراحی مودال پیشرفته PostgresTableRowEditModal منطبق بر استاندارد ۵‌گانه مودال‌ها (دکمه‌های کنترل سه‌گانه، حریم ایمن فوتر bottom-8 و z-[999995]، انطباق کامل تم تیره/روشن، دوزبانگی صددرصدی، و تولتیپ ۳‌بخشی FieldInfoTooltip).',
+      'پشتیبانی دقیق و هوشمند از انواع داده‌های PostgreSQL: فیلدهای کلید اصلی (PK) و شناسه‌های افزایشی (Serial/Identity)، مقادیر پیش‌فرض (DEFAULT)، انتخاب‌گر ۳‌حالته مقادیر منطقی (Boolean: TRUE/FALSE/NULL)، ویرایشگر پیشرفته JSON با اعتبارسنجی بلادرنگ سینتکس و دکمه زیباسازی Format JSON، دکمه تولید بلادرنگ UUID با استاندارد v4، و دکمه درج زمان کنونی (Current Timestamp) برای ستون‌های زمانی.',
+      'کنترل و اعتبارسنجی دقیق قیود جداول: اعتبارسنجی پیش از ارسال ستون‌های NOT NULL بدون مقدار پیش‌فرض، ممانعت از ارسال مقادیر نامعتبر، تبدیل خودکار رشته‌های خالی به NULL در ستون‌های عددی و غیراسترینگ، و مدیریت ایمن ستون‌های دارای روابط کلید خارجی (FK).',
+      'عملیات حذف سطر (DELETE) با تاییدیه ایمن دو‌مرحله‌ای، هشدار نمایشی کادر قرمز، و اجرای درون تراکنش ایزوله با بررسی تغییر دقیقا ۱ سطر جهت پیشگیری مطلق از حذف تصادفی سایر سطرها.',
+      'عملیات ویرایش سطر (UPDATE) با تفکیک مقادیر تغییر‌یافته (isModified)، عدم ارسال فیلدهای دست‌نخورده، شناسایی سطر از طریق Primary Key یا ctid اختصاصی PostgreSQL، و به‌روزرسانی در تراکنش اتمیک.',
+      'افزودن دکمه تکثیر/کپی سطر (Duplicate / Clone) در ردیف‌های جدول زنده برای ایجاد سریع سطرهای مشابه با پیش‌فرض‌سازی کلید اصلی و مقادیر ترتیبی.',
+      'بازخوانی خودکار و همگام داده‌ها و ساختار جدول بلافاصله پس از هر عملیات درج، ویرایش یا حذف به همراه پیام‌های وضعیت موفقیت و خطا به زبان فعال پنل.'
+    ],
+    changes_en: [
+      'Empowered PostgreSQL Object Explorer with full visual table data manipulation capabilities including row insertion (INSERT), row editing (UPDATE), safe deletion (DELETE), and row cloning (CLONE).',
+      'Convenient multi-point entry for data operations: toolbar button in live data view, prominent table header button, dedicated Actions column in schema tables list, and hover action buttons on table nodes in Object Explorer tree.',
+      'Engineered state-of-the-art PostgresTableRowEditModal complying with all 5 mandatory modal specifications (triple-control header buttons, strict footer clearance bottom-8 and z-[999995], high-contrast dark/light mode ergonomics, strict bilingual i18n, and boundary-safe 3-part FieldInfoTooltip).',
+      'Deep, type-aware PostgreSQL data engine: Primary Key and auto-incrementing Serial/Identity detection, PostgreSQL DEFAULT keyword assignment, 3-state Boolean switches (TRUE / FALSE / NULL), live JSON/JSONB editor with syntax validation and Format JSON button, instant RFC-compliant UUID generation (v4), and Current Timestamp injector for date/time fields.',
+      'Robust constraint enforcement: client-side pre-flight validation preventing submission of empty NOT NULL columns lacking default values, automatic empty-string to NULL normalization for non-text columns, and foreign key constraint awareness.',
+      'Safe 2-step deletion workflow with transactional isolation, executing within explicit BEGIN/COMMIT blocks verifying exactly 1 row affected to guarantee zero collateral data loss.',
+      'Targeted UPDATE execution isolating only modified fields (dirty-checking), targeting rows via composite Primary Keys or physical PostgreSQL ctid fallback.',
+      '1-click Duplicate / Clone row action in live table rows to quickly branch new records with automatic primary key sequence delegation.',
+      'Instant post-mutation auto-refresh of table data and structure caches with localized success and error notifications.'
+    ]
+  },
   {
     version: '1.213.0',
     releaseDate: '2026-09-29',

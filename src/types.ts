@@ -2145,6 +2145,13 @@ export interface PostgresTableDataColumnInfo {
   dataType: string;
   formattedType: string;
   isPrimaryKey: boolean;
+  isNullable?: boolean;
+  defaultValue?: string | null;
+  isIdentity?: boolean;
+  isGenerated?: boolean;
+  isForeignKey?: boolean;
+  foreignKeyRef?: string;
+  comment?: string;
 }
 
 export interface PostgresTableDataResult {
