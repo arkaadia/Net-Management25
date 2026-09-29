@@ -72,6 +72,9 @@ import {
   getMysqlVariables,
   getMysqlTableStructure,
   getMysqlTableData,
+  insertMysqlTableRow,
+  updateMysqlTableRow,
+  deleteMysqlTableRow,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4477,6 +4480,63 @@ apiRouter.post('/remote-servers/:id/mysql/databases/:databaseName/tables/:tableN
     return res.json({ success: true, data });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/table-row/insert - Insert a row into a MySQL table
+apiRouter.post('/remote-servers/:id/mysql/table-row/insert', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const { database, table, values, port, user, password } = req.body || {};
+    if (!database || !table) {
+      return res.status(400).json({ success: false, error: 'database and table are required', errorFa: 'نام دیتابیس و جدول الزامی است' });
+    }
+    const result = await insertMysqlTableRow(server, { database, table, values, port, user, password });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, operation: 'insert', affectedRows: 0, error: err.message, errorFa: 'خطای سرور در درج سطر' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/table-row/update - Update a single identified row with LIMIT 1
+apiRouter.post('/remote-servers/:id/mysql/table-row/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const { database, table, primaryKeyValues, originalRow, updatedValues, port, user, password } = req.body || {};
+    if (!database || !table) {
+      return res.status(400).json({ success: false, error: 'database and table are required', errorFa: 'نام دیتابیس و جدول الزامی است' });
+    }
+    const result = await updateMysqlTableRow(server, { database, table, primaryKeyValues, originalRow, updatedValues, port, user, password });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, operation: 'update', affectedRows: 0, error: err.message, errorFa: 'خطای سرور در به‌روزرسانی سطر' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/table-row/delete - Delete a single identified row with LIMIT 1
+apiRouter.post('/remote-servers/:id/mysql/table-row/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const { database, table, primaryKeyValues, originalRow, port, user, password } = req.body || {};
+    if (!database || !table) {
+      return res.status(400).json({ success: false, error: 'database and table are required', errorFa: 'نام دیتابیس و جدول الزامی است' });
+    }
+    const result = await deleteMysqlTableRow(server, { database, table, primaryKeyValues, originalRow, port, user, password });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, operation: 'delete', affectedRows: 0, error: err.message, errorFa: 'خطای سرور در حذف سطر' });
   }
 });
 

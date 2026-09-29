@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.216.0';
+export const APP_VERSION = '1.217.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.217.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۷ سیستم مدیریت MySQL: ویرایش، درج و حذف کنترل‌شده داده‌های جداول (Table Data Editing)',
+    title_en: 'Phase 7: MySQL Table Data Editing Suite with Safe Transactional Mutations & LIMIT 1 Protection',
+    changes: [
+      'پیاده‌سازی کامل مجموعه عملیات ویرایش، درج و حذف سطرها (Insert, Edit, Delete Row) در جداول MySQL با معماری امن و اتمیک.',
+      'طراحی و پیاده‌سازی مودال اختصاصی سه منظوره `MysqlTableRowEditModal` با پشتیبانی کامل از استاندارد پنج‌گانه مودال‌ها (بستن، مینیمایز، تمام‌صفحه و حریم فوتر).',
+      'حفاظت امنیتی چندلایه در سطح سرور با الزام بر شرط LIMIT 1 و جلوگیری قطعی از دستورات UPDATE یا DELETE انبوه ناخواسته.',
+      'تشخیص هوشمند فیلدهای AUTO_INCREMENT و مقادیر DEFAULT دیتابیس در فرم درج سطر به همراه پشتیبانی از سوئیچ وضعیت VALUE / NULL / DEFAULT برای هر ستون.',
+      'پشتیبانی از انواع داده‌های اختصاصی MySQL شامل TINYINT(1)/BOOLEAN، JSON، انواع عددی، رشته‌ای و تاریخ/زمان با ابزارهای کمکی قالب‌بندی سریع.',
+      'شناسایی دقیق و هدف‌گذاری سطر بر اساس کلید اصلی (Primary Key) یا تطابق مقادیر با عملگر ایمن <=> (NULL-safe equal) در MySQL.',
+      'افزودن ستون اختصاصی Actions در نمایشگر داده‌های جدول شامل دکمه‌های ویرایش، تکثیر سطر، بازرسی کامل و حذف.',
+      'افزودن اکشن‌های عملیاتی درون مودال بازرس سطر (Row Inspector) با فیدبک اعلان‌های لحظه‌ای موفقیت و خطا.',
+      'رعایت ۱۰۰ درصدی استاندارد دو زبانه و عدم استفاده از هرگونه دیتای ماک یا ساختگی.'
+    ],
+    changes_en: [
+      'Implemented full MySQL Table Data Editing suite (Phase 7) supporting safe, transactional Insert, Edit, and Delete row operations.',
+      'Designed dedicated tri-mode `MysqlTableRowEditModal` complying strictly with universal modal architectural standards (Close, Minimize, Maximize, and footer clearance).',
+      'Multi-layer server-side protection enforcing strict `LIMIT 1` constraints on UPDATE and DELETE operations to guarantee prevention of accidental mass mutations.',
+      'Intelligent detection of MySQL `AUTO_INCREMENT` and database DEFAULT values with per-column VALUE / NULL / DEFAULT mode toggles.',
+      'Comprehensive support for MySQL data types including TINYINT(1)/BOOLEAN, JSON validation/beautification, numeric, string, and DATETIME helpers.',
+      'Precise row targeting by Primary Key or safe multi-column matching using MySQL NULL-safe equality operator `<=>`.',
+      'Integrated dedicated Actions column in Table Data Viewer table with quick Edit, Clone, Inspect, and Delete action buttons.',
+      'Equipped Row Inspector modal with quick row mutation buttons and instant transactional feedback banners.',
+      'Strict bilingual localization compliance and absolute zero mock/fake data policy.'
+    ]
+  },
   {
     version: '1.216.0',
     releaseDate: '2026-09-29',

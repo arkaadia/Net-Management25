@@ -1732,6 +1732,56 @@ export interface MysqlTableDataResult {
   fetchedAt: string;
 }
 
+// Phase 7: MySQL Table Data Editing Types
+export interface MysqlRowColumnValue {
+  value: any;
+  isNull?: boolean;
+  isDefault?: boolean;
+}
+
+export interface MysqlRowInsertRequest {
+  database: string;
+  table: string;
+  values: Record<string, MysqlRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface MysqlRowUpdateRequest {
+  database: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  originalRow?: Record<string, any>;
+  updatedValues: Record<string, MysqlRowColumnValue>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface MysqlRowDeleteRequest {
+  database: string;
+  table: string;
+  primaryKeyValues?: Record<string, any>;
+  originalRow?: Record<string, any>;
+  port?: number;
+  user?: string;
+  password?: string;
+}
+
+export interface MysqlRowMutationResult {
+  success: boolean;
+  operation: 'insert' | 'update' | 'delete';
+  affectedRows: number;
+  insertId?: number | string;
+  data?: Record<string, any>;
+  executionTimeMs?: number;
+  message?: string;
+  messageFa?: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface MysqlDatabaseDetails {
   name: string;
   defaultCollation: string;

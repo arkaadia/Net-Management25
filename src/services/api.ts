@@ -28,6 +28,10 @@ import {
   MysqlTableStructure,
   MysqlTableDataRequest,
   MysqlTableDataResult,
+  MysqlRowInsertRequest,
+  MysqlRowUpdateRequest,
+  MysqlRowDeleteRequest,
+  MysqlRowMutationResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1398,6 +1402,42 @@ export async function fetchRemoteServerMysqlTableData(
       body: JSON.stringify(request),
     }
   );
+  return res.json();
+}
+
+export async function insertRemoteServerMysqlTableRow(
+  id: string,
+  params: MysqlRowInsertRequest
+): Promise<MysqlRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/table-row/insert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerMysqlTableRow(
+  id: string,
+  params: MysqlRowUpdateRequest
+): Promise<MysqlRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/table-row/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function deleteRemoteServerMysqlTableRow(
+  id: string,
+  params: MysqlRowDeleteRequest
+): Promise<MysqlRowMutationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/table-row/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
   return res.json();
 }
 

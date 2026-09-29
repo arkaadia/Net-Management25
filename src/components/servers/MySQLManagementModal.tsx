@@ -24,6 +24,7 @@ import {
   Sliders,
   Play,
   Trash2,
+  Pencil,
   Zap,
   Server,
   Users,
@@ -82,6 +83,7 @@ import {
   MysqlTableDataColumnInfo,
   MysqlTableDataFilter,
   MysqlFilterOperator,
+  MysqlRowColumnValue,
 } from '../../types';
 import {
   testRemoteServerMysqlConnection,
@@ -91,12 +93,16 @@ import {
   fetchRemoteServerMysqlDatabaseObjects,
   fetchRemoteServerMysqlTableStructure,
   fetchRemoteServerMysqlTableData,
+  insertRemoteServerMysqlTableRow,
+  updateRemoteServerMysqlTableRow,
+  deleteRemoteServerMysqlTableRow,
   fetchRemoteServerMysqlUsers,
   executeRemoteServerMysqlQuery,
   fetchRemoteServerMysqlProcesslist,
   killRemoteServerMysqlProcess,
   fetchRemoteServerMysqlVariables,
 } from '../../services/api';
+import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -240,6 +246,12 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
   const [inspectingRowIndex, setInspectingRowIndex] = useState<number | null>(null);
   const [rowFieldSearch, setRowFieldSearch] = useState('');
+
+  // Phase 7: Table Data Editing States
+  const [isRowMutationModalOpen, setIsRowMutationModalOpen] = useState(false);
+  const [rowMutationModalMode, setRowMutationModalMode] = useState<'insert' | 'edit' | 'delete'>('insert');
+  const [selectedRowForMutation, setSelectedRowForMutation] = useState<Record<string, any> | null>(null);
+  const [rowMutationNotice, setRowMutationNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Run initial test and overview on open
   const runTestConnection = useCallback(async () => {
@@ -564,6 +576,163 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  // Phase 7: MySQL Table Column Info for Mutation Modal
+  const activeTableModalColumns = useMemo((): MysqlRowModalColumn[] => {
+    const dbName = selectedTreeNode.dbName;
+    const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+    if (!dbName || !tableName) return [];
+
+    const struct = tableStructures[`${dbName}:${tableName}`];
+    if (struct && struct.columns && struct.columns.length > 0) {
+      return struct.columns.map((col) => ({
+        name: col.name,
+        dataType: col.dataType,
+        columnType: col.columnType,
+        isPrimaryKey: col.isPrimaryKey,
+        isNullable: col.isNullable,
+        defaultValue: col.columnDefault,
+        isAutoIncrement: Boolean(
+          col.extra?.toLowerCase().includes('auto_increment') ||
+          col.columnType?.toLowerCase().includes('auto_increment') ||
+          col.columnDefault?.toLowerCase().includes('auto_increment')
+        ),
+        comment: col.comment || undefined,
+      }));
+    }
+
+    if (tableDataResult?.columns && tableDataResult.columns.length > 0) {
+      return tableDataResult.columns.map((col) => ({
+        name: col.name,
+        dataType: col.dataType,
+        columnType: col.columnType,
+        isPrimaryKey: col.isPrimaryKey,
+        isNullable: true,
+      }));
+    }
+
+    return [];
+  }, [selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name, tableStructures, tableDataResult]);
+
+  const handleInsertRowSubmit = useCallback(
+    async (values: Record<string, MysqlRowColumnValue>): Promise<{ success: boolean; error?: string }> => {
+      const dbName = selectedTreeNode.dbName;
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      if (!server?.id || !dbName || !tableName) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول انتخاب نشده است' };
+      }
+      try {
+        const res = await insertRemoteServerMysqlTableRow(server.id, {
+          database: dbName,
+          table: tableName,
+          values,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? res.message || 'Row successfully inserted.'
+              : res.messageFa || 'سطر با موفقیت در جدول درج شد.',
+          });
+          loadTableData(dbName, tableName);
+          loadTableStructure(dbName, tableName);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? res.error || 'Failed to insert row' : res.errorFa || res.error || 'خطا در درج سطر',
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name, isEn, loadTableData, loadTableStructure]
+  );
+
+  const handleUpdateRowSubmit = useCallback(
+    async (
+      updatedValues: Record<string, MysqlRowColumnValue>,
+      primaryKeyValues?: Record<string, any>,
+      originalRow?: Record<string, any>
+    ): Promise<{ success: boolean; error?: string }> => {
+      const dbName = selectedTreeNode.dbName;
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      if (!server?.id || !dbName || !tableName) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول انتخاب نشده است' };
+      }
+      try {
+        const res = await updateRemoteServerMysqlTableRow(server.id, {
+          database: dbName,
+          table: tableName,
+          primaryKeyValues,
+          originalRow,
+          updatedValues,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? res.message || 'Row successfully updated.'
+              : res.messageFa || 'سطر با موفقیت به‌روزرسانی شد.',
+          });
+          loadTableData(dbName, tableName);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? res.error || 'Failed to update row' : res.errorFa || res.error || 'خطا در به‌روزرسانی سطر',
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name, isEn, loadTableData]
+  );
+
+  const handleDeleteRowSubmit = useCallback(
+    async (
+      primaryKeyValues?: Record<string, any>,
+      originalRow?: Record<string, any>
+    ): Promise<{ success: boolean; error?: string }> => {
+      const dbName = selectedTreeNode.dbName;
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      if (!server?.id || !dbName || !tableName) {
+        return { success: false, error: isEn ? 'Table context not selected' : 'کانتکست جدول انتخاب نشده است' };
+      }
+      try {
+        const res = await deleteRemoteServerMysqlTableRow(server.id, {
+          database: dbName,
+          table: tableName,
+          primaryKeyValues,
+          originalRow,
+        });
+
+        if (res.success) {
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? res.message || 'Row successfully deleted.'
+              : res.messageFa || 'سطر با موفقیت از جدول حذف شد.',
+          });
+          loadTableData(dbName, tableName);
+          loadTableStructure(dbName, tableName);
+          return { success: true };
+        } else {
+          return {
+            success: false,
+            error: isEn ? res.error || 'Failed to delete row' : res.errorFa || res.error || 'خطا در حذف سطر',
+          };
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || (isEn ? 'Network error' : 'خطای شبکه') };
+      }
+    },
+    [server?.id, selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name, isEn, loadTableData, loadTableStructure]
+  );
 
   const loadProcesslist = useCallback(async () => {
     if (!server) return;
@@ -3223,6 +3392,37 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
                                   return (
                                     <div className="space-y-3">
+                                      {/* Phase 7: Mutation Notice Banner */}
+                                      {rowMutationNotice && (
+                                        <div
+                                          className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs animate-in fade-in duration-150 ${
+                                            rowMutationNotice.type === 'success'
+                                              ? isLightMode
+                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                                : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                                              : isLightMode
+                                              ? 'bg-red-50 border-red-200 text-red-800'
+                                              : 'bg-red-950/40 border-red-800/60 text-red-300'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            {rowMutationNotice.type === 'success' ? (
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                            ) : (
+                                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                                            )}
+                                            <span className="font-medium">{rowMutationNotice.message}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setRowMutationNotice(null)}
+                                            className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+
                                       {/* Data Controls Bar */}
                                       <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 flex-wrap ${
                                         isLightMode ? 'bg-slate-100/80 border-slate-200' : 'bg-black/20 border-white/10'
@@ -3380,6 +3580,21 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                             title={isEn ? 'Reload table data' : 'بارگذاری مجدد داده‌های جدول'}
                                           >
                                             <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-orange-400' : ''}`} />
+                                          </button>
+
+                                          {/* Phase 7: Insert Row Button */}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedRowForMutation(null);
+                                              setRowMutationModalMode('insert');
+                                              setIsRowMutationModalOpen(true);
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg border border-emerald-500/30 flex items-center gap-1.5 cursor-pointer transition bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-sm shadow-emerald-600/30"
+                                            title={isEn ? 'Insert new row into this table' : 'درج سطر جدید در این جدول'}
+                                          >
+                                            <Plus className="w-3.5 h-3.5" />
+                                            <span>{isEn ? 'Insert Row' : 'درج سطر جدید'}</span>
                                           </button>
                                         </div>
                                       </div>
@@ -3669,6 +3884,12 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                   >
                                                     #
                                                   </th>
+                                                  <th
+                                                    className="py-2.5 px-3 w-28 text-center text-slate-500 font-sans font-bold select-none cursor-default"
+                                                    title={isEn ? 'Row Actions' : 'عملیات سطر'}
+                                                  >
+                                                    {isEn ? 'Actions' : 'عملیات'}
+                                                  </th>
                                                   {visibleCols.map((col) => {
                                                     const isSorted = tableDataSortColumn === col.name;
                                                     return (
@@ -3722,6 +3943,76 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                         title={isEn ? 'Click to inspect full row details' : 'کلیک جهت مشاهده کامل جزئیات سطر'}
                                                       >
                                                         {rowNumber}
+                                                      </td>
+                                                      <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setSelectedRowForMutation(row);
+                                                              setRowMutationModalMode('edit');
+                                                              setIsRowMutationModalOpen(true);
+                                                            }}
+                                                            className={`p-1 rounded-md border transition-colors cursor-pointer ${
+                                                              isLightMode
+                                                                ? 'border-slate-200 text-slate-500 hover:text-amber-600 hover:bg-amber-50 hover:border-amber-300'
+                                                                : 'border-white/5 text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 hover:border-amber-500/30'
+                                                            }`}
+                                                            title={isEn ? 'Edit this row' : 'ویرایش این سطر'}
+                                                          >
+                                                            <Pencil className="w-3.5 h-3.5" />
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setSelectedRowForMutation(row);
+                                                              setRowMutationModalMode('insert');
+                                                              setIsRowMutationModalOpen(true);
+                                                            }}
+                                                            className={`p-1 rounded-md border transition-colors cursor-pointer ${
+                                                              isLightMode
+                                                                ? 'border-slate-200 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300'
+                                                                : 'border-white/5 text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/10 hover:border-emerald-500/30'
+                                                            }`}
+                                                            title={isEn ? 'Duplicate / Clone into new row' : 'تکثیر سطر برای درج جدید'}
+                                                          >
+                                                            <Copy className="w-3.5 h-3.5" />
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setInspectingRowIndex(rowIdx);
+                                                            }}
+                                                            className={`p-1 rounded-md border transition-colors cursor-pointer ${
+                                                              isLightMode
+                                                                ? 'border-slate-200 text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 hover:border-cyan-300'
+                                                                : 'border-white/5 text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-500/30'
+                                                            }`}
+                                                            title={isEn ? 'Inspect full row' : 'مشاهده جزئیات سطر'}
+                                                          >
+                                                            <Eye className="w-3.5 h-3.5" />
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setSelectedRowForMutation(row);
+                                                              setRowMutationModalMode('delete');
+                                                              setIsRowMutationModalOpen(true);
+                                                            }}
+                                                            className={`p-1 rounded-md border transition-colors cursor-pointer ${
+                                                              isLightMode
+                                                                ? 'border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 hover:border-red-300'
+                                                                : 'border-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30'
+                                                            }`}
+                                                            title={isEn ? 'Delete this row' : 'حذف این سطر'}
+                                                          >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                          </button>
+                                                        </div>
                                                       </td>
                                                       {visibleCols.map((col) => {
                                                         const cellValue = row[col.name];
@@ -3965,6 +4256,60 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                     </div>
                                                   );
                                                 })}
+                                            </div>
+
+                                            {/* Modal Inspector Footer Actions */}
+                                            <div className={`p-3 border-t flex items-center justify-between gap-2 shrink-0 ${
+                                              isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-white/10'
+                                            }`}>
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedRowForMutation(inspectingRow);
+                                                    setRowMutationModalMode('edit');
+                                                    setIsRowMutationModalOpen(true);
+                                                  }}
+                                                  className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                                                >
+                                                  <Pencil className="w-3.5 h-3.5" />
+                                                  <span>{isEn ? 'Edit Row' : 'ویرایش سطر'}</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedRowForMutation(inspectingRow);
+                                                    setRowMutationModalMode('insert');
+                                                    setIsRowMutationModalOpen(true);
+                                                  }}
+                                                  className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                                                >
+                                                  <Copy className="w-3.5 h-3.5" />
+                                                  <span>{isEn ? 'Clone Row' : 'تکثیر سطر'}</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedRowForMutation(inspectingRow);
+                                                    setRowMutationModalMode('delete');
+                                                    setIsRowMutationModalOpen(true);
+                                                  }}
+                                                  className="px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                  <span>{isEn ? 'Delete Row' : 'حذف سطر'}</span>
+                                                </button>
+                                              </div>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => setInspectingRowIndex(null)}
+                                                className={`px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition ${
+                                                  isLightMode ? 'border-slate-300 hover:bg-slate-200 text-slate-700' : 'border-white/10 hover:bg-white/10 text-slate-300'
+                                                }`}
+                                              >
+                                                {isEn ? 'Close' : 'بستن'}
+                                              </button>
                                             </div>
                                           </div>
                                         </div>
@@ -5390,6 +5735,25 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Phase 7: MySQL Table Row Mutation Modal */}
+      <MysqlTableRowEditModal
+        isOpen={isRowMutationModalOpen}
+        onClose={() => {
+          setIsRowMutationModalOpen(false);
+          setSelectedRowForMutation(null);
+        }}
+        mode={rowMutationModalMode}
+        databaseName={selectedTreeNode.dbName || ''}
+        tableName={selectedTreeNode.tableName || selectedTreeNode.name || ''}
+        columns={activeTableModalColumns}
+        initialRow={selectedRowForMutation}
+        onSubmitInsert={handleInsertRowSubmit}
+        onSubmitUpdate={handleUpdateRowSubmit}
+        onSubmitDelete={handleDeleteRowSubmit}
+        isEn={isEn}
+        isLightMode={isLightMode}
+      />
     </div>,
     document.body
   );

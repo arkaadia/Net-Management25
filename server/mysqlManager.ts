@@ -26,6 +26,11 @@ import {
   MysqlTableDataRequest,
   MysqlTableDataColumnInfo,
   MysqlTableDataResult,
+  MysqlRowColumnValue,
+  MysqlRowInsertRequest,
+  MysqlRowUpdateRequest,
+  MysqlRowDeleteRequest,
+  MysqlRowMutationResult,
 } from '../src/types';
 
 /**
@@ -1318,3 +1323,487 @@ export async function getMysqlTableData(
     throw new Error(`Failed to fetch data for MySQL table '${database}.${table}': ${err.message}`);
   }
 }
+
+/**
+ * Phase 7: Inserts a single row into a MySQL table within a safe transaction.
+ * Supports auto-increment columns, default values, JSON serialization, and NULL flags.
+ */
+export async function insertMysqlTableRow(
+  server: RemoteServer,
+  params: MysqlRowInsertRequest
+): Promise<MysqlRowMutationResult> {
+  const startTime = Date.now();
+  const { database, table, values } = params;
+
+  if (!database || !database.trim() || !table || !table.trim()) {
+    return {
+      success: false,
+      operation: 'insert',
+      affectedRows: 0,
+      error: 'Missing required parameters: database or table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس یا جدول ارسال نشده است.',
+    };
+  }
+
+  const config = getMysqlConfig(server, {
+    port: params.port,
+    user: params.user,
+    password: params.password,
+    database,
+  });
+
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database,
+      connectTimeout: 8000,
+    });
+
+    // 1. Fetch column catalog to validate column names and types
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA 
+       FROM information_schema.columns 
+       WHERE table_schema = ? AND table_name = ?`,
+      [database, table]
+    );
+
+    if (!cols || cols.length === 0) {
+      await conn.end();
+      return {
+        success: false,
+        operation: 'insert',
+        affectedRows: 0,
+        error: `Table '${database}.${table}' does not exist or has no columns.`,
+        errorFa: `جدول '${database}.${table}' یافت نشد یا ستونی ندارد.`,
+      };
+    }
+
+    const colMap = new Map<string, any>();
+    for (const c of cols) {
+      colMap.set(c.COLUMN_NAME, c);
+    }
+
+    const insertCols: string[] = [];
+    const valPlaceholders: string[] = [];
+    const queryParams: any[] = [];
+
+    for (const [colName, colVal] of Object.entries(values || {})) {
+      const catalogCol = colMap.get(colName);
+      if (!catalogCol) continue;
+
+      // If DEFAULT requested or empty auto_increment, omit so MySQL assigns default/generated value
+      if (colVal.isDefault) continue;
+
+      const isAutoInc = String(catalogCol.EXTRA || '').toLowerCase().includes('auto_increment');
+      if (isAutoInc && (colVal.isNull || colVal.value === '' || colVal.value === undefined || colVal.value === null)) {
+        continue;
+      }
+
+      insertCols.push(`\`${colName.replace(/`/g, '``')}\``);
+
+      if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
+        valPlaceholders.push('NULL');
+      } else {
+        let finalVal = colVal.value;
+        const lowerType = String(catalogCol.DATA_TYPE || '').toLowerCase();
+
+        // If JSON type and passed as object, stringify
+        if (lowerType === 'json' && typeof finalVal === 'object' && finalVal !== null) {
+          finalVal = JSON.stringify(finalVal);
+        } else if ((lowerType.includes('tinyint') || lowerType.includes('bool')) && typeof finalVal === 'boolean') {
+          finalVal = finalVal ? 1 : 0;
+        } else if (typeof finalVal === 'string' && finalVal.trim() === '') {
+          // If empty string on non-textual type and nullable, insert NULL
+          if (!lowerType.includes('char') && !lowerType.includes('text')) {
+            valPlaceholders.push('NULL');
+            continue;
+          }
+        }
+
+        valPlaceholders.push('?');
+        queryParams.push(finalVal);
+      }
+    }
+
+    const safeDb = `\`${database.replace(/`/g, '``')}\``;
+    const safeTbl = `\`${table.replace(/`/g, '``')}\``;
+
+    let insertSql = '';
+    if (insertCols.length === 0) {
+      insertSql = `INSERT INTO ${safeDb}.${safeTbl} () VALUES ()`;
+    } else {
+      insertSql = `INSERT INTO ${safeDb}.${safeTbl} (${insertCols.join(', ')}) VALUES (${valPlaceholders.join(', ')})`;
+    }
+
+    await conn.beginTransaction();
+    const [result]: any = await conn.query(insertSql, queryParams);
+    await conn.commit();
+    await conn.end();
+
+    return {
+      success: true,
+      operation: 'insert',
+      affectedRows: result.affectedRows ?? 1,
+      insertId: result.insertId || undefined,
+      executionTimeMs: Date.now() - startTime,
+      message: 'Row successfully inserted into table.',
+      messageFa: 'سطر جدید با موفقیت در جدول درج شد.',
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {}
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      operation: 'insert',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || 'Error inserting table row',
+      errorFa: `خطا در درج سطر جدول: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Phase 7: Updates an identified target row within a safe transaction with strict LIMIT 1 protection.
+ * Uses primary key values where available, or full original row matching with MySQL's NULL-safe operator (<=>).
+ */
+export async function updateMysqlTableRow(
+  server: RemoteServer,
+  params: MysqlRowUpdateRequest
+): Promise<MysqlRowMutationResult> {
+  const startTime = Date.now();
+  const { database, table, primaryKeyValues, originalRow, updatedValues } = params;
+
+  if (!database || !database.trim() || !table || !table.trim()) {
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: 'Missing required parameters: database or table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس یا جدول ارسال نشده است.',
+    };
+  }
+
+  if (!updatedValues || Object.keys(updatedValues).length === 0) {
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: 'No column changes provided for update.',
+      errorFa: 'هیچ مقداری برای به‌روزرسانی ارسال نشده است.',
+    };
+  }
+
+  // Safety protection: require primary key or original row to prevent mass updates
+  const hasPk = primaryKeyValues && Object.keys(primaryKeyValues).length > 0;
+  const hasOrig = originalRow && Object.keys(originalRow).length > 0;
+  if (!hasPk && !hasOrig) {
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      error: 'Safety restriction: Primary key or original row values are required to target the update and prevent mass updates.',
+      errorFa: 'محدودیت امنیتی: جهت جلوگیری از ویرایش سراسری، مشخص بودن کلید اصلی یا مقادیر سطر الزامی است.',
+    };
+  }
+
+  const config = getMysqlConfig(server, {
+    port: params.port,
+    user: params.user,
+    password: params.password,
+    database,
+  });
+
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database,
+      connectTimeout: 8000,
+    });
+
+    // 1. Fetch column catalog to validate column names and types
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA 
+       FROM information_schema.columns 
+       WHERE table_schema = ? AND table_name = ?`,
+      [database, table]
+    );
+
+    if (!cols || cols.length === 0) {
+      await conn.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        error: `Table '${database}.${table}' does not exist.`,
+        errorFa: `جدول '${database}.${table}' یافت نشد.`,
+      };
+    }
+
+    const colMap = new Map<string, any>();
+    for (const c of cols) {
+      colMap.set(c.COLUMN_NAME, c);
+    }
+
+    // 2. Build SET clause
+    const setClauses: string[] = [];
+    const setParams: any[] = [];
+
+    for (const [colName, colVal] of Object.entries(updatedValues)) {
+      const catalogCol = colMap.get(colName);
+      if (!catalogCol) continue;
+
+      const safeCol = `\`${colName.replace(/`/g, '``')}\``;
+
+      if (colVal.isDefault) {
+        setClauses.push(`${safeCol} = DEFAULT`);
+      } else if (colVal.isNull || colVal.value === null || colVal.value === undefined) {
+        setClauses.push(`${safeCol} = NULL`);
+      } else {
+        let finalVal = colVal.value;
+        const lowerType = String(catalogCol.DATA_TYPE || '').toLowerCase();
+
+        if (lowerType === 'json' && typeof finalVal === 'object' && finalVal !== null) {
+          finalVal = JSON.stringify(finalVal);
+        } else if ((lowerType.includes('tinyint') || lowerType.includes('bool')) && typeof finalVal === 'boolean') {
+          finalVal = finalVal ? 1 : 0;
+        }
+
+        setClauses.push(`${safeCol} = ?`);
+        setParams.push(finalVal);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      await conn.end();
+      return {
+        success: false,
+        operation: 'update',
+        affectedRows: 0,
+        error: 'No valid columns provided for update.',
+        errorFa: 'ستون معتبری جهت به‌روزرسانی ارسال نشده است.',
+      };
+    }
+
+    // 3. Build WHERE clause with primary key or original row matching
+    const whereClauses: string[] = [];
+    const whereParams: any[] = [];
+
+    if (hasPk) {
+      for (const [pkCol, pkVal] of Object.entries(primaryKeyValues!)) {
+        const safePk = `\`${pkCol.replace(/`/g, '``')}\``;
+        if (pkVal === null || pkVal === undefined) {
+          whereClauses.push(`${safePk} <=> NULL`);
+        } else {
+          whereClauses.push(`${safePk} = ?`);
+          whereParams.push(pkVal);
+        }
+      }
+    } else {
+      for (const [col, val] of Object.entries(originalRow!)) {
+        if (!colMap.has(col)) continue;
+        const safeCol = `\`${col.replace(/`/g, '``')}\``;
+        whereClauses.push(`${safeCol} <=> ?`);
+        whereParams.push(val === undefined ? null : val);
+      }
+    }
+
+    const safeDb = `\`${database.replace(/`/g, '``')}\``;
+    const safeTbl = `\`${table.replace(/`/g, '``')}\``;
+
+    // Strict safety protection: LIMIT 1 prevents mass updates
+    const updateSql = `UPDATE ${safeDb}.${safeTbl} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')} LIMIT 1`;
+
+    await conn.beginTransaction();
+    const [result]: any = await conn.query(updateSql, [...setParams, ...whereParams]);
+    await conn.commit();
+    await conn.end();
+
+    return {
+      success: true,
+      operation: 'update',
+      affectedRows: result.affectedRows ?? 1,
+      executionTimeMs: Date.now() - startTime,
+      message: 'Row successfully updated.',
+      messageFa: 'سطر با موفقیت به‌روزرسانی شد.',
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {}
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      operation: 'update',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || 'Error updating table row',
+      errorFa: `خطا در به‌روزرسانی سطر جدول: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Phase 7: Deletes an identified target row within a safe transaction with strict LIMIT 1 protection.
+ * Uses primary key values where available, or full original row matching with MySQL's NULL-safe operator (<=>).
+ */
+export async function deleteMysqlTableRow(
+  server: RemoteServer,
+  params: MysqlRowDeleteRequest
+): Promise<MysqlRowMutationResult> {
+  const startTime = Date.now();
+  const { database, table, primaryKeyValues, originalRow } = params;
+
+  if (!database || !database.trim() || !table || !table.trim()) {
+    return {
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      error: 'Missing required parameters: database or table.',
+      errorFa: 'پارامترهای الزامی نام دیتابیس یا جدول ارسال نشده است.',
+    };
+  }
+
+  // Safety protection: require primary key or original row to prevent mass deletion
+  const hasPk = primaryKeyValues && Object.keys(primaryKeyValues).length > 0;
+  const hasOrig = originalRow && Object.keys(originalRow).length > 0;
+  if (!hasPk && !hasOrig) {
+    return {
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      error: 'Safety restriction: Primary key or original row values are required to prevent mass deletion.',
+      errorFa: 'محدودیت امنیتی: جهت جلوگیری از حذف سراسری جدول، کلید اصلی یا اطلاعات سطر الزامی است.',
+    };
+  }
+
+  const config = getMysqlConfig(server, {
+    port: params.port,
+    user: params.user,
+    password: params.password,
+    database,
+  });
+
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database,
+      connectTimeout: 8000,
+    });
+
+    // 1. Fetch column catalog to validate column names
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ?`,
+      [database, table]
+    );
+
+    if (!cols || cols.length === 0) {
+      await conn.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: 0,
+        error: `Table '${database}.${table}' does not exist.`,
+        errorFa: `جدول '${database}.${table}' یافت نشد.`,
+      };
+    }
+
+    const colSet = new Set<string>(cols.map((c: any) => c.COLUMN_NAME));
+
+    // 2. Build WHERE clause with primary key or original row matching
+    const whereClauses: string[] = [];
+    const whereParams: any[] = [];
+
+    if (hasPk) {
+      for (const [pkCol, pkVal] of Object.entries(primaryKeyValues!)) {
+        const safePk = `\`${pkCol.replace(/`/g, '``')}\``;
+        if (pkVal === null || pkVal === undefined) {
+          whereClauses.push(`${safePk} <=> NULL`);
+        } else {
+          whereClauses.push(`${safePk} = ?`);
+          whereParams.push(pkVal);
+        }
+      }
+    } else {
+      for (const [col, val] of Object.entries(originalRow!)) {
+        if (!colSet.has(col)) continue;
+        const safeCol = `\`${col.replace(/`/g, '``')}\``;
+        whereClauses.push(`${safeCol} <=> ?`);
+        whereParams.push(val === undefined ? null : val);
+      }
+    }
+
+    const safeDb = `\`${database.replace(/`/g, '``')}\``;
+    const safeTbl = `\`${table.replace(/`/g, '``')}\``;
+
+    // Strict safety protection: LIMIT 1 prevents mass deletes
+    const deleteSql = `DELETE FROM ${safeDb}.${safeTbl} WHERE ${whereClauses.join(' AND ')} LIMIT 1`;
+
+    await conn.beginTransaction();
+    const [result]: any = await conn.query(deleteSql, whereParams);
+
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      await conn.end();
+      return {
+        success: false,
+        operation: 'delete',
+        affectedRows: 0,
+        error: 'Target row not found or was already deleted.',
+        errorFa: 'سطر مورد نظر یافت نشد یا پیش‌تر حذف شده است.',
+      };
+    }
+
+    await conn.commit();
+    await conn.end();
+
+    return {
+      success: true,
+      operation: 'delete',
+      affectedRows: result.affectedRows,
+      executionTimeMs: Date.now() - startTime,
+      message: 'Row successfully deleted.',
+      messageFa: 'سطر با موفقیت از جدول حذف شد.',
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {}
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      operation: 'delete',
+      affectedRows: 0,
+      executionTimeMs: Date.now() - startTime,
+      error: err.message || 'Error deleting table row',
+      errorFa: `خطا در حذف سطر جدول: ${err.message}`,
+    };
+  }
+}
+
