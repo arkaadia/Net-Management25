@@ -1840,6 +1840,27 @@ export interface MysqlQueryResult {
   errorFa?: string;
 }
 
+export interface MysqlQueryTab {
+  id: string;
+  title: string;
+  query: string;
+  database?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MysqlQueryHistoryItem {
+  id: string;
+  query: string;
+  database?: string;
+  success: boolean;
+  durationMs?: number;
+  rowCount?: number;
+  affectedRows?: number;
+  error?: string;
+  timestamp: number;
+}
+
 export interface PostgresConnectionTestResult {
   success: boolean;
   status: PostgresConnectionStatus;

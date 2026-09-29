@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.217.0';
+export const APP_VERSION = '1.218.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.218.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۸ سیستم مدیریت MySQL: کنسول و ادیتور چندتبی کوئری (Interactive MySQL Query Editor Suite)',
+    title_en: 'Phase 8: Interactive Multi-Tab MySQL Query Editor Suite with Result Grid, History & Safety Guard',
+    changes: [
+      'طراحی و پیاده‌سازی کنسول و ویرایشگر پیشرفته چندتبی کوئری MySQL (`MysqlSqlEditorTab`) با امکان ایجاد، تغییر نام، حذف و سوئیچ بین تب‌های مختلف کوئری.',
+      'افزودن انتخاب‌گر دیتابیس هدف در هر تب کوئری جهت سوئیچ خودکار کانتکست اجرایی MySQL.',
+      'افزودن الگوهای آماده و کوئری‌های پرکاربرد مهندسی MySQL (شامل حجم پایگاه‌ها و جداول، کانکشن‌های فعال پروسس‌لیست، وضعیت کش بافر پول InnoDB، دسترسی‌های کاربر و اطلاعات سرور).',
+      'سیستم بازدارنده امنیتی و دیالوگ هشدار کوئری‌های مخرب (شامل دستورات DROP, TRUNCATE و ویرایش یا حذف بدون شرط WHERE).',
+      'گرید تعاملی نمایش نتایج با مرتب‌سازی ستونی دوطرفه، فیلتر و جستجوی لحظه‌ای در داده‌ها، صفحه‌بندی ایمن و کپی آسان سلول‌ها.',
+      'مودال اختصاصی بازرسی عمیق سطر (Row Inspector) با جستجوی ستونی و فرمت‌بندی خودکار JSON.',
+      'قابلیت خروجی فوری نتایج کوئری به فرمت‌های CSV و JSON.',
+      'تاریخچه پایدار کوئری‌های اجراشده (Query History) با ذخیره‌سازی محلی بر اساس شناسه سرور و امکان بارگذاری مجدد کوئری.',
+      'پالایش و سریال‌سازی مطمئن بافرها، مقادیر BigInt و تاریخ‌ها در بک‌اند جهت ممانعت از کرش در داده‌های خاص.',
+      'رعایت صددرصدی استانداردهای تم تیره/روشن و عدم نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered interactive multi-tab MySQL Query Console (`MysqlSqlEditorTab`) with seamless creation, renaming, closing, and switching across query tabs.',
+      'Integrated per-tab target database selector for dynamic MySQL context switching.',
+      'Equipped with comprehensive MySQL engineering query templates (table & database sizes, active process threads, InnoDB buffer pool stats, user grants, and server status).',
+      'Embedded intelligent destructive query safety guard with confirmation warnings for DROP, TRUNCATE, and unconstrained UPDATE/DELETE statements.',
+      'Interactive result grid with two-way column sorting, real-time in-table search filtering, safe pagination, and single-click cell copying.',
+      'Dedicated Row Inspector modal with column filtering and JSON syntax formatting.',
+      'Instant query results export to standard CSV and JSON formats.',
+      'Persistent query execution history with per-server local storage and quick reload into editor.',
+      'Robust backend sanitization for binary Buffers, BigInt, and Date objects to guarantee reliable execution without crashes.',
+      'Strict bilingual localization and dark/light ergonomics compliance with zero fake data.'
+    ]
+  },
   {
     version: '1.217.0',
     releaseDate: '2026-09-29',

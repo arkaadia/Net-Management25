@@ -787,10 +787,28 @@ export async function executeMysqlQuery(
 
     if (Array.isArray(results)) {
       const columns = Array.isArray(fields) ? fields.map((f: any) => f.name) : Object.keys(results[0] || {});
+      const sanitizedRows = results.slice(0, 1000).map((r: any) => {
+        const sanitized: Record<string, any> = {};
+        for (const [k, v] of Object.entries(r || {})) {
+          if (v === null || v === undefined) {
+            sanitized[k] = null;
+          } else if (v instanceof Date) {
+            sanitized[k] = v.toISOString();
+          } else if (Buffer.isBuffer(v)) {
+            sanitized[k] = v.toString('utf-8');
+          } else if (typeof v === 'bigint') {
+            sanitized[k] = Number(v);
+          } else {
+            sanitized[k] = v;
+          }
+        }
+        return sanitized;
+      });
+
       return {
         success: true,
         columns,
-        rows: results.slice(0, 500),
+        rows: sanitizedRows,
         rowCount: results.length,
         durationMs,
       };
