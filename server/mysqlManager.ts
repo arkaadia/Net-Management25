@@ -1278,11 +1278,30 @@ export async function getMysqlTableData(
     await conn.end();
     const executionTimeMs = Date.now() - startTime;
 
+    // Sanitize rows for JSON response (handling Buffer, Date, BigInt)
+    const formattedRows = (rows || []).map((row: any) => {
+      const sanitized: Record<string, any> = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (v === null || v === undefined) {
+          sanitized[k] = null;
+        } else if (v instanceof Date) {
+          sanitized[k] = v.toISOString();
+        } else if (Buffer.isBuffer(v)) {
+          sanitized[k] = v.toString('utf-8');
+        } else if (typeof v === 'bigint') {
+          sanitized[k] = Number(v);
+        } else {
+          sanitized[k] = v;
+        }
+      }
+      return sanitized;
+    });
+
     return {
       databaseName: database,
       tableName: table,
       columns,
-      rows: rows || [],
+      rows: formattedRows,
       totalRows,
       page: validPage,
       pageSize: validPageSize,

@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.215.1';
+export const APP_VERSION = '1.216.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.216.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۶ سیستم مدیریت MySQL: نمایشگر ویژوال داده‌های جداول (Table Data Viewer)',
+    title_en: 'Phase 6: MySQL Table Data Viewer with Advanced Server-Side Pagination, Filtering & Sorting',
+    changes: [
+      'پیاده‌سازی کامل نمایشگر بصری داده‌های جداول MySQL (Table Data Viewer) با معماری کارآمد و متصل به سرور واقعی.',
+      'افزودن صفحه‌بندی سمت سرور (Server-Side Pagination) با پشتیبانی از اندازه صفحات متنوع (۲۵، ۵۰، ۱۰۰، ۲۵۰ سطر) و شمارش دقیق و ایمن سطرها بدون بارگذاری یکجای داده‌های سنگین.',
+      'سیستم فیلتر پیشرفته چندگانه با عملگرهای متنوع (برابر، نامساوی، شامل، شروع با، بزرگتر، کوچکتر، تهی، غیرتهی) و اعمال مستقیم در کوئری سرور.',
+      'مرتب‌سازی ستونی دوطرفه (ASC / DESC) با کلیک روی عناوین ستون‌ها و نشانگر وضعیت مرتب‌سازی فعال.',
+      'قابلیت مدیریت و تنظیم پنهان‌سازی/نمایش ستون‌ها (Column Visibility Picker) با امکان جستجو میان ستون‌ها و بازنشانی به حالت اولیه.',
+      'مودال بررسی عمیق سطر (Row Inspector Modal) برای مشاهده کلیه مقادیر فیلدها در قالب کارت‌های تفکیک‌شده با امکان جستجوی نام ستون و کپی سریع مقادیر.',
+      'امکان خروجی گرفتن داده‌های سطرها در قالب‌های استاندارد CSV و JSON با احترام به ستون‌های مخفی‌شده.',
+      'پشتیبانی کامل از پاک‌سازی داده‌های باینری Buffer و تاریخ‌های ISO به همراه نمایش نشانگرهای رنگی برای مقادیر NULL و عددی و بولین.',
+      'رعایت ۱۰۰ درصدی استاندارد دو زبانه و عدم استفاده از هرگونه دیتای شبیه‌سازی شده یا ماک.'
+    ],
+    changes_en: [
+      'Fully implemented MySQL Table Data Viewer module (Phase 6) connecting directly to live MySQL instances.',
+      'Added high-performance server-side pagination with configurable page sizes (25, 50, 100, 250 rows) and safe row counting to protect browser memory.',
+      'Advanced multi-condition filtering with rich operators (eq, neq, contains, starts_with, gt, lt, null, not_null) applied safely on the backend.',
+      'Interactive bidirectional column sorting (ASC / DESC) directly from header clicks with active sorting indicator.',
+      'Column visibility manager dropdown with live column search and reset functionality.',
+      'Detailed Row Inspector modal for examining all fields of a specific record with inline search and one-click copy.',
+      'Data export to standard CSV and JSON formats respecting visible column selections.',
+      'Robust serialization of Buffer/Binary data, BigInt, and ISO timestamps with color-coded badges for NULL, numbers, and boolean values.',
+      'Strict adherence to bilingual i18n standards and zero mock or simulated data policy.'
+    ]
+  },
   {
     version: '1.215.1',
     releaseDate: '2026-09-29',

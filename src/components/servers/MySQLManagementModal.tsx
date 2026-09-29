@@ -41,6 +41,7 @@ import {
   ExternalLink,
   Code,
   Eye,
+  EyeOff,
   Hash,
   ArrowUpDown,
   ArrowUp,
@@ -235,6 +236,10 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [newFilterOperator, setNewFilterOperator] = useState<MysqlFilterOperator>('eq');
   const [newFilterValue, setNewFilterValue] = useState('');
   const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
+  const [dataHiddenColumns, setDataHiddenColumns] = useState<Record<string, boolean>>({});
+  const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [inspectingRowIndex, setInspectingRowIndex] = useState<number | null>(null);
+  const [rowFieldSearch, setRowFieldSearch] = useState('');
 
   // Run initial test and overview on open
   const runTestConnection = useCallback(async () => {
@@ -455,10 +460,72 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     }
   }, [selectedTreeNode.type, selectedTreeNode.dbName, selectedTreeNode.tableName, selectedTreeNode.name]);
 
-  // Phase 5: Export Table Data
+  // Phase 6: Sorting, Filtering & Column Visibility Handlers
+  const toggleColumnSort = (colName: string) => {
+    let newSortCol: string | undefined = colName;
+    let newSortDir: 'ASC' | 'DESC' = 'ASC';
+
+    if (tableDataSortColumn === colName) {
+      if (tableDataSortDir === 'ASC') {
+        newSortDir = 'DESC';
+      } else {
+        newSortCol = undefined;
+      }
+    }
+
+    setTableDataSortColumn(newSortCol);
+    setTableDataSortDir(newSortDir);
+    setTableDataPage(1);
+
+    if (selectedTreeNode.dbName) {
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      loadTableData(selectedTreeNode.dbName, tableName, 1, undefined, newSortCol, newSortDir);
+    }
+  };
+
+  const handleAddFilter = () => {
+    const availableCols = tableDataResult?.columns || tableStructures[`${selectedTreeNode.dbName}:${selectedTreeNode.tableName || selectedTreeNode.name}`]?.columns || [];
+    const col = newFilterColumn || availableCols[0]?.name || '';
+    if (!col) return;
+    const newF: MysqlTableDataFilter = {
+      column: col,
+      operator: newFilterOperator,
+      value: newFilterValue,
+    };
+    const updated = [...tableDataFilters, newF];
+    setTableDataFilters(updated);
+    setNewFilterValue('');
+    setTableDataPage(1);
+    if (selectedTreeNode.dbName) {
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      loadTableData(selectedTreeNode.dbName, tableName, 1, undefined, undefined, undefined, undefined, updated);
+    }
+  };
+
+  const handleRemoveFilter = (index: number) => {
+    const updated = tableDataFilters.filter((_, i) => i !== index);
+    setTableDataFilters(updated);
+    setTableDataPage(1);
+    if (selectedTreeNode.dbName) {
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      loadTableData(selectedTreeNode.dbName, tableName, 1, undefined, undefined, undefined, undefined, updated);
+    }
+  };
+
+  const handleClearAllFilters = () => {
+    setTableDataFilters([]);
+    setTableDataPage(1);
+    if (selectedTreeNode.dbName) {
+      const tableName = selectedTreeNode.tableName || selectedTreeNode.name;
+      loadTableData(selectedTreeNode.dbName, tableName, 1, undefined, undefined, undefined, undefined, []);
+    }
+  };
+
+  // Phase 5 & 6: Export Table Data (respects visible columns for CSV)
   const exportTableData = (format: 'csv' | 'json') => {
     if (!tableDataResult || !tableDataResult.rows || tableDataResult.rows.length === 0) return;
     const { rows, columns, tableName } = tableDataResult;
+    const visibleCols = columns.filter((c) => !dataHiddenColumns[c.name]);
 
     let content = '';
     let mimeType = 'text/plain';
@@ -469,14 +536,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
       mimeType = 'application/json';
       ext = 'json';
     } else {
-      const headers = columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(',');
+      const headers = visibleCols.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(',');
       const body = rows
         .map((r) =>
-          columns
+          visibleCols
             .map((c) => {
               const val = r[c.name];
-              if (val === null || val === undefined) return 'NULL';
-              return `"${String(val).replace(/"/g, '""')}"`;
+              if (val === null || val === undefined) return '';
+              const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+              return `"${str.replace(/"/g, '""')}"`;
             })
             .join(',')
         )
@@ -3134,314 +3202,776 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                   </div>
                                 )}
 
-                                {/* SUB-TAB 1: DATA VIEWER */}
-                                {tableActiveSubTab === 'data' && (
-                                  <div className="space-y-3">
-                                    {/* Data Controls Bar */}
-                                    <div className="p-3 rounded-xl border border-white/10 bg-black/20 flex items-center justify-between gap-3 flex-wrap">
-                                      <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md">
-                                        <div className="relative flex-1">
-                                          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                          <input
-                                            type="text"
-                                            value={tableDataSearch}
-                                            onChange={(e) => setTableDataSearch(e.target.value)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch);
-                                              }
-                                            }}
-                                            placeholder={isEn ? 'Search table records (Press Enter)...' : 'جستجو در رکوردهای جدول (اینتر بزنید)...'}
-                                            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-white/10 bg-slate-900/60 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-orange-500/50"
-                                          />
-                                        </div>
-                                        {tableDataSearch && (
+                                {/* SUB-TAB 1: PHASE 6 - LIVE TABLE DATA VIEWER */}
+                                {tableActiveSubTab === 'data' && (() => {
+                                  const structKey = `${dbName}:${tableName}`;
+                                  const struct = tableStructures[structKey];
+                                  const availableCols: MysqlTableDataColumnInfo[] =
+                                    tableDataResult?.columns && tableDataResult.columns.length > 0
+                                      ? tableDataResult.columns
+                                      : (struct?.columns || []).map((c) => ({
+                                          name: c.name,
+                                          dataType: c.dataType,
+                                          columnType: c.columnType || c.dataType,
+                                          isPrimaryKey: c.isPrimaryKey,
+                                        }));
+                                  const visibleCols = availableCols.filter((c) => !dataHiddenColumns[c.name]);
+                                  const inspectingRow =
+                                    inspectingRowIndex !== null && tableDataResult?.rows
+                                      ? tableDataResult.rows[inspectingRowIndex]
+                                      : null;
+
+                                  return (
+                                    <div className="space-y-3">
+                                      {/* Data Controls Bar */}
+                                      <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 flex-wrap ${
+                                        isLightMode ? 'bg-slate-100/80 border-slate-200' : 'bg-black/20 border-white/10'
+                                      }`}>
+                                        <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-xl flex-wrap">
+                                          {/* Search Input Form */}
+                                          <div className="relative flex-1 min-w-[180px]">
+                                            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            <input
+                                              type="text"
+                                              value={tableDataSearch}
+                                              onChange={(e) => setTableDataSearch(e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch);
+                                                }
+                                              }}
+                                              placeholder={isEn ? 'Search records (Press Enter)...' : 'جستجو در رکوردها (اینتر بزنید)...'}
+                                              className={`w-full pl-9 pr-14 py-1.5 rounded-lg border text-xs outline-none transition font-mono ${
+                                                isLightMode
+                                                  ? 'bg-white border-slate-300 text-slate-800 placeholder:text-slate-400 focus:border-orange-500'
+                                                  : 'bg-slate-900/80 border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-orange-500/60'
+                                              }`}
+                                            />
+                                            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                              {tableDataSearch && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setTableDataSearch('');
+                                                    loadTableData(dbName, tableName, 1, undefined, undefined, undefined, '');
+                                                  }}
+                                                  className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                                                  title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch)}
+                                                className="px-1.5 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-[10px] font-bold cursor-pointer"
+                                              >
+                                                {isEn ? 'Go' : 'برو'}
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* Filters Toggle Button */}
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              setTableDataSearch('');
-                                              loadTableData(dbName, tableName, 1, undefined, undefined, undefined, '');
-                                            }}
-                                            className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-xs text-slate-400 hover:text-white cursor-pointer"
-                                            title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                                            onClick={() => setShowFilterBuilder((prev) => !prev)}
+                                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                                              showFilterBuilder || tableDataFilters.length > 0
+                                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-sm'
+                                                : isLightMode
+                                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                                : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                                            }`}
                                           >
-                                            <X className="w-3.5 h-3.5" />
+                                            <Filter className="w-3.5 h-3.5 text-blue-400" />
+                                            <span>{isEn ? 'Filters' : 'فیلترها'}</span>
+                                            {tableDataFilters.length > 0 && (
+                                              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-500 text-white font-bold">
+                                                {tableDataFilters.length}
+                                              </span>
+                                            )}
                                           </button>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() => loadTableData(dbName, tableName, 1, undefined, undefined, undefined, tableDataSearch)}
-                                          className="px-2.5 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-bold cursor-pointer"
-                                        >
-                                          {isEn ? 'Filter' : 'اعمال'}
-                                        </button>
-                                      </div>
 
-                                      <div className="flex items-center gap-2 flex-wrap text-xs">
-                                        {/* Page Size Selector */}
-                                        <div className="flex items-center gap-1.5 text-slate-400">
-                                          <span className="text-[11px]">{isEn ? 'Rows:' : 'سطرها:'}</span>
-                                          <select
-                                            value={tableDataPageSize}
-                                            onChange={(e) => {
-                                              const newSize = Number(e.target.value);
-                                              setTableDataPageSize(newSize);
-                                              loadTableData(dbName, tableName, 1, newSize);
-                                            }}
-                                            className="px-2 py-1 rounded-lg border border-white/10 bg-slate-900 text-xs text-slate-200 focus:outline-none"
+                                          {/* Columns Visibility Toggle Button */}
+                                          <button
+                                            type="button"
+                                            onClick={() => setIsColumnVisibilityOpen((prev) => !prev)}
+                                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                                              isColumnVisibilityOpen || Object.keys(dataHiddenColumns).length > 0
+                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm'
+                                                : isLightMode
+                                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                                : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                                            }`}
                                           >
-                                            <option value={25}>25</option>
-                                            <option value={50}>50</option>
-                                            <option value={100}>100</option>
-                                            <option value={200}>200</option>
-                                          </select>
-                                        </div>
-
-                                        {/* Export Buttons */}
-                                        <button
-                                          type="button"
-                                          onClick={() => exportTableData('csv')}
-                                          disabled={!tableDataResult || tableDataResult.rows.length === 0}
-                                          className="px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                          title={isEn ? 'Export visible rows as CSV' : 'خروجی CSV از رکوردهای صفحه'}
-                                        >
-                                          <Download className="w-3.5 h-3.5 text-emerald-400" />
-                                          <span className="font-mono text-[11px]">CSV</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => exportTableData('json')}
-                                          disabled={!tableDataResult || tableDataResult.rows.length === 0}
-                                          className="px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                          title={isEn ? 'Export visible rows as JSON' : 'خروجی JSON از رکوردهای صفحه'}
-                                        >
-                                          <Download className="w-3.5 h-3.5 text-cyan-400" />
-                                          <span className="font-mono text-[11px]">JSON</span>
-                                        </button>
-
-                                        {/* Refresh Table Data */}
-                                        <button
-                                          type="button"
-                                          onClick={() => loadTableData(dbName, tableName, tableDataPage)}
-                                          disabled={loadingTableData}
-                                          className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 cursor-pointer disabled:opacity-50"
-                                          title={isEn ? 'Reload table rows' : 'بارگذاری مجدد داده‌ها'}
-                                        >
-                                          <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-orange-400' : ''}`} />
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {/* Execution Metrics Info Banner */}
-                                    {tableDataResult && (
-                                      <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-mono">
-                                        <div className="flex items-center gap-2">
-                                          <span>
-                                            {isEn
-                                              ? `Showing ${tableDataResult.rows.length} of ${tableDataResult.totalRows.toLocaleString()} rows`
-                                              : `نمایش ${tableDataResult.rows.length} از ${tableDataResult.totalRows.toLocaleString()} سطر`}
-                                          </span>
-                                          {tableDataSortColumn && (
-                                            <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px]">
-                                              Sorted by: {tableDataSortColumn} {tableDataSortDir}
+                                            <Eye className="w-3.5 h-3.5 text-purple-400" />
+                                            <span>{isEn ? 'Columns' : 'ستون‌ها'}</span>
+                                            <span className="text-[10px] font-mono text-slate-400">
+                                              ({visibleCols.length}/{availableCols.length})
                                             </span>
-                                          )}
+                                          </button>
                                         </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <Clock className="w-3 h-3 text-cyan-400" />
-                                          <span className="text-cyan-300">{tableDataResult.executionTimeMs} ms</span>
-                                        </div>
-                                      </div>
-                                    )}
 
-                                    {/* Data Table Grid */}
-                                    <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
-                                      {loadingTableData ? (
-                                        <div className="p-12 text-center space-y-2">
-                                          <RefreshCw className="w-6 h-6 text-orange-400 animate-spin mx-auto" />
-                                          <p className="text-xs text-slate-300 font-bold">
-                                            {isEn ? 'Querying records from MySQL...' : 'در حال خواندن رکوردها از پایگاه داده...'}
-                                          </p>
-                                        </div>
-                                      ) : tableDataError ? (
-                                        <div className="p-6 text-center space-y-2 text-rose-300 text-xs">
-                                          <AlertTriangle className="w-6 h-6 text-rose-400 mx-auto" />
-                                          <p className="font-bold">{tableDataError}</p>
+                                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                                          {/* Page Size Selector */}
+                                          <div className="flex items-center gap-1.5 text-slate-400 font-mono">
+                                            <span className="text-[11px] font-sans">{isEn ? 'Rows:' : 'سطر:'}</span>
+                                            <select
+                                              value={tableDataPageSize}
+                                              onChange={(e) => {
+                                                const newSize = Number(e.target.value);
+                                                setTableDataPageSize(newSize);
+                                                loadTableData(dbName, tableName, 1, newSize);
+                                              }}
+                                              className={`px-2 py-1 rounded-lg border text-xs outline-none cursor-pointer ${
+                                                isLightMode ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-white/10 text-slate-200'
+                                              }`}
+                                            >
+                                              <option value={25}>25</option>
+                                              <option value={50}>50</option>
+                                              <option value={100}>100</option>
+                                              <option value={200}>200</option>
+                                              <option value={500}>500</option>
+                                            </select>
+                                          </div>
+
+                                          {/* Export CSV / JSON */}
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => exportTableData('csv')}
+                                              disabled={!tableDataResult || tableDataResult.rows.length === 0}
+                                              className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-1 cursor-pointer transition disabled:opacity-40 text-[11px] font-semibold ${
+                                                isLightMode
+                                                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                                  : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                                              }`}
+                                              title={isEn ? 'Export visible columns as CSV' : 'خروجی CSV از ستون‌های قابل مشاهده'}
+                                            >
+                                              <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                              <span>CSV</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => exportTableData('json')}
+                                              disabled={!tableDataResult || tableDataResult.rows.length === 0}
+                                              className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-1 cursor-pointer transition disabled:opacity-40 text-[11px] font-semibold ${
+                                                isLightMode
+                                                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                                  : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                                              }`}
+                                              title={isEn ? 'Export page records as JSON' : 'خروجی JSON از رکوردهای صفحه'}
+                                            >
+                                              <Download className="w-3.5 h-3.5 text-purple-400" />
+                                              <span>JSON</span>
+                                            </button>
+                                          </div>
+
+                                          {/* Refresh Button */}
                                           <button
                                             type="button"
                                             onClick={() => loadTableData(dbName, tableName, tableDataPage)}
-                                            className="px-3 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+                                            disabled={loadingTableData}
+                                            className={`p-1.5 rounded-lg border cursor-pointer transition disabled:opacity-50 ${
+                                              isLightMode
+                                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                                : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800'
+                                            }`}
+                                            title={isEn ? 'Reload table data' : 'بارگذاری مجدد داده‌های جدول'}
                                           >
-                                            {isEn ? 'Retry' : 'تلاش مجدد'}
+                                            <RefreshCw className={`w-3.5 h-3.5 ${loadingTableData ? 'animate-spin text-orange-400' : ''}`} />
                                           </button>
                                         </div>
-                                      ) : !tableDataResult || tableDataResult.rows.length === 0 ? (
-                                        <div className="p-12 text-center space-y-2 text-slate-400">
-                                          <Table className="w-8 h-8 text-slate-600 mx-auto" />
-                                          <p className="text-xs font-bold text-slate-300">
-                                            {isEn ? 'No records found in this table' : 'هیچ رکوردی در این جدول یافت نشد'}
-                                          </p>
-                                          <p className="text-[11px] text-slate-500">
-                                            {isEn ? 'The table is empty or no rows match the filter criteria.' : 'جدول خالی است یا داده‌ای با شرایط جستجو مطابقت ندارد.'}
-                                          </p>
+                                      </div>
+
+                                      {/* Collapsible Filter Builder Panel */}
+                                      {showFilterBuilder && (
+                                        <div
+                                          className={`p-3.5 rounded-xl border space-y-3 animate-in fade-in duration-150 ${
+                                            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800 shadow-xl'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <h6 className="font-bold text-xs flex items-center gap-1.5 text-blue-400 uppercase tracking-wider">
+                                              <Filter className="w-3.5 h-3.5" />
+                                              <span>{isEn ? 'Advanced Table Column Filters' : 'فیلترهای پیشرفته ستون‌ها'}</span>
+                                            </h6>
+                                            {tableDataFilters.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={handleClearAllFilters}
+                                                className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1 transition cursor-pointer"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                                <span>{isEn ? 'Clear All Filters' : 'حذف همه فیلترها'}</span>
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          {/* Active Filters Badges */}
+                                          {tableDataFilters.length > 0 && (
+                                            <div className="space-y-1.5">
+                                              {tableDataFilters.map((f, idx) => (
+                                                <div
+                                                  key={idx}
+                                                  className="flex items-center gap-2 flex-wrap p-2 rounded-lg bg-black/20 border border-slate-800 text-xs font-mono"
+                                                >
+                                                  <span className="font-bold text-slate-200">`{f.column}`</span>
+                                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                                    {f.operator}
+                                                  </span>
+                                                  {f.operator !== 'isNull' && f.operator !== 'isNotNull' && (
+                                                    <span className="text-amber-300 font-bold bg-black/40 px-1.5 py-0.5 rounded">
+                                                      "{f.value}"
+                                                    </span>
+                                                  )}
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveFilter(idx)}
+                                                    className="p-1 rounded text-slate-500 hover:text-rose-400 transition ml-auto cursor-pointer"
+                                                    title={isEn ? 'Remove filter' : 'حذف فیلتر'}
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          {/* Add New Filter Row */}
+                                          <div className="flex items-center gap-2 flex-wrap pt-1">
+                                            <select
+                                              value={newFilterColumn || (availableCols[0]?.name || '')}
+                                              onChange={(e) => setNewFilterColumn(e.target.value)}
+                                              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
+                                                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                              }`}
+                                            >
+                                              {availableCols.map((c) => (
+                                                <option key={c.name} value={c.name}>
+                                                  {c.name} ({c.dataType})
+                                                </option>
+                                              ))}
+                                            </select>
+
+                                            <select
+                                              value={newFilterOperator}
+                                              onChange={(e) => setNewFilterOperator(e.target.value as MysqlFilterOperator)}
+                                              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
+                                                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                              }`}
+                                            >
+                                              <option value="eq">= ({isEn ? 'Equals' : 'برابر'})</option>
+                                              <option value="neq">!= ({isEn ? 'Not Equals' : 'نامساوی'})</option>
+                                              <option value="contains">LIKE %v% ({isEn ? 'Contains' : 'شامل'})</option>
+                                              <option value="notContains">NOT LIKE %v% ({isEn ? 'Not Contains' : 'شامل نشود'})</option>
+                                              <option value="startsWith">LIKE v% ({isEn ? 'Starts With' : 'شروع با'})</option>
+                                              <option value="endsWith">LIKE %v ({isEn ? 'Ends With' : 'پایان با'})</option>
+                                              <option value="gt">&gt; ({isEn ? 'Greater Than' : 'بزرگتر'})</option>
+                                              <option value="gte">&gt;= ({isEn ? 'Greater/Equal' : 'بزرگتر مساوی'})</option>
+                                              <option value="lt">&lt; ({isEn ? 'Less Than' : 'کوچکتر'})</option>
+                                              <option value="lte">&lt;= ({isEn ? 'Less/Equal' : 'کوچکتر مساوی'})</option>
+                                              <option value="isNull">IS NULL</option>
+                                              <option value="isNotNull">IS NOT NULL</option>
+                                            </select>
+
+                                            {newFilterOperator !== 'isNull' && newFilterOperator !== 'isNotNull' && (
+                                              <input
+                                                type="text"
+                                                value={newFilterValue}
+                                                onChange={(e) => setNewFilterValue(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') handleAddFilter();
+                                                }}
+                                                placeholder={isEn ? 'Filter value...' : 'مقدار شرط...'}
+                                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none flex-1 min-w-[140px] ${
+                                                  isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-200'
+                                                }`}
+                                              />
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              onClick={handleAddFilter}
+                                              className="px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold text-xs flex items-center gap-1 transition shadow-sm cursor-pointer"
+                                            >
+                                              <Plus className="w-3.5 h-3.5" />
+                                              <span>{isEn ? 'Add Filter' : 'افزودن فیلتر'}</span>
+                                            </button>
+                                          </div>
                                         </div>
-                                      ) : (
-                                        <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
-                                          <table className="w-full text-xs text-left border-collapse font-mono">
-                                            <thead className="sticky top-0 bg-slate-900 border-b border-white/10 z-10 text-slate-300 text-[11px] uppercase tracking-wider">
-                                              <tr>
-                                                <th className="py-2.5 px-3 w-12 text-center text-slate-500 font-sans font-bold">#</th>
-                                                {tableDataResult.columns.map((col) => {
-                                                  const isSorted = tableDataSortColumn === col.name;
-                                                  return (
-                                                    <th
-                                                      key={col.name}
-                                                      onClick={() => {
-                                                        const newDir = isSorted && tableDataSortDir === 'ASC' ? 'DESC' : 'ASC';
-                                                        loadTableData(dbName, tableName, 1, undefined, col.name, newDir);
-                                                      }}
-                                                      className="py-2.5 px-3 font-semibold hover:bg-white/5 cursor-pointer select-none transition"
-                                                      title={isEn ? `Sort by ${col.name}` : `مرتب‌سازی بر اساس ${col.name}`}
-                                                    >
-                                                      <div className="flex items-center gap-1.5">
-                                                        {col.isPrimaryKey && (
-                                                          <Key className="w-3 h-3 text-blue-400 shrink-0" />
-                                                        )}
-                                                        <span className={col.isPrimaryKey ? 'text-blue-300 font-bold' : 'text-slate-200'}>
-                                                          {col.name}
-                                                        </span>
-                                                        <span className="text-[9px] lowercase text-slate-500 font-normal">
-                                                          {col.dataType}
-                                                        </span>
-                                                        <span className="ml-auto text-slate-500">
-                                                          {isSorted ? (
-                                                            tableDataSortDir === 'ASC' ? (
-                                                              <ArrowUp className="w-3 h-3 text-orange-400" />
-                                                            ) : (
-                                                              <ArrowDown className="w-3 h-3 text-orange-400" />
-                                                            )
-                                                          ) : (
-                                                            <ArrowUpDown className="w-3 h-3 opacity-30 hover:opacity-100" />
+                                      )}
+
+                                      {/* Collapsible Column Visibility Panel */}
+                                      {isColumnVisibilityOpen && (
+                                        <div
+                                          className={`p-3.5 rounded-xl border space-y-2.5 animate-in fade-in duration-150 ${
+                                            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800 shadow-xl'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <h6 className="font-bold text-xs flex items-center gap-1.5 text-purple-400 uppercase tracking-wider">
+                                              <Eye className="w-3.5 h-3.5" />
+                                              <span>{isEn ? 'Column Visibility' : 'نمایش و مخفی‌سازی ستون‌ها'}</span>
+                                            </h6>
+                                            <div className="flex items-center gap-3">
+                                              <button
+                                                type="button"
+                                                onClick={() => setDataHiddenColumns({})}
+                                                className="text-[11px] font-semibold text-cyan-400 hover:underline cursor-pointer"
+                                              >
+                                                {isEn ? 'Show All' : 'نمایش همه'}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const allHidden: Record<string, boolean> = {};
+                                                  availableCols.forEach((c) => {
+                                                    allHidden[c.name] = true;
+                                                  });
+                                                  // Keep at least primary key or first column visible
+                                                  if (availableCols[0]) delete allHidden[availableCols[0].name];
+                                                  setDataHiddenColumns(allHidden);
+                                                }}
+                                                className="text-[11px] font-semibold text-slate-400 hover:underline cursor-pointer"
+                                              >
+                                                {isEn ? 'Hide All' : 'مخفی کردن همه'}
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-48 overflow-y-auto pt-1 custom-scrollbar">
+                                            {availableCols.map((c) => {
+                                              const isHidden = Boolean(dataHiddenColumns[c.name]);
+                                              return (
+                                                <label
+                                                  key={c.name}
+                                                  className={`flex items-center gap-2 p-1.5 rounded-lg border text-xs font-mono cursor-pointer transition select-none ${
+                                                    isHidden
+                                                      ? isLightMode
+                                                        ? 'bg-slate-100 border-slate-200 text-slate-400'
+                                                        : 'bg-black/20 border-slate-800/60 text-slate-500'
+                                                      : isLightMode
+                                                      ? 'bg-white border-purple-300 text-purple-900 font-semibold'
+                                                      : 'bg-purple-500/10 border-purple-500/30 text-purple-200'
+                                                  }`}
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={!isHidden}
+                                                    onChange={(e) => {
+                                                      const checked = e.target.checked;
+                                                      setDataHiddenColumns((prev) => {
+                                                        const copy = { ...prev };
+                                                        if (checked) {
+                                                          delete copy[c.name];
+                                                        } else {
+                                                          copy[c.name] = true;
+                                                        }
+                                                        return copy;
+                                                      });
+                                                    }}
+                                                    className="w-3.5 h-3.5 rounded border-slate-600 text-purple-500 focus:ring-purple-400"
+                                                  />
+                                                  <span className="truncate flex-1" title={c.name}>
+                                                    {c.name}
+                                                  </span>
+                                                  <span className="text-[9px] text-slate-400 font-normal">
+                                                    {c.dataType}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Execution Metrics Info Banner */}
+                                      {tableDataResult && (
+                                        <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-mono flex-wrap gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span>
+                                              {isEn
+                                                ? `Showing ${tableDataResult.rows.length} of ${tableDataResult.totalRows.toLocaleString()} rows`
+                                                : `نمایش ${tableDataResult.rows.length} از ${tableDataResult.totalRows.toLocaleString()} سطر`}
+                                            </span>
+                                            {tableDataSortColumn && (
+                                              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px]">
+                                                <span>
+                                                  {isEn ? 'Sorted by:' : 'مرتب‌سازی:'} {tableDataSortColumn} {tableDataSortDir}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleColumnSort(tableDataSortColumn)}
+                                                  className="hover:text-white"
+                                                  title={isEn ? 'Clear sort' : 'حذف مرتب‌سازی'}
+                                                >
+                                                  <X className="w-2.5 h-2.5" />
+                                                </button>
+                                              </div>
+                                            )}
+                                            {tableDataFilters.length > 0 && (
+                                              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px]">
+                                                {tableDataFilters.length} {isEn ? 'filters active' : 'فیلتر فعال'}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <Clock className="w-3 h-3 text-cyan-400" />
+                                            <span className="text-cyan-300">{tableDataResult.executionTimeMs} ms</span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Data Table Grid */}
+                                      <div className={`rounded-xl border overflow-hidden shadow-inner ${
+                                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-white/10'
+                                      }`}>
+                                        {loadingTableData ? (
+                                          <div className="p-12 text-center space-y-2">
+                                            <RefreshCw className="w-6 h-6 text-orange-400 animate-spin mx-auto" />
+                                            <p className="text-xs text-slate-300 font-bold">
+                                              {isEn ? 'Querying records from MySQL...' : 'در حال خواندن رکوردها از پایگاه داده...'}
+                                            </p>
+                                          </div>
+                                        ) : tableDataError ? (
+                                          <div className="p-6 text-center space-y-2 text-rose-300 text-xs">
+                                            <AlertTriangle className="w-6 h-6 text-rose-400 mx-auto" />
+                                            <p className="font-bold">{tableDataError}</p>
+                                            <button
+                                              type="button"
+                                              onClick={() => loadTableData(dbName, tableName, tableDataPage)}
+                                              className="px-3 py-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+                                            >
+                                              {isEn ? 'Retry' : 'تلاش مجدد'}
+                                            </button>
+                                          </div>
+                                        ) : !tableDataResult || tableDataResult.rows.length === 0 ? (
+                                          <div className="p-12 text-center space-y-2 text-slate-400">
+                                            <Table className="w-8 h-8 text-slate-600 mx-auto" />
+                                            <p className="text-xs font-bold text-slate-300">
+                                              {isEn ? 'No records found in this table' : 'هیچ رکوردی در این جدول یافت نشد'}
+                                            </p>
+                                            <p className="text-[11px] text-slate-500">
+                                              {isEn ? 'The table is empty or no rows match the filter criteria.' : 'جدول خالی است یا داده‌ای با شرایط جستجو مطابقت ندارد.'}
+                                            </p>
+                                          </div>
+                                        ) : (
+                                          <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
+                                            <table className="w-full text-xs text-left border-collapse font-mono">
+                                              <thead className={`sticky top-0 z-10 border-b text-[11px] uppercase tracking-wider ${
+                                                isLightMode ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-slate-900 border-white/10 text-slate-300'
+                                              }`}>
+                                                <tr>
+                                                  <th
+                                                    className="py-2.5 px-3 w-12 text-center text-slate-500 font-sans font-bold select-none cursor-default"
+                                                    title={isEn ? 'Row index (click row # to inspect)' : 'شماره سطر (جهت بازرسی کلیک کنید)'}
+                                                  >
+                                                    #
+                                                  </th>
+                                                  {visibleCols.map((col) => {
+                                                    const isSorted = tableDataSortColumn === col.name;
+                                                    return (
+                                                      <th
+                                                        key={col.name}
+                                                        onClick={() => toggleColumnSort(col.name)}
+                                                        className={`py-2.5 px-3 font-semibold cursor-pointer select-none transition ${
+                                                          isSorted
+                                                            ? 'bg-orange-500/15 text-orange-300'
+                                                            : isLightMode
+                                                            ? 'hover:bg-slate-200 text-slate-700'
+                                                            : 'hover:bg-white/5 text-slate-200'
+                                                        }`}
+                                                        title={isEn ? `Sort by ${col.name} (click to toggle)` : `مرتب‌سازی بر اساس ${col.name}`}
+                                                      >
+                                                        <div className="flex items-center gap-1.5">
+                                                          {col.isPrimaryKey && (
+                                                            <Key className="w-3 h-3 text-blue-400 shrink-0" />
                                                           )}
-                                                        </span>
-                                                      </div>
-                                                    </th>
+                                                          <span className={col.isPrimaryKey ? 'text-blue-300 font-bold' : ''}>
+                                                            {col.name}
+                                                          </span>
+                                                          <span className="text-[9px] lowercase text-slate-400 font-normal">
+                                                            {col.dataType}
+                                                          </span>
+                                                          <span className="ml-auto text-slate-400">
+                                                            {isSorted ? (
+                                                              tableDataSortDir === 'ASC' ? (
+                                                                <ArrowUp className="w-3 h-3 text-orange-400" />
+                                                              ) : (
+                                                                <ArrowDown className="w-3 h-3 text-orange-400" />
+                                                              )
+                                                            ) : (
+                                                              <ArrowUpDown className="w-3 h-3 opacity-30 hover:opacity-100" />
+                                                            )}
+                                                          </span>
+                                                        </div>
+                                                      </th>
+                                                    );
+                                                  })}
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-white/5">
+                                                {tableDataResult.rows.map((row, rowIdx) => {
+                                                  const rowNumber = (tableDataResult.page - 1) * tableDataResult.pageSize + rowIdx + 1;
+                                                  return (
+                                                    <tr key={rowIdx} className="hover:bg-white/5 transition group">
+                                                      <td
+                                                        onClick={() => setInspectingRowIndex(rowIdx)}
+                                                        className="py-2 px-3 text-center text-slate-400 font-sans text-[11px] select-none cursor-pointer hover:bg-orange-500/20 hover:text-orange-300 font-bold"
+                                                        title={isEn ? 'Click to inspect full row details' : 'کلیک جهت مشاهده کامل جزئیات سطر'}
+                                                      >
+                                                        {rowNumber}
+                                                      </td>
+                                                      {visibleCols.map((col) => {
+                                                        const cellValue = row[col.name];
+                                                        const cellId = `cell-${rowIdx}-${col.name}`;
+                                                        const isNull = cellValue === null || cellValue === undefined;
+                                                        const isCopied = copiedCellId === cellId;
+
+                                                        return (
+                                                          <td
+                                                            key={col.name}
+                                                            onClick={() => {
+                                                              if (!isNull) {
+                                                                copyToClipboard(String(cellValue), cellId);
+                                                                setCopiedCellId(cellId);
+                                                                setTimeout(() => setCopiedCellId(null), 1500);
+                                                              }
+                                                            }}
+                                                            className={`py-2 px-3 max-w-xs truncate cursor-pointer transition relative ${
+                                                              isLightMode
+                                                                ? 'text-slate-800 hover:bg-orange-500/10'
+                                                                : 'text-slate-300 hover:bg-orange-500/10'
+                                                            }`}
+                                                            title={isNull ? 'NULL' : String(cellValue)}
+                                                          >
+                                                            {isNull ? (
+                                                              <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-bold bg-white/5 text-slate-500">
+                                                                NULL
+                                                              </span>
+                                                            ) : typeof cellValue === 'boolean' ? (
+                                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold ${
+                                                                cellValue ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                                                              }`}>
+                                                                {cellValue ? 'TRUE' : 'FALSE'}
+                                                              </span>
+                                                            ) : typeof cellValue === 'object' ? (
+                                                              <span className="text-purple-300 truncate block">
+                                                                {JSON.stringify(cellValue)}
+                                                              </span>
+                                                            ) : (
+                                                              <span className="truncate block">{String(cellValue)}</span>
+                                                            )}
+                                                            {isCopied && (
+                                                              <span className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-bold text-[9px] shadow z-20">
+                                                                {isEn ? 'Copied' : 'کپی شد'}
+                                                              </span>
+                                                            )}
+                                                          </td>
+                                                        );
+                                                      })}
+                                                    </tr>
                                                   );
                                                 })}
-                                              </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-white/5">
-                                              {tableDataResult.rows.map((row, rowIdx) => {
-                                                const rowNumber = (tableDataResult.page - 1) * tableDataResult.pageSize + rowIdx + 1;
-                                                return (
-                                                  <tr key={rowIdx} className="hover:bg-white/5 transition group">
-                                                    <td className="py-2 px-3 text-center text-slate-500 font-sans text-[11px] select-none">
-                                                      {rowNumber}
-                                                    </td>
-                                                    {tableDataResult.columns.map((col) => {
-                                                      const cellValue = row[col.name];
-                                                      const cellId = `cell-${rowIdx}-${col.name}`;
-                                                      const isNull = cellValue === null || cellValue === undefined;
-                                                      const isCopied = copiedCellId === cellId;
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        )}
 
-                                                      return (
-                                                        <td
-                                                          key={col.name}
-                                                          onClick={() => {
-                                                            if (!isNull) {
-                                                              copyToClipboard(String(cellValue), cellId);
-                                                              setCopiedCellId(cellId);
-                                                              setTimeout(() => setCopiedCellId(null), 1500);
-                                                            }
-                                                          }}
-                                                          className="py-2 px-3 text-slate-300 max-w-xs truncate cursor-pointer hover:bg-orange-500/10 transition relative"
-                                                          title={isNull ? 'NULL' : String(cellValue)}
-                                                        >
+                                        {/* Pagination Footer */}
+                                        {tableDataResult && tableDataResult.totalPages > 1 && (
+                                          <div className={`p-3 border-t flex items-center justify-between gap-3 flex-wrap text-xs font-mono ${
+                                            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-white/10'
+                                          }`}>
+                                            <div className="text-slate-400">
+                                              {isEn
+                                                ? `Page ${tableDataResult.page} of ${tableDataResult.totalPages} (${tableDataResult.totalRows.toLocaleString()} total rows)`
+                                                : `صفحه ${tableDataResult.page} از ${tableDataResult.totalPages} (مجموعاً ${tableDataResult.totalRows.toLocaleString()} سطر)`}
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => loadTableData(dbName, tableName, 1)}
+                                                disabled={tableDataResult.page <= 1 || loadingTableData}
+                                                className={`p-1.5 rounded-lg border text-slate-300 disabled:opacity-30 cursor-pointer ${
+                                                  isLightMode ? 'hover:bg-slate-200 border-slate-300' : 'hover:bg-white/10 border-white/10'
+                                                }`}
+                                                title={isEn ? 'First Page' : 'صفحه نخست'}
+                                              >
+                                                <ChevronsLeft className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => loadTableData(dbName, tableName, tableDataResult.page - 1)}
+                                                disabled={tableDataResult.page <= 1 || loadingTableData}
+                                                className={`p-1.5 rounded-lg border text-slate-300 disabled:opacity-30 cursor-pointer ${
+                                                  isLightMode ? 'hover:bg-slate-200 border-slate-300' : 'hover:bg-white/10 border-white/10'
+                                                }`}
+                                                title={isEn ? 'Previous Page' : 'صفحه قبل'}
+                                              >
+                                                <ChevronLeft className="w-3.5 h-3.5" />
+                                              </button>
+                                              <span className="px-2.5 py-1 rounded bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30">
+                                                {tableDataResult.page}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => loadTableData(dbName, tableName, tableDataResult.page + 1)}
+                                                disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
+                                                className={`p-1.5 rounded-lg border text-slate-300 disabled:opacity-30 cursor-pointer ${
+                                                  isLightMode ? 'hover:bg-slate-200 border-slate-300' : 'hover:bg-white/10 border-white/10'
+                                                }`}
+                                                title={isEn ? 'Next Page' : 'صفحه بعد'}
+                                              >
+                                                <ChevronRight className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => loadTableData(dbName, tableName, tableDataResult.totalPages)}
+                                                disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
+                                                className={`p-1.5 rounded-lg border text-slate-300 disabled:opacity-30 cursor-pointer ${
+                                                  isLightMode ? 'hover:bg-slate-200 border-slate-300' : 'hover:bg-white/10 border-white/10'
+                                                }`}
+                                                title={isEn ? 'Last Page' : 'صفحه آخر'}
+                                              >
+                                                <ChevronsRight className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* PHASE 6: MODAL INSPECT ROW DETAILS DIALOG */}
+                                      {inspectingRow && (
+                                        <div className="fixed inset-0 z-[999995] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                                          <div
+                                            className={`w-full max-w-2xl max-h-[85vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${
+                                              isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-white/10 text-slate-100'
+                                            }`}
+                                          >
+                                            {/* Dialog Header */}
+                                            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-3">
+                                              <div className="flex items-center gap-2">
+                                                <Table className="w-4 h-4 text-orange-400" />
+                                                <h5 className="font-bold text-sm font-mono">
+                                                  {isEn
+                                                    ? `Row #${(tableDataResult?.page! - 1) * tableDataResult?.pageSize! + inspectingRowIndex! + 1} of ${tableDataResult?.totalRows.toLocaleString()} (${tableName})`
+                                                    : `جزئیات سطر شماره ${(tableDataResult?.page! - 1) * tableDataResult?.pageSize! + inspectingRowIndex! + 1} از ${tableDataResult?.totalRows.toLocaleString()} (${tableName})`}
+                                                </h5>
+                                              </div>
+                                              <div className="flex items-center gap-1.5">
+                                                {/* Prev Row */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setInspectingRowIndex((prev) => Math.max(0, (prev || 0) - 1))}
+                                                  disabled={inspectingRowIndex === 0}
+                                                  className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                                                  title={isEn ? 'Previous row' : 'سطر قبل'}
+                                                >
+                                                  <ChevronLeft className="w-3.5 h-3.5" />
+                                                </button>
+                                                {/* Next Row */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    setInspectingRowIndex((prev) =>
+                                                      Math.min((tableDataResult?.rows.length || 1) - 1, (prev || 0) + 1)
+                                                    )
+                                                  }
+                                                  disabled={inspectingRowIndex === (tableDataResult?.rows.length || 1) - 1}
+                                                  className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                                                  title={isEn ? 'Next row' : 'سطر بعد'}
+                                                >
+                                                  <ChevronRight className="w-3.5 h-3.5" />
+                                                </button>
+                                                {/* Close */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setInspectingRowIndex(null)}
+                                                  className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer ml-1"
+                                                >
+                                                  <X className="w-4 h-4" />
+                                                </button>
+                                              </div>
+                                            </div>
+
+                                            {/* Dialog Toolbar (Field filter & Copy JSON) */}
+                                            <div className="px-4 py-2 border-b border-white/5 bg-black/10 flex items-center justify-between gap-3 flex-wrap text-xs">
+                                              <div className="relative flex-1 min-w-[200px]">
+                                                <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input
+                                                  type="text"
+                                                  value={rowFieldSearch}
+                                                  onChange={(e) => setRowFieldSearch(e.target.value)}
+                                                  placeholder={isEn ? 'Filter fields...' : 'فیلتر ستون‌ها...'}
+                                                  className="w-full pl-8 pr-2.5 py-1 rounded-lg border border-white/10 bg-slate-950/60 text-xs text-slate-200 outline-none"
+                                                />
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => copyToClipboard(JSON.stringify(inspectingRow, null, 2), 'inspect-json')}
+                                                className="px-2.5 py-1 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                                              >
+                                                <Copy className="w-3 h-3" />
+                                                <span>{isEn ? 'Copy Row JSON' : 'کپی جیسون سطر'}</span>
+                                              </button>
+                                            </div>
+
+                                            {/* Dialog Content (Fields List) */}
+                                            <div className="p-4 overflow-y-auto max-h-[60vh] space-y-2 custom-scrollbar font-mono text-xs">
+                                              {availableCols
+                                                .filter((c) => !rowFieldSearch || c.name.toLowerCase().includes(rowFieldSearch.toLowerCase()))
+                                                .map((c) => {
+                                                  const val = inspectingRow[c.name];
+                                                  const isNull = val === null || val === undefined;
+                                                  return (
+                                                    <div
+                                                      key={c.name}
+                                                      className="p-2.5 rounded-xl border border-white/10 bg-black/20 flex items-start justify-between gap-3"
+                                                    >
+                                                      <div className="space-y-1 flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                          {c.isPrimaryKey && (
+                                                            <Key className="w-3 h-3 text-blue-400 shrink-0" />
+                                                          )}
+                                                          <span className="font-bold text-slate-200">{c.name}</span>
+                                                          <span className="text-[10px] text-slate-500 font-sans">
+                                                            {c.columnType || c.dataType}
+                                                          </span>
+                                                        </div>
+                                                        <div className="text-slate-300 break-all select-all font-mono text-[11px] pt-0.5">
                                                           {isNull ? (
                                                             <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-bold bg-white/5 text-slate-500">
                                                               NULL
                                                             </span>
-                                                          ) : typeof cellValue === 'boolean' ? (
-                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold ${cellValue ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                                                              {cellValue ? 'TRUE' : 'FALSE'}
-                                                            </span>
-                                                          ) : typeof cellValue === 'object' ? (
-                                                            <span className="text-purple-300 truncate block">
-                                                              {JSON.stringify(cellValue)}
-                                                            </span>
+                                                          ) : typeof val === 'object' ? (
+                                                            <pre className="whitespace-pre-wrap text-purple-300">
+                                                              {JSON.stringify(val, null, 2)}
+                                                            </pre>
                                                           ) : (
-                                                            <span className="truncate block">{String(cellValue)}</span>
+                                                            String(val)
                                                           )}
-                                                          {isCopied && (
-                                                            <span className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-bold text-[9px] shadow">
-                                                              Copied
-                                                            </span>
-                                                          )}
-                                                        </td>
-                                                      );
-                                                    })}
-                                                  </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      )}
-
-                                      {/* Pagination Footer */}
-                                      {tableDataResult && tableDataResult.totalPages > 1 && (
-                                        <div className="p-3 bg-slate-900 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap text-xs font-mono">
-                                          <div className="text-slate-400">
-                                            {isEn
-                                              ? `Page ${tableDataResult.page} of ${tableDataResult.totalPages}`
-                                              : `صفحه ${tableDataResult.page} از ${tableDataResult.totalPages}`}
-                                          </div>
-                                          <div className="flex items-center gap-1.5">
-                                            <button
-                                              type="button"
-                                              onClick={() => loadTableData(dbName, tableName, 1)}
-                                              disabled={tableDataResult.page <= 1 || loadingTableData}
-                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
-                                              title={isEn ? 'First Page' : 'صفحه نخست'}
-                                            >
-                                              <ChevronsLeft className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.page - 1)}
-                                              disabled={tableDataResult.page <= 1 || loadingTableData}
-                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
-                                              title={isEn ? 'Previous Page' : 'صفحه قبل'}
-                                            >
-                                              <ChevronLeft className="w-3.5 h-3.5" />
-                                            </button>
-                                            <span className="px-2.5 py-1 rounded bg-slate-800 text-orange-400 font-bold border border-white/10">
-                                              {tableDataResult.page}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.page + 1)}
-                                              disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
-                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
-                                              title={isEn ? 'Next Page' : 'صفحه بعد'}
-                                            >
-                                              <ChevronRight className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => loadTableData(dbName, tableName, tableDataResult.totalPages)}
-                                              disabled={tableDataResult.page >= tableDataResult.totalPages || loadingTableData}
-                                              className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
-                                              title={isEn ? 'Last Page' : 'صفحه آخر'}
-                                            >
-                                              <ChevronsRight className="w-3.5 h-3.5" />
-                                            </button>
+                                                        </div>
+                                                      </div>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => copyToClipboard(String(val ?? ''), `row-field-${c.name}`)}
+                                                        className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white shrink-0 cursor-pointer"
+                                                        title={isEn ? 'Copy value' : 'کپی مقدار'}
+                                                      >
+                                                        <Copy className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  );
+                                                })}
+                                            </div>
                                           </div>
                                         </div>
                                       )}
                                     </div>
-                                  </div>
-                                )}
+                                  );
+                                })()}
 
                                 {/* SUB-TAB 2: COLUMNS INSPECTOR */}
                                 {tableActiveSubTab === 'columns' && (

@@ -43,6 +43,7 @@ import {
   createRemoteServer,
   updateRemoteServer,
   deleteRemoteServer,
+  RemoteServer,
   sanitizeRemoteServerForClient,
   updateRemoteServerTags,
   getRemoteServerTagsSummary,
