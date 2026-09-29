@@ -104,6 +104,7 @@ import {
 } from '../../services/api';
 import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
+import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -117,7 +118,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'processlist' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'processlist' | 'variables' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -922,6 +923,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'overview', label: isEn ? 'Overview & Metrics' : 'داشبورد و وضعیت', icon: Activity },
             { id: 'databases', label: isEn ? 'Database Browser' : 'کاوشگر پایگاه داده', icon: Layers },
             { id: 'sql', label: isEn ? 'SQL Console' : 'کنسول SQL', icon: Terminal },
+            { id: 'users', label: isEn ? 'Users & Accounts' : 'کاربران و اکانت‌ها', icon: Users },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
@@ -2322,7 +2324,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setSelectedTreeNode({ type: 'users_folder', id: 'users_folder', name: 'Users' })}
+                          onClick={() => setActiveTab('users')}
                           className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium flex items-center gap-1.5 cursor-pointer text-slate-300"
                         >
                           <Users className="w-3.5 h-3.5 text-blue-400" />
@@ -5421,6 +5423,16 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               initialQuery={sqlQuery}
               isLightMode={isLightMode}
               isEn={isEn}
+            />
+          )}
+
+          {/* Phase 10: USERS & ACCOUNT MANAGEMENT TAB */}
+          {activeTab === 'users' && server && (
+            <MysqlUsersManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onRefreshOverview={loadOverview}
             />
           )}
 

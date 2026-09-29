@@ -33,6 +33,12 @@ import {
   MysqlRowUpdateRequest,
   MysqlRowDeleteRequest,
   MysqlRowMutationResult,
+  MysqlUserCreateRequest,
+  MysqlUserUpdateRequest,
+  MysqlUserPasswordChangeRequest,
+  MysqlUserLockRequest,
+  MysqlUserExpirePasswordRequest,
+  MysqlUserDropRequest,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1444,8 +1450,80 @@ export async function deleteRemoteServerMysqlTableRow(
 
 export async function fetchRemoteServerMysqlUsers(
   id: string
-): Promise<{ success: boolean; users?: MysqlUserItem[]; error?: string }> {
+): Promise<{ success: boolean; users?: MysqlUserItem[]; error?: string; errorFa?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users`);
+  return res.json();
+}
+
+export async function createRemoteServerMysqlUser(
+  id: string,
+  payload: MysqlUserCreateRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerMysqlUser(
+  id: string,
+  payload: MysqlUserUpdateRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function changeRemoteServerMysqlUserPassword(
+  id: string,
+  payload: MysqlUserPasswordChangeRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function lockRemoteServerMysqlUser(
+  id: string,
+  payload: MysqlUserLockRequest
+): Promise<{ success: boolean; user?: string; host?: string; locked?: boolean; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function setRemoteServerMysqlUserExpiration(
+  id: string,
+  payload: MysqlUserExpirePasswordRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/expire-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlUser(
+  id: string,
+  payload: MysqlUserDropRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
   return res.json();
 }
 

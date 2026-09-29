@@ -1811,6 +1811,68 @@ export interface MysqlUserItem {
   plugin?: string;
   accountLocked?: boolean;
   passwordExpired?: boolean;
+  passwordLastChanged?: string | null;
+  passwordLifetime?: number | null;
+  maxQuestions?: number;
+  maxUpdates?: number;
+  maxConnections?: number;
+  maxUserConnections?: number;
+  sslType?: string;
+  isSuperuser?: boolean;
+}
+
+export interface MysqlUserCreateRequest {
+  user: string;
+  host?: string;
+  password?: string;
+  plugin?: 'caching_sha2_password' | 'mysql_native_password' | 'sha256_password';
+  accountLocked?: boolean;
+  passwordExpirePolicy?: 'default' | 'never' | 'immediate' | 'interval';
+  passwordExpireIntervalDays?: number;
+  maxQuestions?: number;
+  maxUpdates?: number;
+  maxConnections?: number;
+  maxUserConnections?: number;
+  sslType?: 'NONE' | 'SSL' | 'X509';
+}
+
+export interface MysqlUserUpdateRequest {
+  user: string;
+  host: string;
+  accountLocked?: boolean;
+  passwordExpirePolicy?: 'default' | 'never' | 'immediate' | 'interval';
+  passwordExpireIntervalDays?: number;
+  maxQuestions?: number;
+  maxUpdates?: number;
+  maxConnections?: number;
+  maxUserConnections?: number;
+  sslType?: 'NONE' | 'SSL' | 'X509';
+}
+
+export interface MysqlUserPasswordChangeRequest {
+  user: string;
+  host: string;
+  password: string;
+  plugin?: string;
+}
+
+export interface MysqlUserLockRequest {
+  user: string;
+  host: string;
+  lock: boolean;
+}
+
+export interface MysqlUserExpirePasswordRequest {
+  user: string;
+  host: string;
+  policy: 'immediate' | 'never' | 'default' | 'interval';
+  intervalDays?: number;
+}
+
+export interface MysqlUserDropRequest {
+  user: string;
+  host: string;
+  ifExists?: boolean;
 }
 
 export interface MysqlProcessItem {

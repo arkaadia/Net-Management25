@@ -10,9 +10,42 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.219.0';
+export const APP_VERSION = '1.220.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.220.0',
+    releaseDate: '2026-09-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۰ سیستم مدیریت MySQL: مدیریت جامع کاربران، حساب‌ها و سیاست‌های امنیتی (Users & Account Management)',
+    title_en: 'Phase 10: Comprehensive MySQL Users & Account Security Management Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب اختصاصی و پیشرفته مدیریت کاربران و حساب‌های کاربری MySQL (`MysqlUsersManagerTab`) با رعایت کامل مدل هویتی جفت کاربری بومی `user@host` و تفکیک کامل از نقش‌های PostgreSQL.',
+      'افزودن تب «کاربران و اکانت‌ها» (Users & Accounts) به نوار تب‌های مودال مدیریت MySQL و اتصال مستقیم دکمه دسترسی سریع در داشبورد وضعیت.',
+      'واکشی زنده اطلاعات غنی حساب‌های کاربری شامل شناسه حساب، پلاگین احراز هویت (caching_sha2_password, mysql_native_password)، وضعیت قفل حساب (ACCOUNT LOCK)، وضعیت و چرخه انقضای رمز عبور، محدودیت‌های مصرف منابع (سقف پرس‌وجو، به‌روزرسانی و اتصالات همزمان) و الزامات انتقال امن SSL.',
+      'طراحی فرم و مودال استاندارد ایجاد کاربر جدید (Create User) با قابلیت تعیین هاست با مقادیر از پیش‌آماده (% و localhost)، تولیدکننده رمز عبور قوی، انتخاب پلاگین احراز هویت، قفل اولیه حساب، سیاست انقضای رمز و محدودیت‌های اختیاری منابع.',
+      'پیاده‌سازی عملیات ویرایش مشخصات حساب کاربری (Edit Attributes) شامل تنظیم مجدد محدودیت‌های پرس‌وجو و اتصال، الزام اتصال امن SSL/X509، و فعال/غیرفعال‌سازی قفل حساب بدون حذف کاربر.',
+      'پیاده‌سازی مودال تغییر امن کلمه عبور کاربر (Change Password) همراه با تولیدکننده رمز تصادفی قدرتمند، پیش‌نمایش کنترل‌شده و اعتبارسنجی تکرار رمز بدون افشای رمزهای پیشین.',
+      'پشتیبانی کامل از عملیات سریع قفل/آزادسازی اکانت (`ALTER USER ... ACCOUNT LOCK/UNLOCK`) به صورت زنده روی سرور هدف.',
+      'طراحی مودال اختصاصی تنظیم سیاست انقضای رمز عبور (`PASSWORD EXPIRE`, `NEVER`, `DEFAULT`, `INTERVAL N DAY`) با گزینه‌های چهارگانه و تنظیم روزانه.',
+      'پیاده‌سازی مودال حذف قطعی و ایمن کاربر (Drop User) با اخطارهای قرمز چندلایه و الزام به تایپ نام کاربر قبل از فعال شدن دکمه حذف (`DROP USER IF EXISTS ...`).',
+      'تجهیز تمامی فیلدها و مفاهیم خاص MySQL به راهنمای سه‌بخشی هوشمند (FieldInfoTooltip) با رعایت مهار چهارطرفه لبه‌های صفحه.',
+      'انطباق صددرصدی با استانداردهای دوزبانه (زبان انگلیسی و فارسی)، تم‌های تیره و روشن، و حفظ کامل استقلال از مدیریت پایگاه داده PostgreSQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated, production-grade MySQL Users & Accounts Management suite (`MysqlUsersManagerTab`) fully honoring MySQL native `user@host` account architecture and completely decoupled from PostgreSQL roles.',
+      'Integrated dedicated "Users & Accounts" tab into MySQL Management Modal navigation bar with immediate routing from Overview dashboard quick-action buttons.',
+      'Live retrieval of authentic account metadata including `user@host` identity, authentication plugins (caching_sha2_password, mysql_native_password), account lock status, password expiration timeline, hourly query/update/connection resource limits, concurrent user connection limits, and SSL/TLS transport requirements.',
+      'Architected standard Create User Modal supporting host pattern configuration (% wildcard, localhost, or custom subnets), strong password generator, auth plugin selection, initial lock toggle, expiration policies, and optional granular resource constraints.',
+      'Implemented Edit User Attributes Modal for modifying per-user resource limits, SSL transport enforcement (NONE, REQUIRE SSL, REQUIRE X509), and account lock toggles without dropping credentials.',
+      'Engineered secure Change Password Modal with built-in password generator, reveal toggle, and match verification without ever exposing existing credentials.',
+      'One-click instantaneous Account Lock / Unlock operations (`ALTER USER ... ACCOUNT LOCK/UNLOCK`) executed server-side on the target database.',
+      'Built Password Expiration Policy Modal with 4 distinct options: Force Immediate Change on Login (`PASSWORD EXPIRE`), Never Expire (`PASSWORD EXPIRE NEVER`), Global Server Policy (`DEFAULT`), or Custom Interval (`INTERVAL N DAY`).',
+      'Engineered safety-guarded Drop User Confirmation Modal requiring explicit typed username verification before issuing `DROP USER IF EXISTS ...`.',
+      'Equipped key MySQL concepts with boundary-safe 3-part FieldInfoTooltips explaining what it is, why it is needed, and practical examples.',
+      'Strict bilingual compliance (100% English when isEn is true, zero Persian text in English mode), dark/light ergonomic themes, and zero regressions on existing PostgreSQL workflows.'
+    ]
+  },
   {
     version: '1.219.0',
     releaseDate: '2026-09-29',

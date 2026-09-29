@@ -76,6 +76,12 @@ import {
   insertMysqlTableRow,
   updateMysqlTableRow,
   deleteMysqlTableRow,
+  createMysqlUser,
+  updateMysqlUser,
+  changeMysqlUserPassword,
+  setMysqlUserLock,
+  setMysqlUserPasswordExpiration,
+  dropMysqlUser,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4547,12 +4553,102 @@ apiRouter.get('/remote-servers/:id/mysql/users', async (req: Request, res: Respo
     const { id } = req.params;
     const server = await getRemoteServerById(id);
     if (!server) {
-      return res.status(404).json({ success: false, error: 'Server not found' });
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
     }
     const users = await getMysqlUsers(server);
     return res.json({ success: true, users });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در واکشی لیست کاربران MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/create - Create a new MySQL user
+apiRouter.post('/remote-servers/:id/mysql/users/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await createMysqlUser(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در ایجاد کاربر جدید MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/update - Update MySQL user attributes (limits, SSL, expiration, lock)
+apiRouter.post('/remote-servers/:id/mysql/users/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await updateMysqlUser(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در به‌روزرسانی مشخصات کاربر MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/password - Change MySQL user password
+apiRouter.post('/remote-servers/:id/mysql/users/password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await changeMysqlUserPassword(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در تغییر کلمه عبور کاربر MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/lock - Lock or unlock MySQL user account
+apiRouter.post('/remote-servers/:id/mysql/users/lock', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await setMysqlUserLock(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در قفل یا آزادسازی اکانت MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/expire-password - Set password expiration policy
+apiRouter.post('/remote-servers/:id/mysql/users/expire-password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await setMysqlUserPasswordExpiration(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در تنظیم انقضای رمز عبور MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/users/drop - Drop MySQL user account
+apiRouter.post('/remote-servers/:id/mysql/users/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await dropMysqlUser(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در حذف کاربر MySQL' });
   }
 });
 

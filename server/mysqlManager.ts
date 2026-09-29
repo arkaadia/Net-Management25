@@ -32,6 +32,12 @@ import {
   MysqlRowUpdateRequest,
   MysqlRowDeleteRequest,
   MysqlRowMutationResult,
+  MysqlUserCreateRequest,
+  MysqlUserUpdateRequest,
+  MysqlUserPasswordChangeRequest,
+  MysqlUserLockRequest,
+  MysqlUserExpirePasswordRequest,
+  MysqlUserDropRequest,
 } from '../src/types';
 
 /**
@@ -692,7 +698,7 @@ export async function getMysqlDatabaseObjects(
 }
 
 /**
- * Retrieves the list of user accounts in MySQL.
+ * Retrieves the list of user accounts in MySQL with rich metadata (plugin, status, expiration, limits, SSL).
  */
 export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem[]> {
   const config = getMysqlConfig(server);
@@ -709,18 +715,56 @@ export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem
     });
 
     let userRows: any[] = [];
+    // 1. Try modern MySQL 8.0+ / 8.4 schema
     try {
       const [rows]: any = await conn.query(
-        `SELECT user, host, plugin, account_locked, password_expired FROM mysql.user ORDER BY user, host`
+        `SELECT 
+           User AS user, 
+           Host AS host, 
+           plugin, 
+           account_locked, 
+           password_expired,
+           password_last_changed, 
+           password_lifetime,
+           max_questions, 
+           max_updates, 
+           max_connections, 
+           max_user_connections,
+           ssl_type, 
+           Super_priv
+         FROM mysql.user 
+         ORDER BY User ASC, Host ASC`
       );
       userRows = rows;
     } catch {
+      // 2. Try MySQL 5.7 / MariaDB fallback
       try {
-        const [rows]: any = await conn.query(`SELECT user, host, plugin FROM mysql.user ORDER BY user, host`);
+        const [rows]: any = await conn.query(
+          `SELECT 
+             User AS user, 
+             Host AS host, 
+             plugin, 
+             account_locked, 
+             password_expired,
+             max_questions, 
+             max_updates, 
+             max_connections, 
+             max_user_connections,
+             ssl_type, 
+             Super_priv
+           FROM mysql.user 
+           ORDER BY User ASC, Host ASC`
+        );
         userRows = rows;
       } catch {
-        const [rows]: any = await conn.query(`SELECT USER() AS user, '' AS host`);
-        userRows = rows;
+        // 3. Ultra-resilient basic fallback
+        try {
+          const [rows]: any = await conn.query(`SELECT User AS user, Host AS host, plugin, Super_priv FROM mysql.user ORDER BY User, Host`);
+          userRows = rows;
+        } catch {
+          const [rows]: any = await conn.query(`SELECT USER() AS user, '%' AS host`);
+          userRows = rows;
+        }
       }
     }
 
@@ -734,12 +778,24 @@ export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem
         user = parts[0];
         host = parts[1] || host;
       }
+      const isSuper = u.Super_priv === 'Y' || user.toLowerCase() === 'root';
+      const isLocked = u.account_locked === 'Y' || u.account_locked === 1 || u.account_locked === true;
+      const isExpired = u.password_expired === 'Y' || u.password_expired === 1 || u.password_expired === true;
+
       return {
         user,
         host,
-        plugin: u.plugin || u.Plugin || 'default',
-        accountLocked: u.account_locked === 'Y' || u.account_locked === 1,
-        passwordExpired: u.password_expired === 'Y' || u.password_expired === 1,
+        plugin: u.plugin || u.Plugin || 'caching_sha2_password',
+        accountLocked: isLocked,
+        passwordExpired: isExpired,
+        passwordLastChanged: u.password_last_changed ? String(u.password_last_changed) : null,
+        passwordLifetime: u.password_lifetime !== null && u.password_lifetime !== undefined ? Number(u.password_lifetime) : null,
+        maxQuestions: u.max_questions !== undefined ? Number(u.max_questions) : 0,
+        maxUpdates: u.max_updates !== undefined ? Number(u.max_updates) : 0,
+        maxConnections: u.max_connections !== undefined ? Number(u.max_connections) : 0,
+        maxUserConnections: u.max_user_connections !== undefined ? Number(u.max_user_connections) : 0,
+        sslType: u.ssl_type || 'NONE',
+        isSuperuser: isSuper,
       };
     });
   } catch (err: any) {
@@ -752,11 +808,433 @@ export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem
       {
         user: config.user || 'root',
         host: '%',
-        plugin: 'default',
+        plugin: 'caching_sha2_password',
         accountLocked: false,
         passwordExpired: false,
+        isSuperuser: true,
       },
     ];
+  }
+}
+
+/**
+ * Creates a new MySQL user account with host, authentication, resource limits, and account status.
+ */
+export async function createMysqlUser(
+  server: RemoteServer,
+  payload: MysqlUserCreateRequest
+): Promise<{ success: boolean; user: string; host: string; message?: string; error?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    let sql = `CREATE USER ${userSpec}`;
+
+    // Authentication plugin & password
+    if (payload.password) {
+      if (payload.plugin) {
+        sql += ` IDENTIFIED WITH ${mysql.escape(payload.plugin).slice(1, -1)} BY ${mysql.escape(payload.password)}`;
+      } else {
+        sql += ` IDENTIFIED BY ${mysql.escape(payload.password)}`;
+      }
+    } else if (payload.plugin) {
+      sql += ` IDENTIFIED WITH ${mysql.escape(payload.plugin).slice(1, -1)}`;
+    }
+
+    // Resource limits
+    const limits: string[] = [];
+    if (payload.maxQuestions !== undefined && payload.maxQuestions >= 0) {
+      limits.push(`MAX_QUERIES_PER_HOUR ${Number(payload.maxQuestions)}`);
+    }
+    if (payload.maxUpdates !== undefined && payload.maxUpdates >= 0) {
+      limits.push(`MAX_UPDATES_PER_HOUR ${Number(payload.maxUpdates)}`);
+    }
+    if (payload.maxConnections !== undefined && payload.maxConnections >= 0) {
+      limits.push(`MAX_CONNECTIONS_PER_HOUR ${Number(payload.maxConnections)}`);
+    }
+    if (payload.maxUserConnections !== undefined && payload.maxUserConnections >= 0) {
+      limits.push(`MAX_USER_CONNECTIONS ${Number(payload.maxUserConnections)}`);
+    }
+    if (limits.length > 0) {
+      sql += ` WITH ${limits.join(' ')}`;
+    }
+
+    // SSL requirement
+    if (payload.sslType === 'SSL') {
+      sql += ` REQUIRE SSL`;
+    } else if (payload.sslType === 'X509') {
+      sql += ` REQUIRE X509`;
+    } else if (payload.sslType === 'NONE') {
+      sql += ` REQUIRE NONE`;
+    }
+
+    // Password expiration
+    if (payload.passwordExpirePolicy === 'never') {
+      sql += ` PASSWORD EXPIRE NEVER`;
+    } else if (payload.passwordExpirePolicy === 'immediate') {
+      sql += ` PASSWORD EXPIRE`;
+    } else if (payload.passwordExpirePolicy === 'interval' && payload.passwordExpireIntervalDays && payload.passwordExpireIntervalDays > 0) {
+      sql += ` PASSWORD EXPIRE INTERVAL ${Number(payload.passwordExpireIntervalDays)} DAY`;
+    } else if (payload.passwordExpirePolicy === 'default') {
+      sql += ` PASSWORD EXPIRE DEFAULT`;
+    }
+
+    // Account locked/unlocked
+    if (payload.accountLocked) {
+      sql += ` ACCOUNT LOCK`;
+    } else {
+      sql += ` ACCOUNT UNLOCK`;
+    }
+
+    sql += ';';
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      message: `Account '${rawUser}'@'${rawHost}' created successfully.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+/**
+ * Updates an existing MySQL user account attributes (resource limits, SSL, password expiration, account lock).
+ */
+export async function updateMysqlUser(
+  server: RemoteServer,
+  payload: MysqlUserUpdateRequest
+): Promise<{ success: boolean; user: string; host: string; message?: string; error?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    let sql = `ALTER USER ${userSpec}`;
+
+    // Resource limits
+    const limits: string[] = [];
+    if (payload.maxQuestions !== undefined && payload.maxQuestions >= 0) {
+      limits.push(`MAX_QUERIES_PER_HOUR ${Number(payload.maxQuestions)}`);
+    }
+    if (payload.maxUpdates !== undefined && payload.maxUpdates >= 0) {
+      limits.push(`MAX_UPDATES_PER_HOUR ${Number(payload.maxUpdates)}`);
+    }
+    if (payload.maxConnections !== undefined && payload.maxConnections >= 0) {
+      limits.push(`MAX_CONNECTIONS_PER_HOUR ${Number(payload.maxConnections)}`);
+    }
+    if (payload.maxUserConnections !== undefined && payload.maxUserConnections >= 0) {
+      limits.push(`MAX_USER_CONNECTIONS ${Number(payload.maxUserConnections)}`);
+    }
+    if (limits.length > 0) {
+      sql += ` WITH ${limits.join(' ')}`;
+    }
+
+    // SSL requirement
+    if (payload.sslType === 'SSL') {
+      sql += ` REQUIRE SSL`;
+    } else if (payload.sslType === 'X509') {
+      sql += ` REQUIRE X509`;
+    } else if (payload.sslType === 'NONE') {
+      sql += ` REQUIRE NONE`;
+    }
+
+    // Password expiration
+    if (payload.passwordExpirePolicy === 'never') {
+      sql += ` PASSWORD EXPIRE NEVER`;
+    } else if (payload.passwordExpirePolicy === 'immediate') {
+      sql += ` PASSWORD EXPIRE`;
+    } else if (payload.passwordExpirePolicy === 'interval' && payload.passwordExpireIntervalDays && payload.passwordExpireIntervalDays > 0) {
+      sql += ` PASSWORD EXPIRE INTERVAL ${Number(payload.passwordExpireIntervalDays)} DAY`;
+    } else if (payload.passwordExpirePolicy === 'default') {
+      sql += ` PASSWORD EXPIRE DEFAULT`;
+    }
+
+    // Account locked/unlocked
+    if (payload.accountLocked !== undefined) {
+      sql += payload.accountLocked ? ` ACCOUNT LOCK` : ` ACCOUNT UNLOCK`;
+    }
+
+    sql += ';';
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      message: `Account '${rawUser}'@'${rawHost}' updated successfully.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+/**
+ * Changes password for an existing MySQL user account.
+ */
+export async function changeMysqlUserPassword(
+  server: RemoteServer,
+  payload: MysqlUserPasswordChangeRequest
+): Promise<{ success: boolean; user: string; host: string; message?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+  if (!payload.password) {
+    throw new Error('Password cannot be empty.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    let sql = '';
+    if (payload.plugin) {
+      sql = `ALTER USER ${userSpec} IDENTIFIED WITH ${mysql.escape(payload.plugin).slice(1, -1)} BY ${mysql.escape(payload.password)};`;
+    } else {
+      sql = `ALTER USER ${userSpec} IDENTIFIED BY ${mysql.escape(payload.password)};`;
+    }
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      message: `Password for '${rawUser}'@'${rawHost}' updated successfully.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+/**
+ * Locks or unlocks a MySQL user account.
+ */
+export async function setMysqlUserLock(
+  server: RemoteServer,
+  payload: MysqlUserLockRequest
+): Promise<{ success: boolean; user: string; host: string; locked: boolean; message?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    const action = payload.lock ? 'ACCOUNT LOCK' : 'ACCOUNT UNLOCK';
+    const sql = `ALTER USER ${userSpec} ${action};`;
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      locked: payload.lock,
+      message: `Account '${rawUser}'@'${rawHost}' ${payload.lock ? 'locked' : 'unlocked'} successfully.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+/**
+ * Sets password expiration policy for a MySQL user account.
+ */
+export async function setMysqlUserPasswordExpiration(
+  server: RemoteServer,
+  payload: MysqlUserExpirePasswordRequest
+): Promise<{ success: boolean; user: string; host: string; message?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    let sql = `ALTER USER ${userSpec} PASSWORD EXPIRE`;
+    if (payload.policy === 'never') {
+      sql += ` NEVER`;
+    } else if (payload.policy === 'default') {
+      sql += ` DEFAULT`;
+    } else if (payload.policy === 'interval' && payload.intervalDays && payload.intervalDays > 0) {
+      sql += ` INTERVAL ${Number(payload.intervalDays)} DAY`;
+    }
+    sql += ';';
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      message: `Password expiration policy updated for '${rawUser}'@'${rawHost}'.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+/**
+ * Drops (deletes) a MySQL user account.
+ */
+export async function dropMysqlUser(
+  server: RemoteServer,
+  payload: MysqlUserDropRequest
+): Promise<{ success: boolean; user: string; host: string; message?: string }> {
+  if (!payload.user || !payload.user.trim()) {
+    throw new Error('Username is required.');
+  }
+
+  const rawUser = payload.user.trim();
+  const rawHost = payload.host?.trim() || '%';
+  const userSpec = `${mysql.escape(rawUser)}@${mysql.escape(rawHost)}`;
+
+  const config = getMysqlConfig(server);
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'mysql',
+    connectTimeout: 7000,
+  });
+
+  try {
+    const sql = payload.ifExists !== false ? `DROP USER IF EXISTS ${userSpec};` : `DROP USER ${userSpec};`;
+
+    await conn.query(sql);
+    try {
+      await conn.query('FLUSH PRIVILEGES;');
+    } catch {}
+
+    await conn.end();
+    return {
+      success: true,
+      user: rawUser,
+      host: rawHost,
+      message: `Account '${rawUser}'@'${rawHost}' dropped successfully.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw err;
   }
 }
 
