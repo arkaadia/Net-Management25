@@ -74,6 +74,7 @@ import {
   PostgresCheckConstraint,
   PostgresIndexDetail,
   PostgresTableDataResult,
+  PostgresTableDataColumnInfo,
   PostgresTableDataFilter,
   PostgresFilterOperator,
   PostgresRowColumnValue,
@@ -376,12 +377,13 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
   );
 
   const activeColumns = useMemo((): PostgresTableDataColumnInfo[] => {
-    const currentDb = targetTableForEditModal?.dbName || selectedNode.dbName;
-    const currentSchema = targetTableForEditModal?.schemaName || selectedNode.schemaName;
-    const currentTable = targetTableForEditModal?.tableName || selectedNode.name;
+    const currentDb = targetTableForEditModal?.dbName || selectedNode?.dbName || '';
+    const currentSchema = targetTableForEditModal?.schemaName || selectedNode?.schemaName || '';
+    const currentTable = targetTableForEditModal?.tableName || selectedNode?.name || '';
     const structKey = `${currentDb}:${currentSchema}:${currentTable}`;
+    const tableData = structKey ? tableDataResults[structKey] : undefined;
 
-    if (tableData?.columns && tableData.columns.length > 0 && (!targetTableForEditModal || targetTableForEditModal.tableName === selectedNode.name)) {
+    if (tableData?.columns && tableData.columns.length > 0 && (!targetTableForEditModal || targetTableForEditModal.tableName === selectedNode?.name)) {
       return tableData.columns;
     }
     if (structKey && tableStructures[structKey]?.columns) {
@@ -398,7 +400,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
       }));
     }
     return tableData?.columns || [];
-  }, [tableData, tableStructures, targetTableForEditModal, selectedNode]);
+  }, [tableDataResults, tableStructures, targetTableForEditModal, selectedNode]);
 
   const handleInsertRowSubmit = useCallback(
     async (values: Record<string, PostgresRowColumnValue>): Promise<{ success: boolean; error?: string }> => {

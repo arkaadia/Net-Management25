@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.214.0';
+export const APP_VERSION = '1.214.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.214.1',
+    releaseDate: '2026-09-29',
+    type: 'patch',
+    title: 'رفع خطای رندرینگ tableData is not defined در مودال مدیریت دیتابیس PostgreSQL',
+    title_en: 'Fix tableData is not defined Component Rendering Interrupted in PostgreSQL Management Modal',
+    changes: [
+      'رفع خطای ReferenceError: tableData is not defined در کامپوننت تب ناوبری دیتابیس PostgreSQL (PostgresDatabaseBrowserTab).',
+      'اصلاح هوک محاسباتی activeColumns با استخراج و ارجاع امن به داده‌های کش جدول انتخابی از مخزن tableDataResults به جای متغیر نامشخص.',
+      'افزودن تایپ گمشده PostgresTableDataColumnInfo به لیست واردسازی‌های کامپوننت جهت تضمین انطباق کامل با سیستم اعتبارسنجی تایپ‌اسکریپت.',
+      'تضمین باز شدن پایدار و فوری پنجره مدیریت PostgreSQL بدون هرگونه وقفه یا خطای رندرینگ در تمام بخش‌ها.'
+    ],
+    changes_en: [
+      'Resolved ReferenceError: tableData is not defined crash in PostgresDatabaseBrowserTab when opening PostgreSQL Management modal.',
+      'Safely scoped activeColumns memo hook to derive the selected table data cache entry from tableDataResults map instead of an undeclared global reference.',
+      'Imported missing PostgresTableDataColumnInfo interface to guarantee strict TypeScript type soundness across all schema operations.',
+      'Ensured smooth, uninterrupted launch of PostgreSQL Management modal across all remote servers.'
+    ]
+  },
   {
     version: '1.214.0',
     releaseDate: '2026-09-29',
