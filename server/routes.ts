@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import {
   hashPassword,
   verifyPassword,
@@ -120,6 +122,14 @@ import {
   updateMysqlHostRule,
   updateMysqlDynamicVariable,
   flushMysqlPrivileges,
+  fetchRemoteServerMysqlBackups,
+  createRemoteServerMysqlBackup,
+  validateRemoteServerMysqlRestore,
+  restoreRemoteServerMysqlBackup,
+  previewRemoteServerMysqlBackup,
+  deleteRemoteServerMysqlBackup,
+  uploadRemoteServerMysqlBackup,
+  getMysqlBackupsDir,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5448,6 +5458,182 @@ apiRouter.post('/remote-servers/:id/mysql/client-auth/flush-privileges', async (
       success: false,
       error: err.message || 'Failed to flush MySQL privileges',
       errorFa: 'خطا در بازخوانی مجوزهای MySQL',
+    });
+  }
+});
+
+// ==========================================
+// Phase 17: MySQL Advanced Database & Configuration Backup & Restore Routes
+// ==========================================
+
+// GET /api/remote-servers/:id/mysql/backups - List all backups
+apiRouter.get('/remote-servers/:id/mysql/backups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const sessionPassword = typeof req.query.password === 'string' ? req.query.password : undefined;
+    const backups = await fetchRemoteServerMysqlBackups(server, { sessionPassword });
+    return res.json({ success: true, backups });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to list MySQL backups',
+      errorFa: 'خطا در بارگذاری لیست نسخه‌های پشتیبان MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/backups/create - Create backup
+apiRouter.post('/remote-servers/:id/mysql/backups/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createRemoteServerMysqlBackup(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create MySQL backup',
+      errorFa: 'خطا در ایجاد نسخه پشتیبان MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/backups/validate-restore - Validate restore
+apiRouter.post('/remote-servers/:id/mysql/backups/validate-restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await validateRemoteServerMysqlRestore(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to validate MySQL restore',
+      errorFa: 'خطا در ارزیابی و اعتبارسنجی بازیابی MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/backups/restore - Restore backup
+apiRouter.post('/remote-servers/:id/mysql/backups/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await restoreRemoteServerMysqlBackup(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restore MySQL backup',
+      errorFa: 'خطا در بازیابی نسخه پشتیبان MySQL',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/backups/:filename/preview - Preview backup
+apiRouter.get('/remote-servers/:id/mysql/backups/:filename/preview', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await previewRemoteServerMysqlBackup(server, decodeURIComponent(filename));
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to preview MySQL backup',
+      errorFa: 'خطا در پیش‌نمایش نسخه پشتیبان MySQL',
+    });
+  }
+});
+
+// DELETE /api/remote-servers/:id/mysql/backups/:filename - Delete backup
+apiRouter.delete('/remote-servers/:id/mysql/backups/:filename', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await deleteRemoteServerMysqlBackup(server, decodeURIComponent(filename));
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete MySQL backup',
+      errorFa: 'خطا در حذف نسخه پشتیبان MySQL',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/backups/:filename/download - Download backup file
+apiRouter.get('/remote-servers/:id/mysql/backups/:filename/download', async (req: Request, res: Response) => {
+  try {
+    const { id, filename } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const safeFilename = path.basename(decodeURIComponent(filename));
+    const dir = getMysqlBackupsDir(server.id);
+    const filePath = path.join(dir, safeFilename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Backup file not found on disk.',
+        errorFa: 'فایل نسخه پشتیبان بر روی دیسک یافت نشد.',
+      });
+    }
+
+    res.download(filePath, safeFilename);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to download MySQL backup',
+      errorFa: 'خطا در دریافت فایل پشتیبان MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/backups/upload - Upload backup file
+apiRouter.post('/remote-servers/:id/mysql/backups/upload', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const { filename, content } = req.body;
+    if (!filename || typeof content !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Filename and string content are required.',
+        errorFa: 'نام فایل و متن محتوا الزامی است.',
+      });
+    }
+    const backupItem = await uploadRemoteServerMysqlBackup(server, filename, content);
+    return res.json({ success: true, backup: backupItem });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to upload backup',
+      errorFa: 'خطا در ذخیره‌سازی نسخه پشتیبان آپلود شده',
     });
   }
 });

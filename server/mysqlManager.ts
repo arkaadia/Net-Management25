@@ -1,4 +1,7 @@
 import mysql from 'mysql2/promise';
+import fs from 'fs';
+import path from 'path';
+import zlib from 'zlib';
 import { RemoteServer } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
@@ -94,6 +97,17 @@ import {
   MysqlClientAuthSaveResult,
   MysqlHostRuleUpdateRequest,
   MysqlDynamicVariableUpdateRequest,
+  MysqlBackupCategory,
+  MysqlBackupFileFormat,
+  MysqlBackupRestoreMode,
+  MysqlBackupItem,
+  MysqlCreateBackupRequest,
+  MysqlCreateBackupResult,
+  MysqlValidateRestoreRequest,
+  MysqlValidateRestoreResult,
+  MysqlRestoreBackupRequest,
+  MysqlRestoreBackupResult,
+  MysqlBackupPreviewResult,
 } from '../src/types';
 
 /**
@@ -5829,6 +5843,956 @@ export async function flushMysqlPrivileges(
     }
     throw new Error(`Failed to flush MySQL privileges: ${err.message}`);
   }
+}
+
+// ==========================================
+// Phase 17: Advanced Backup & Restore Management Suite
+// ==========================================
+
+export function getMysqlBackupsDir(serverId: string): string {
+  const dir = path.join(process.cwd(), 'data', 'mysql_backups', serverId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+function loadMysqlBackupsMeta(serverId: string): Record<string, any> {
+  const metaPath = path.join(getMysqlBackupsDir(serverId), '_meta.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function saveMysqlBackupsMeta(serverId: string, meta: Record<string, any>): void {
+  const metaPath = path.join(getMysqlBackupsDir(serverId), '_meta.json');
+  try {
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+  } catch (err: any) {
+    console.warn('Failed to save MySQL backups meta:', err.message);
+  }
+}
+
+/**
+ * Splits raw SQL into individual executable statements, honoring DELIMITER,
+ * single/double quotes, backticks, line comments (-- and #), and block comments.
+ */
+export function splitMysqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let currentDelimiter = ';';
+  let buffer = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const lines = sql.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    const delimiterMatch = trimmedLine.match(/^DELIMITER\s+(\S+)/i);
+    if (delimiterMatch && !inBlockComment && !inSingleQuote && !inDoubleQuote) {
+      if (buffer.trim()) {
+        statements.push(buffer.trim());
+        buffer = '';
+      }
+      currentDelimiter = delimiterMatch[1];
+      continue;
+    }
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = i + 1 < line.length ? line[i + 1] : '';
+
+      if (inLineComment) {
+        break;
+      }
+
+      if (inBlockComment) {
+        if (char === '*' && nextChar === '/') {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
+      }
+
+      if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+        if (char === '-' && nextChar === '-' && (i + 2 >= line.length || line[i + 2] === ' ' || line[i + 2] === '\t')) {
+          inLineComment = true;
+          break;
+        }
+        if (char === '#') {
+          inLineComment = true;
+          break;
+        }
+        if (char === '/' && nextChar === '*') {
+          if (i + 2 < line.length && line[i + 2] === '!') {
+            // Keep MySQL conditional comments
+          } else {
+            inBlockComment = true;
+            i++;
+            continue;
+          }
+        }
+      }
+
+      if (char === '\\' && (inSingleQuote || inDoubleQuote)) {
+        buffer += char + nextChar;
+        i++;
+        continue;
+      }
+
+      if (char === "'" && !inDoubleQuote && !inBacktick) {
+        inSingleQuote = !inSingleQuote;
+        buffer += char;
+        continue;
+      }
+
+      if (char === '"' && !inSingleQuote && !inBacktick) {
+        inDoubleQuote = !inDoubleQuote;
+        buffer += char;
+        continue;
+      }
+
+      if (char === '`' && !inSingleQuote && !inDoubleQuote) {
+        inBacktick = !inBacktick;
+        buffer += char;
+        continue;
+      }
+
+      buffer += char;
+
+      if (!inSingleQuote && !inDoubleQuote && !inBacktick && buffer.endsWith(currentDelimiter)) {
+        const stmt = buffer.slice(0, buffer.length - currentDelimiter.length).trim();
+        if (stmt) {
+          statements.push(stmt);
+        }
+        buffer = '';
+      }
+    }
+
+    inLineComment = false;
+    buffer += '\n';
+  }
+
+  if (buffer.trim()) {
+    statements.push(buffer.trim());
+  }
+
+  return statements.filter((s) => {
+    const t = s.trim();
+    return t.length > 0 && !t.startsWith('--') && !t.startsWith('#');
+  });
+}
+
+/**
+ * Fetches all available backups for the server:
+ * Local backup repository files + remote my.cnf configuration snapshots
+ */
+export async function fetchRemoteServerMysqlBackups(
+  server: RemoteServer,
+  _opts?: { sessionPassword?: string }
+): Promise<MysqlBackupItem[]> {
+  const dir = getMysqlBackupsDir(server.id);
+  const meta = loadMysqlBackupsMeta(server.id);
+  const items: MysqlBackupItem[] = [];
+
+  if (fs.existsSync(dir)) {
+    const entries = fs.readdirSync(dir);
+    for (const filename of entries) {
+      if (filename === '_meta.json') continue;
+      const fullPath = path.join(dir, filename);
+      try {
+        const stats = fs.statSync(fullPath);
+        if (!stats.isFile()) continue;
+
+        const fileMeta = meta[filename] || {};
+        let format: MysqlBackupFileFormat = 'sql';
+        if (filename.endsWith('.json')) format = 'json';
+        else if (filename.endsWith('.csv')) format = 'csv';
+        else if (filename.endsWith('.dump')) format = 'dump';
+        else if (filename.endsWith('.gz')) format = 'gz';
+
+        items.push({
+          id: `backup-${filename}-${stats.mtimeMs}`,
+          filename,
+          category: fileMeta.category || 'database',
+          database: fileMeta.database || undefined,
+          sizeBytes: stats.size,
+          sizePretty: formatBytes(stats.size),
+          mode: fileMeta.mode || 'full',
+          format,
+          createdAt: stats.mtime.toISOString(),
+          tablesCount: fileMeta.tablesCount || undefined,
+          tables: fileMeta.tables || undefined,
+          engineUsed: fileMeta.engineUsed || 'logical_sql_dumper',
+          description: fileMeta.description,
+          descriptionFa: fileMeta.descriptionFa,
+        });
+      } catch (err) {
+        console.warn(`Error reading backup ${filename}:`, err);
+      }
+    }
+  }
+
+  // Also query remote host for my.cnf backups if SSH is configured
+  if (server.ssh_password || server.ssh_key) {
+    try {
+      const sshRes = await runAdaptiveSshCommand(
+        server,
+        'ls -la /etc/mysql/my.cnf.bak.* /etc/my.cnf.bak.* 2>/dev/null || true'
+      );
+      if (sshRes && sshRes.trim()) {
+        const lines = sshRes.trim().split('\n');
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 9) {
+            const filePath = parts[parts.length - 1];
+            const filename = path.basename(filePath);
+            const sizeBytes = parseInt(parts[4], 10) || 0;
+            // Check if not already in list
+            if (!items.some((b) => b.filename === filename)) {
+              items.push({
+                id: `cnf-${filename}`,
+                filename,
+                category: 'configuration',
+                sizeBytes,
+                sizePretty: formatBytes(sizeBytes),
+                mode: 'full',
+                format: 'sql',
+                createdAt: new Date().toISOString(),
+                engineUsed: 'config_snapshot',
+                description: `Remote host my.cnf snapshot at ${filePath}`,
+                descriptionFa: `نسخه پشتیبان تنظیمات my.cnf در مسیر ${filePath}`,
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-critical remote probe
+    }
+  }
+
+  // Sort newest first
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return items;
+}
+
+/**
+ * Creates a new MySQL backup using logical SQL dumper or native mysqldump
+ */
+export async function createRemoteServerMysqlBackup(
+  server: RemoteServer,
+  req: MysqlCreateBackupRequest
+): Promise<MysqlCreateBackupResult> {
+  const startTime = Date.now();
+  const dir = getMysqlBackupsDir(server.id);
+
+  if (!req.database && req.category !== 'configuration') {
+    return {
+      success: false,
+      message: 'Database name is required for database backup.',
+      messageFa: 'نام پایگاه داده جهت ایجاد نسخه پشتیبان الزامی است.',
+      error: 'Database name required',
+    };
+  }
+
+  const targetDb = req.database || 'all';
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const format = req.format || 'sql';
+  const defaultFilename = `mysql_${targetDb}_${req.mode || 'full'}_${timestamp}.${format}`;
+  const filename = req.customFilename ? path.basename(req.customFilename) : defaultFilename;
+  const targetFilePath = path.join(dir, filename);
+
+  try {
+    let content = '';
+    let totalRowsExported = 0;
+    let tablesCount = 0;
+
+    if (req.category === 'configuration') {
+      // Configuration snapshot
+      const cnfRes = await runAdaptiveSshCommand(
+        server,
+        'cat /etc/mysql/my.cnf 2>/dev/null || cat /etc/my.cnf 2>/dev/null || true'
+      );
+      content = cnfRes || '# MySQL Configuration Snapshot\n';
+    } else {
+      // Database dump via logical dumper
+      const dumpRes = await generateMysqlDump(server, {
+        database: req.database!,
+        format: req.format === 'json' ? 'json' : req.format === 'csv' ? 'csv' : 'sql',
+        scope: req.mode === 'structure_only' ? 'structure_only' : req.mode === 'data_only' ? 'data_only' : 'all',
+        selectedTables: req.tables,
+        includeDropTable: req.includeDropTable !== false,
+        includeCreateDb: Boolean(req.includeCreateDb),
+        disableForeignKeyChecks: req.disableForeignKeyChecks !== false,
+        includeViews: req.includeViews !== false,
+        includeRoutines: req.includeRoutines !== false,
+        includeTriggers: req.includeTriggers !== false,
+        includeEvents: req.includeEvents !== false,
+        maxRowsPerTable: req.maxRowsPerTable,
+        insertBatchSize: req.insertBatchSize,
+      });
+
+      if (!dumpRes.success) {
+        return {
+          success: false,
+          message: dumpRes.message || 'Failed to generate MySQL dump.',
+          messageFa: dumpRes.messageFa || 'خطا در ایجاد دامپ دیتابیس MySQL.',
+          error: dumpRes.error,
+        };
+      }
+
+      content = dumpRes.content;
+      totalRowsExported = dumpRes.totalRowsExported;
+      tablesCount = dumpRes.tablesCount;
+    }
+
+    fs.writeFileSync(targetFilePath, content, 'utf8');
+    const stats = fs.statSync(targetFilePath);
+
+    // Update metadata
+    const meta = loadMysqlBackupsMeta(server.id);
+    meta[filename] = {
+      category: req.category || 'database',
+      database: req.database,
+      mode: req.mode || 'full',
+      format,
+      tablesCount,
+      totalRowsExported,
+      tables: req.tables,
+      engineUsed: 'logical_sql_dumper',
+      createdAt: new Date().toISOString(),
+    };
+    saveMysqlBackupsMeta(server.id, meta);
+
+    const durationMs = Date.now() - startTime;
+    const backupItem: MysqlBackupItem = {
+      id: `backup-${filename}-${stats.mtimeMs}`,
+      filename,
+      category: req.category || 'database',
+      database: req.database,
+      sizeBytes: stats.size,
+      sizePretty: formatBytes(stats.size),
+      mode: req.mode || 'full',
+      format,
+      createdAt: stats.mtime.toISOString(),
+      tablesCount,
+      tables: req.tables,
+      engineUsed: 'logical_sql_dumper',
+    };
+
+    return {
+      success: true,
+      backup: backupItem,
+      message: `Backup "${filename}" created successfully (${formatBytes(stats.size)}) in ${(durationMs / 1000).toFixed(1)}s.`,
+      messageFa: `نسخه پشتیبان "${filename}" با موفقیت ایجاد شد (${formatBytes(stats.size)}) در مدت ${(durationMs / 1000).toFixed(1)} ثانیه.`,
+      durationMs,
+      sqlDumpPreview: content.slice(0, 2000),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Failed to create backup: ${err.message}`,
+      messageFa: `خطا در ایجاد نسخه پشتیبان: ${err.message}`,
+      error: err.message,
+      durationMs: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Validates a MySQL restore request before actual execution:
+ * Analyzes target database, checks for existing tables, detects collisions,
+ * and extracts statement telemetry.
+ */
+export async function validateRemoteServerMysqlRestore(
+  server: RemoteServer,
+  req: MysqlValidateRestoreRequest
+): Promise<MysqlValidateRestoreResult> {
+  const targetDb = (req.targetDatabase || server.mysql_database || '').trim();
+  if (!targetDb) {
+    return {
+      valid: false,
+      targetDatabase: '',
+      databaseExists: false,
+      targetHasExistingData: false,
+      existingTablesCount: 0,
+      existingTablesSample: [],
+      tableCollisions: [],
+      statementsCount: 0,
+      detectedOperations: { createTable: 0, dropTable: 0, alterTable: 0, insert: 0, update: 0, delete: 0, other: 0 },
+      requiresExplicitConfirmation: false,
+      error: 'Target database name is required.',
+      errorFa: 'نام پایگاه داده مقصد الزامی است.',
+    };
+  }
+
+  let sqlContent = req.sqlContent || '';
+  let backupItem: MysqlBackupItem | undefined;
+
+  if (req.filename && !sqlContent) {
+    const dir = getMysqlBackupsDir(server.id);
+    const filePath = path.join(dir, path.basename(req.filename));
+    if (fs.existsSync(filePath)) {
+      try {
+        const stats = fs.statSync(filePath);
+        sqlContent = fs.readFileSync(filePath, 'utf8');
+        const meta = loadMysqlBackupsMeta(server.id);
+        const fileMeta = meta[req.filename] || {};
+        backupItem = {
+          id: `backup-${req.filename}`,
+          filename: req.filename,
+          category: fileMeta.category || 'database',
+          database: fileMeta.database,
+          sizeBytes: stats.size,
+          sizePretty: formatBytes(stats.size),
+          mode: fileMeta.mode || 'full',
+          format: 'sql',
+          createdAt: stats.mtime.toISOString(),
+          engineUsed: fileMeta.engineUsed || 'logical_sql_dumper',
+        };
+      } catch (err: any) {
+        return {
+          valid: false,
+          targetDatabase: targetDb,
+          databaseExists: false,
+          targetHasExistingData: false,
+          existingTablesCount: 0,
+          existingTablesSample: [],
+          tableCollisions: [],
+          statementsCount: 0,
+          detectedOperations: { createTable: 0, dropTable: 0, alterTable: 0, insert: 0, update: 0, delete: 0, other: 0 },
+          requiresExplicitConfirmation: false,
+          error: `Failed to read backup file: ${err.message}`,
+          errorFa: `خطا در خواندن فایل نسخه پشتیبان: ${err.message}`,
+        };
+      }
+    } else {
+      return {
+        valid: false,
+        targetDatabase: targetDb,
+        databaseExists: false,
+        targetHasExistingData: false,
+        existingTablesCount: 0,
+        existingTablesSample: [],
+        tableCollisions: [],
+        statementsCount: 0,
+        detectedOperations: { createTable: 0, dropTable: 0, alterTable: 0, insert: 0, update: 0, delete: 0, other: 0 },
+        requiresExplicitConfirmation: false,
+        error: `Backup file "${req.filename}" does not exist.`,
+        errorFa: `فایل نسخه پشتیبان "${req.filename}" یافت نشد.`,
+      };
+    }
+  }
+
+  // Parse SQL statements and detect operations & affected tables
+  const statements = splitMysqlStatements(sqlContent);
+  const detectedOps = {
+    createTable: 0,
+    dropTable: 0,
+    alterTable: 0,
+    insert: 0,
+    update: 0,
+    delete: 0,
+    other: 0,
+  };
+  const dumpTables = new Set<string>();
+
+  for (const stmt of statements) {
+    const s = stmt.trim();
+    const createMatch = s.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`?(\w+)`?\.)?`?(\w+)`?/i);
+    if (createMatch) {
+      detectedOps.createTable++;
+      dumpTables.add(createMatch[2] || createMatch[1]);
+      continue;
+    }
+
+    const dropMatch = s.match(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:`?(\w+)`?\.)?`?(\w+)`?/i);
+    if (dropMatch) {
+      detectedOps.dropTable++;
+      dumpTables.add(dropMatch[2] || dropMatch[1]);
+      continue;
+    }
+
+    const alterMatch = s.match(/ALTER\s+TABLE\s+(?:`?(\w+)`?\.)?`?(\w+)`?/i);
+    if (alterMatch) {
+      detectedOps.alterTable++;
+      dumpTables.add(alterMatch[2] || alterMatch[1]);
+      continue;
+    }
+
+    const insertMatch = s.match(/INSERT\s+(?:IGNORE\s+)?INTO\s+(?:`?(\w+)`?\.)?`?(\w+)`?/i);
+    if (insertMatch) {
+      detectedOps.insert++;
+      dumpTables.add(insertMatch[2] || insertMatch[1]);
+      continue;
+    }
+
+    if (/^UPDATE\s+/i.test(s)) {
+      detectedOps.update++;
+    } else if (/^DELETE\s+/i.test(s)) {
+      detectedOps.delete++;
+    } else {
+      detectedOps.other++;
+    }
+  }
+
+  // Connect to target server and inspect target database
+  let conn: mysql.Connection | null = null;
+  let databaseExists = false;
+  let existingTablesCount = 0;
+  const existingTablesSample: string[] = [];
+  const existingTablesSet = new Set<string>();
+
+  try {
+    const config = getMysqlConfig(server, { password: req.sessionPassword });
+    conn = await mysql.createConnection(config);
+
+    const [dbRows] = (await conn.query(
+      `SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?`,
+      [targetDb]
+    )) as [any[], any];
+
+    databaseExists = dbRows.length > 0;
+
+    if (databaseExists) {
+      const [tableRows] = (await conn.query(
+        `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? LIMIT 200`,
+        [targetDb]
+      )) as [any[], any];
+
+      existingTablesCount = tableRows.length;
+      tableRows.forEach((r, idx) => {
+        existingTablesSet.add(r.TABLE_NAME);
+        if (idx < 15) {
+          existingTablesSample.push(r.TABLE_NAME);
+        }
+      });
+    }
+
+    await conn.end();
+    conn = null;
+  } catch (err: any) {
+    if (conn) {
+      try { await conn.end(); } catch {}
+    }
+    // Database inspection failure is treated non-fatally (e.g. database does not exist yet)
+  }
+
+  // Calculate table collisions
+  const tableCollisions: string[] = [];
+  dumpTables.forEach((tbl) => {
+    if (existingTablesSet.has(tbl)) {
+      tableCollisions.push(tbl);
+    }
+  });
+
+  const requiresExplicitConfirmation = tableCollisions.length > 0 || detectedOps.dropTable > 0;
+  let warning: string | undefined;
+  let warningFa: string | undefined;
+
+  if (tableCollisions.length > 0) {
+    warning = `Target database "${targetDb}" already contains ${tableCollisions.length} table(s) that match objects in this dump: ${tableCollisions.slice(0, 5).join(', ')}${tableCollisions.length > 5 ? '...' : ''}. Data in these tables may be overwritten or merged.`;
+    warningFa = `پایگاه داده مقصد "${targetDb}" در حال حاضر شامل ${tableCollisions.length} جدول منطبق با این دامپ است: ${tableCollisions.slice(0, 5).join(', ')}${tableCollisions.length > 5 ? '...' : ''}. داده‌های این جداول ممکن است بازنویسی یا جایگزین شوند.`;
+  } else if (!databaseExists) {
+    warning = `Target database "${targetDb}" does not exist yet and will be automatically created with UTF8MB4 charset.`;
+    warningFa = `پایگاه داده مقصد "${targetDb}" هنوز وجود ندارد و به صورت خودکار با انکودینگ UTF8MB4 ایجاد خواهد شد.`;
+  }
+
+  return {
+    valid: true,
+    backupItem,
+    targetDatabase: targetDb,
+    databaseExists,
+    targetHasExistingData: existingTablesCount > 0,
+    existingTablesCount,
+    existingTablesSample,
+    tableCollisions,
+    statementsCount: statements.length,
+    detectedOperations: detectedOps,
+    warning,
+    warningFa,
+    requiresExplicitConfirmation,
+  };
+}
+
+/**
+ * Restores a MySQL SQL dump or file into the target database with safety controls,
+ * transaction guards, and real-time execution telemetry.
+ */
+export async function restoreRemoteServerMysqlBackup(
+  server: RemoteServer,
+  req: MysqlRestoreBackupRequest
+): Promise<MysqlRestoreBackupResult> {
+  const startTime = Date.now();
+  const targetDb = (req.targetDatabase || server.mysql_database || '').trim();
+
+  if (!targetDb) {
+    return {
+      success: false,
+      message: 'Target database name is required for restore.',
+      messageFa: 'نام پایگاه داده مقصد جهت بازیابی الزامی است.',
+      executedStatementsCount: 0,
+      affectedRowsCount: 0,
+      durationMs: 0,
+      warningsCount: 0,
+      errorsCount: 1,
+      error: 'Target database required',
+      errorFa: 'نام پایگاه داده مقصد الزامی است.',
+    };
+  }
+
+  let sqlContent = req.sqlContent || '';
+
+  if (req.filename && !sqlContent) {
+    const dir = getMysqlBackupsDir(server.id);
+    const filePath = path.join(dir, path.basename(req.filename));
+    if (!fs.existsSync(filePath)) {
+      return {
+        success: false,
+        message: `Backup file "${req.filename}" does not exist.`,
+        messageFa: `فایل نسخه پشتیبان "${req.filename}" یافت نشد.`,
+        executedStatementsCount: 0,
+        affectedRowsCount: 0,
+        durationMs: 0,
+        warningsCount: 0,
+        errorsCount: 1,
+        error: 'File not found',
+      };
+    }
+
+    try {
+      sqlContent = fs.readFileSync(filePath, 'utf8');
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to read backup file: ${err.message}`,
+        messageFa: `خطا در بازخوانی فایل پشتیبان: ${err.message}`,
+        executedStatementsCount: 0,
+        affectedRowsCount: 0,
+        durationMs: 0,
+        warningsCount: 0,
+        errorsCount: 1,
+        error: err.message,
+      };
+    }
+  }
+
+  if (!sqlContent.trim()) {
+    return {
+      success: false,
+      message: 'Restore payload or SQL file content is empty.',
+      messageFa: 'محتوای اسکریپت SQL یا فایل نسخه پشتیبان خالی است.',
+      executedStatementsCount: 0,
+      affectedRowsCount: 0,
+      durationMs: 0,
+      warningsCount: 0,
+      errorsCount: 1,
+      error: 'Empty SQL content',
+    };
+  }
+
+  // 1. Ensure target database exists if requested
+  const baseConfig = getMysqlConfig(server, { password: req.sessionPassword });
+  let adminConn: mysql.Connection | null = null;
+  try {
+    adminConn = await mysql.createConnection(baseConfig);
+    if (req.createDatabaseIfNotExists !== false) {
+      await adminConn.query(
+        `CREATE DATABASE IF NOT EXISTS \`${targetDb}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+      );
+    }
+    await adminConn.end();
+    adminConn = null;
+  } catch (err: any) {
+    if (adminConn) {
+      try { await adminConn.end(); } catch {}
+    }
+    console.warn(`Database creation check warning: ${err.message}`);
+  }
+
+  // 2. Connect to the target database and execute statements
+  const dbConfig = getMysqlConfig(server, {
+    database: targetDb,
+    password: req.sessionPassword,
+  });
+
+  let conn: mysql.Connection | null = null;
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  let executedStatementsCount = 0;
+  let affectedRowsCount = 0;
+
+  try {
+    conn = await mysql.createConnection({
+      ...dbConfig,
+      multipleStatements: false,
+    });
+
+    // Session environmental optimizations
+    await conn.query('SET NAMES utf8mb4;');
+    if (req.disableForeignKeyChecks !== false) {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
+    }
+    if (req.disableUniqueChecks !== false) {
+      await conn.query('SET UNIQUE_CHECKS = 0;');
+    }
+    await conn.query("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';");
+
+    if (req.singleTransaction) {
+      await conn.query('START TRANSACTION;');
+    }
+
+    const statements = splitMysqlStatements(sqlContent);
+
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i];
+      try {
+        const [result] = (await conn.query(stmt)) as any;
+        executedStatementsCount++;
+        if (result && typeof result.affectedRows === 'number') {
+          affectedRowsCount += result.affectedRows;
+        }
+      } catch (stmtErr: any) {
+        const errMsg = `Statement #${i + 1} (${stmt.slice(0, 60).replace(/\n/g, ' ')}...): ${stmtErr.message}`;
+        errors.push(errMsg);
+
+        if (!req.continueOnError) {
+          if (req.singleTransaction) {
+            try { await conn.query('ROLLBACK;'); } catch {}
+          }
+          if (req.disableForeignKeyChecks !== false) {
+            try { await conn.query('SET FOREIGN_KEY_CHECKS = 1;'); } catch {}
+          }
+          await conn.end();
+          conn = null;
+
+          const durationMs = Date.now() - startTime;
+          return {
+            success: false,
+            message: `Restore halted at statement #${i + 1}: ${stmtErr.message}`,
+            messageFa: `فرآیند بازیابی در دستور شماره ${i + 1} با خطا متوقف شد: ${stmtErr.message}`,
+            executedStatementsCount,
+            affectedRowsCount,
+            durationMs,
+            warningsCount: warnings.length,
+            warnings,
+            errorsCount: errors.length,
+            errors,
+            error: stmtErr.message,
+            outputLog: errors.join('\n'),
+          };
+        }
+      }
+    }
+
+    // Commit if in transaction
+    if (req.singleTransaction) {
+      await conn.query('COMMIT;');
+    }
+
+    // Re-enable safety checks
+    if (req.disableForeignKeyChecks !== false) {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 1;').catch(() => {});
+    }
+    if (req.disableUniqueChecks !== false) {
+      await conn.query('SET UNIQUE_CHECKS = 1;').catch(() => {});
+    }
+
+    await conn.end();
+    conn = null;
+
+    const durationMs = Date.now() - startTime;
+    const isSuccess = errors.length === 0;
+
+    return {
+      success: isSuccess || (req.continueOnError && executedStatementsCount > 0),
+      message: `Restore completed: ${executedStatementsCount} statements executed, ${affectedRowsCount} rows affected in ${(durationMs / 1000).toFixed(1)}s.${errors.length > 0 ? ` (${errors.length} warnings/skipped)` : ''}`,
+      messageFa: `عملیات بازیابی انجام شد: ${executedStatementsCount} دستور اجرا، ${affectedRowsCount} سطر تحت تاثیر در ${(durationMs / 1000).toFixed(1)} ثانیه.${errors.length > 0 ? ` (${errors.length} خطا یا هشدار)` : ''}`,
+      executedStatementsCount,
+      affectedRowsCount,
+      durationMs,
+      warningsCount: warnings.length,
+      warnings,
+      errorsCount: errors.length,
+      errors,
+      outputLog: errors.length > 0 ? errors.join('\n') : `Successfully executed all ${executedStatementsCount} statements.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        if (req.singleTransaction) await conn.query('ROLLBACK;').catch(() => {});
+        await conn.end();
+      } catch {}
+    }
+
+    const durationMs = Date.now() - startTime;
+    return {
+      success: false,
+      message: `Database restore failed: ${err.message}`,
+      messageFa: `خطا در اجرای فرآیند بازیابی: ${err.message}`,
+      executedStatementsCount,
+      affectedRowsCount,
+      durationMs,
+      warningsCount: warnings.length,
+      errorsCount: errors.length + 1,
+      errors: [...errors, err.message],
+      error: err.message,
+    };
+  }
+}
+
+/**
+ * In-browser preview of a backup file with line counts and truncation guard
+ */
+export async function previewRemoteServerMysqlBackup(
+  server: RemoteServer,
+  filename: string
+): Promise<MysqlBackupPreviewResult> {
+  const dir = getMysqlBackupsDir(server.id);
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(dir, safeFilename);
+
+  if (!fs.existsSync(filePath)) {
+    return {
+      success: false,
+      filename: safeFilename,
+      content: '',
+      totalLines: 0,
+      isTruncated: false,
+      sizeBytes: 0,
+      category: 'database',
+      format: 'sql',
+      error: `File "${safeFilename}" does not exist.`,
+      errorFa: `فایل "${safeFilename}" یافت نشد.`,
+    };
+  }
+
+  try {
+    const stats = fs.statSync(filePath);
+    const maxPreviewBytes = 512 * 1024; // 512 KB
+    let content = '';
+    let isTruncated = false;
+
+    if (stats.size > maxPreviewBytes) {
+      const fd = fs.openSync(filePath, 'r');
+      const buffer = Buffer.alloc(maxPreviewBytes);
+      fs.readSync(fd, buffer, 0, maxPreviewBytes, 0);
+      fs.closeSync(fd);
+      content = buffer.toString('utf8');
+      isTruncated = true;
+    } else {
+      content = fs.readFileSync(filePath, 'utf8');
+    }
+
+    const totalLines = content.split('\n').length;
+    let format: MysqlBackupFileFormat = 'sql';
+    if (safeFilename.endsWith('.json')) format = 'json';
+    else if (safeFilename.endsWith('.csv')) format = 'csv';
+
+    return {
+      success: true,
+      filename: safeFilename,
+      content,
+      totalLines,
+      isTruncated,
+      sizeBytes: stats.size,
+      category: 'database',
+      format,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      filename: safeFilename,
+      content: '',
+      totalLines: 0,
+      isTruncated: false,
+      sizeBytes: 0,
+      category: 'database',
+      format: 'sql',
+      error: err.message,
+    };
+  }
+}
+
+/**
+ * Deletes a backup file and removes its metadata
+ */
+export async function deleteRemoteServerMysqlBackup(
+  server: RemoteServer,
+  filename: string
+): Promise<{ success: boolean; message: string; messageFa: string }> {
+  const dir = getMysqlBackupsDir(server.id);
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(dir, safeFilename);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      const meta = loadMysqlBackupsMeta(server.id);
+      delete meta[safeFilename];
+      saveMysqlBackupsMeta(server.id, meta);
+
+      return {
+        success: true,
+        message: `Backup "${safeFilename}" deleted successfully.`,
+        messageFa: `نسخه پشتیبان "${safeFilename}" با موفقیت حذف شد.`,
+      };
+    } catch (err: any) {
+      throw new Error(`Failed to delete backup: ${err.message}`);
+    }
+  }
+
+  return {
+    success: true,
+    message: `Backup file "${safeFilename}" already removed.`,
+    messageFa: `فایل نسخه پشتیبان "${safeFilename}" از قبل حذف شده بود.`,
+  };
+}
+
+/**
+ * Accepts an uploaded SQL backup from the client and saves it to server backups
+ */
+export async function uploadRemoteServerMysqlBackup(
+  server: RemoteServer,
+  filename: string,
+  content: string
+): Promise<MysqlBackupItem> {
+  const dir = getMysqlBackupsDir(server.id);
+  const safeFilename = path.basename(filename).replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const targetPath = path.join(dir, safeFilename);
+
+  fs.writeFileSync(targetPath, content, 'utf8');
+  const stats = fs.statSync(targetPath);
+
+  const meta = loadMysqlBackupsMeta(server.id);
+  meta[safeFilename] = {
+    category: 'database',
+    format: safeFilename.endsWith('.json') ? 'json' : safeFilename.endsWith('.csv') ? 'csv' : 'sql',
+    mode: 'full',
+    engineUsed: 'logical_sql_dumper',
+    createdAt: new Date().toISOString(),
+  };
+  saveMysqlBackupsMeta(server.id, meta);
+
+  return {
+    id: `upload-${safeFilename}-${Date.now()}`,
+    filename: safeFilename,
+    category: 'database',
+    sizeBytes: stats.size,
+    sizePretty: formatBytes(stats.size),
+    mode: 'full',
+    format: safeFilename.endsWith('.json') ? 'json' : safeFilename.endsWith('.csv') ? 'csv' : 'sql',
+    createdAt: stats.mtime.toISOString(),
+    engineUsed: 'logical_sql_dumper',
+  };
 }
 
 

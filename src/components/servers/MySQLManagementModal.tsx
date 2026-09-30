@@ -17,6 +17,8 @@ import {
   Layers,
   Settings,
   Search,
+  Archive,
+  RotateCcw,
   HardDrive,
   BarChart3,
   Cpu,
@@ -123,6 +125,7 @@ import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
 import { MysqlProcesslistTab } from './MysqlProcesslistTab';
 import { MysqlConfigManagerTab } from './MysqlConfigManagerTab';
+import { MysqlBackupRestoreManagerTab } from './MysqlBackupRestoreManagerTab';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -136,7 +139,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'config' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'backups' | 'config' | 'variables' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -1084,6 +1087,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'users', label: isEn ? 'Users & Accounts' : 'کاربران و اکانت‌ها', icon: Users },
             { id: 'privileges', label: isEn ? 'Privileges & Grants' : 'سطوح دسترسی و مجوزها', icon: Key },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
+            { id: 'backups', label: isEn ? 'Backups & Restore' : 'پشتیبان‌گیری و بازیابی', icon: Archive },
             { id: 'config', label: isEn ? 'Client Auth & my.cnf' : 'احراز هویت و my.cnf', icon: ShieldCheck },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
@@ -3945,6 +3949,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                     <HardDrive className="w-3.5 h-3.5" />
                                     <span>{isEn ? "Dump / Backup" : "پشتیبان‌گیری (Dump)"}</span>
                                   </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveTab('backups')}
+                                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                    title={isEn ? "Open Advanced Restore & SQL Import Hub" : "بازیابی و ایمپورت پیشرفته (Restore/Import)"}
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>{isEn ? "Restore / Import" : "بازیابی (Restore)"}</span>
+                                  </button>
                                               <button
                                                 type="button"
                                                 onClick={() => setDataHiddenColumns({})}
@@ -5899,6 +5912,20 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               isLightMode={isLightMode}
               isEn={isEn}
               onRefreshOverview={loadOverview}
+            />
+          )}
+
+          {/* Phase 17: BACKUP & RESTORE MANAGEMENT TAB */}
+          {activeTab === 'backups' && server && (
+            <MysqlBackupRestoreManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              initialDatabase={selectedTreeNode.dbName || (databases[0]?.name || '')}
+              onNavigateToSqlStudio={(sql, dbName) => {
+                setSqlQuery(sql);
+                setActiveTab('sql');
+              }}
             />
           )}
 

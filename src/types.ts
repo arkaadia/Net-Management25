@@ -2464,6 +2464,142 @@ export interface MysqlDynamicVariableUpdateRequest {
   sessionPassword?: string;
 }
 
+// ==========================================
+// Phase 17: MySQL Advanced Database & Configuration Backup & Restore Management Suite
+// ==========================================
+
+export type MysqlBackupCategory = 'database' | 'table' | 'configuration';
+export type MysqlBackupFileFormat = 'sql' | 'json' | 'csv' | 'dump' | 'gz';
+export type MysqlBackupRestoreMode = 'full' | 'structure_only' | 'data_only';
+
+export interface MysqlBackupItem {
+  id: string;
+  filename: string;
+  category: MysqlBackupCategory;
+  database?: string;
+  sizeBytes: number;
+  sizePretty: string;
+  mode?: MysqlBackupRestoreMode;
+  format: MysqlBackupFileFormat;
+  createdAt: string;
+  tablesCount?: number;
+  tables?: string[];
+  engineUsed: 'native_mysqldump' | 'logical_sql_dumper' | 'config_snapshot';
+  downloadUrl?: string;
+  description?: string;
+  descriptionFa?: string;
+}
+
+export interface MysqlCreateBackupRequest {
+  category?: MysqlBackupCategory;
+  database?: string;
+  mode?: MysqlBackupRestoreMode;
+  format?: MysqlBackupFileFormat;
+  tables?: string[];
+  includeDropTable?: boolean;
+  includeCreateDb?: boolean;
+  disableForeignKeyChecks?: boolean;
+  includeViews?: boolean;
+  includeRoutines?: boolean;
+  includeTriggers?: boolean;
+  includeEvents?: boolean;
+  maxRowsPerTable?: number;
+  insertBatchSize?: number;
+  customFilename?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface MysqlCreateBackupResult {
+  success: boolean;
+  backup?: MysqlBackupItem;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+  durationMs?: number;
+  sqlDumpPreview?: string;
+}
+
+export interface MysqlValidateRestoreRequest {
+  filename?: string;
+  sqlContent?: string;
+  targetDatabase?: string;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface MysqlValidateRestoreResult {
+  valid: boolean;
+  backupItem?: MysqlBackupItem;
+  targetDatabase: string;
+  databaseExists: boolean;
+  targetHasExistingData: boolean;
+  existingTablesCount: number;
+  existingTablesSample: string[];
+  tableCollisions: string[];
+  statementsCount: number;
+  detectedOperations: {
+    createTable: number;
+    dropTable: number;
+    alterTable: number;
+    insert: number;
+    update: number;
+    delete: number;
+    other: number;
+  };
+  warning?: string;
+  warningFa?: string;
+  requiresExplicitConfirmation: boolean;
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlRestoreBackupRequest {
+  targetDatabase: string;
+  filename?: string;
+  sqlContent?: string;
+  createDatabaseIfNotExists?: boolean;
+  disableForeignKeyChecks?: boolean;
+  disableUniqueChecks?: boolean;
+  singleTransaction?: boolean;
+  continueOnError?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface MysqlRestoreBackupResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedStatementsCount: number;
+  affectedRowsCount: number;
+  durationMs: number;
+  warningsCount: number;
+  warnings?: string[];
+  errorsCount: number;
+  errors?: string[];
+  error?: string;
+  errorFa?: string;
+  outputLog?: string;
+}
+
+export interface MysqlBackupPreviewResult {
+  success: boolean;
+  filename: string;
+  content: string;
+  totalLines: number;
+  isTruncated: boolean;
+  sizeBytes: number;
+  category: MysqlBackupCategory;
+  format: MysqlBackupFileFormat;
+  error?: string;
+  errorFa?: string;
+}
+
 export type MysqlSqlClassificationType =
   | 'read_only'
   | 'write'

@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.226.0';
+export const APP_VERSION = '1.227.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.227.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۷ سیستم مدیریت MySQL: ماژول جامع پشتیبان‌گیری، بازیابی و ایمپورت پیشرفته دیتابیس و تنظیمات سرور (Advanced Database & Configuration Backup & Restore Suite)',
+    title_en: 'Phase 17: MySQL Advanced Database & Configuration Backup & Restore Management Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب تخصصی مدیریت پشتیبان‌گیری و بازیابی پیشرفته MySQL (`MysqlBackupRestoreManagerTab`) در مودال اصلی مدیریت MySQL با رعایت دقیق استانداردهای ۵گانه مودال‌ها.',
+      'آرشیو متمرکز نسخه‌های پشتیبان (Backups Repository): پایش و مدیریت جامع کلیه فایل‌های دامپ دیتابیس (.sql, .dump, .json, .csv) و اسنپ‌شات‌های پیکربندی سرور (my.cnf) همراه با محاسبات حجم، تعداد جداول، تاریخ ایجاد و موتور تولیدکننده.',
+      'ویزارد چهارمرحله‌ای بازیابی ایمن و حفاظت از داده‌ها (Safety-Gated Restore Wizard): امکان بازیابی از آرشیو سرور، الصاق مستقیم کدهای اسکریپت SQL، یا آپلود فایل از رایانه با جریان کار گام‌به‌گام.',
+      'موتور اعتبارسنجی و تشخیص تداخل جداول (Pre-Restore Collision Detection Engine): بررسی ساختاری دستورات اسکریپت قبل از اجرا، شمارش دستورات CREATE/DROP/INSERT، استعلام از information_schema و هشدار صریح در صورت وجود جداول همنام در دیتابیس مقصد.',
+      'ایجاد خودکار دیتابیس مجزا (Isolated Database Creation): امکان ساخت آنی پایگاه داده جدید بر روی سرور جهت بازیابی ایزوله بدون هیچ‌گونه ریسک برای داده‌های جاری با انکودینگ utf8mb4.',
+      'کنترل‌های پیشرفته اجرای اسکریپت: امکان غیرفعال‌سازی موقت بررسی کلیدهای خارجی (SET FOREIGN_KEY_CHECKS=0)، بررسی یکتایی (SET UNIQUE_CHECKS=0)، بسته‌بندی در تراکنش واحد (Single Transaction Wrap) و حالت ادامه در صورت خطا (Continue on Error).',
+      'پیش‌نمایش درونی کدهای نسخه پشتیبان (In-Browser Code Preview): بازرسی سریع ۵۱۲ کیلوبایت اولیه فایل همراه با شماره خطوط، شمارش سطرها، کپی مستقیم و امکان انتقال یک‌کلیکه به کنسول SQL Studio.',
+      'سامانه آپلود فایل‌های اسکریپت (Direct Upload Hub): بارگذاری مستقیم فایل‌های دامپ حجیم از رایانه به دایرکتوری ذخیره‌سازی سرور با ثبت خودکار متادیتا.',
+      'تلمتری و گزارش تفصیلی اجرا: نمایش نوار پیشرفت، تعداد دقیق دستورات اجرا شده، سطرهای تحت تاثیر و خروجی کامل لاگ‌ها در محیط ترمینال تعاملی.',
+      'حذف ایمن نسخه‌ها با دیالوگ تاییدیه دو مرحله‌ای و رعایت کامل قوانین کنتراست ارگونومیک تم تیره و روشن و ممنوعیت اکید نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Advanced Backup & Restore Management tab (`MysqlBackupRestoreManagerTab`) inside MySQLManagementModal strictly conforming to the 5 universal modal standards.',
+      'Centralized Backups Repository: deep inspection and lifecycle management of database dump files (.sql, .dump, .json, .csv) and server configuration snapshots (my.cnf) with size metrics, table counts, and engine telemetry.',
+      '4-Step Safety-Gated Restore Wizard: multi-source restoration supporting local repository files, raw multi-statement SQL script pasting, and direct client file uploads.',
+      'Pre-Restore Collision Detection Engine: structural introspection of SQL dump statements prior to execution, counting CREATE/DROP/INSERT operations, querying information_schema.TABLES, and alerting on colliding relations in target databases.',
+      'Isolated Database Provisioning: instant on-the-fly creation of dedicated target databases with UTF8MB4 character set and utf8mb4_unicode_ci collation to ensure zero-risk isolated imports.',
+      'Advanced Execution Controls: toggle temporary foreign key checks suppression (SET FOREIGN_KEY_CHECKS=0), unique checks suppression (SET UNIQUE_CHECKS=0), atomic single transaction wrapping (START TRANSACTION/COMMIT), and fault-tolerant warning logging (Continue on Error).',
+      'In-Browser Backup Code Inspector: instant inspection of backup contents with line numbering, syntax telemetry, one-click clipboard copying, and seamless "Open in SQL Studio" direct routing.',
+      'Direct File Upload Hub: upload SQL dump files directly from client machine to server repository with automated metadata registration.',
+      'Live Execution Progress & Telemetry: real-time progress bar, executed statements counter, affected row metrics, execution timer, and terminal-style output log.',
+      'Safe deletion modal with two-step confirmation, high-contrast dark/light theme ergonomics, and strict zero-Persian English localization.'
+    ],
+  },
   {
     version: '1.226.0',
     releaseDate: '2026-09-30',

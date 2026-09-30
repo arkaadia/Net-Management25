@@ -90,6 +90,14 @@ import {
   MysqlClientAuthSaveResult,
   MysqlHostRuleUpdateRequest,
   MysqlDynamicVariableUpdateRequest,
+  MysqlBackupItem,
+  MysqlCreateBackupRequest,
+  MysqlCreateBackupResult,
+  MysqlValidateRestoreRequest,
+  MysqlValidateRestoreResult,
+  MysqlRestoreBackupRequest,
+  MysqlRestoreBackupResult,
+  MysqlBackupPreviewResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1925,6 +1933,91 @@ export async function flushRemoteServerMysqlPrivileges(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: options?.password }),
+  });
+  return res.json();
+}
+
+// ==========================================
+// Phase 17: MySQL Advanced Database & Configuration Backup & Restore API
+// ==========================================
+
+export async function fetchRemoteServerMysqlBackups(
+  id: string,
+  options?: { password?: string }
+): Promise<{ success: boolean; backups?: MysqlBackupItem[]; error?: string; errorFa?: string }> {
+  const query = options?.password ? `?password=${encodeURIComponent(options.password)}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups${query}`);
+  return res.json();
+}
+
+export async function createRemoteServerMysqlBackup(
+  id: string,
+  payload: MysqlCreateBackupRequest
+): Promise<MysqlCreateBackupResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function validateRemoteServerMysqlRestore(
+  id: string,
+  payload: MysqlValidateRestoreRequest
+): Promise<MysqlValidateRestoreResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/validate-restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function restoreRemoteServerMysqlBackup(
+  id: string,
+  payload: MysqlRestoreBackupRequest
+): Promise<MysqlRestoreBackupResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function previewRemoteServerMysqlBackup(
+  id: string,
+  filename: string
+): Promise<MysqlBackupPreviewResult> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/${encodeURIComponent(filename)}/preview`
+  );
+  return res.json();
+}
+
+export async function deleteRemoteServerMysqlBackup(
+  id: string,
+  filename: string
+): Promise<{ success: boolean; message?: string; messageFa?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/${encodeURIComponent(filename)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+  return res.json();
+}
+
+export async function uploadRemoteServerMysqlBackup(
+  id: string,
+  filename: string,
+  content: string
+): Promise<{ success: boolean; backup?: MysqlBackupItem; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backups/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, content }),
   });
   return res.json();
 }
