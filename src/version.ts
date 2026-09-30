@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.227.0';
+export const APP_VERSION = '1.227.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.227.1',
+    releaseDate: '2026-09-30',
+    type: 'patch',
+    title: 'رفع خطای بررسی خودکار آپدیت گیت و پیکربندی ریموت منبع (Git Update Remote Resiliency)',
+    title_en: 'Fix Git Update Checker Remote Resolution & Resilient Upstream Discovery',
+    changes: [
+      'اصلاح منطق بررسی کامیت‌های ریموت گیت در server.ts با پیکربندی خودکار origin به ریپازیتوری استاندارد گیت‌هاب در صورت تعریف نشدن ریموت محلی.',
+      'افزودن فالبک مستقیم آدرس مخزن گیت‌هاب در دستور git ls-remote جهت جلوگیری از خطای Command failed در محیط‌های فاقد ریموت ثبت‌شده.',
+      'بهبود پایش و پیام‌های دیاگنوستیک بررسی نسخه‌های جدید بدون ثبت خطای مانیتورینگ در لاگ سرور.',
+      'پشتیبانی خودکار از ایجاد ریموت در زمان اجرای ارتقای نرم‌افزاری در پایپ‌لاین به‌روزرسانی سیستم.'
+    ],
+    changes_en: [
+      'Resolved git remote resolution issue in server.ts by auto-configuring origin to canonical GitHub repository if missing from local environment.',
+      'Implemented direct upstream repository URL fallback for git ls-remote to prevent command execution errors in fresh or unmapped environments.',
+      'Refined update checking diagnostics to ensure smooth background version reconciliation without triggering process warnings.',
+      'Ensured resilient git remote auto-creation during in-place software update pipelines.'
+    ]
+  },
   {
     version: '1.227.0',
     releaseDate: '2026-09-30',

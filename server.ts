@@ -268,14 +268,24 @@ app.get('/api/system/check-update', async (req: Request, res: Response) => {
       }
 
       try {
-        // Configure authenticated remote if needed
-        const lsRemoteOut = await executeShell('git ls-remote origin refs/heads/master', projectRoot, 5000);
+        // Ensure remote origin is configured or query canonical repository URL
+        let remoteTarget = 'origin';
+        try {
+          const remotes = await executeShell('git remote', projectRoot, 2000);
+          if (!remotes.split('\n').map(r => r.trim()).includes('origin')) {
+            await executeShell('git remote add origin https://github.com/shahbazimasoud/Net-Management.git', projectRoot, 2000).catch(() => {});
+          }
+        } catch {
+          remoteTarget = 'https://github.com/shahbazimasoud/Net-Management.git';
+        }
+
+        const lsRemoteOut = await executeShell(`git ls-remote ${remoteTarget} refs/heads/master`, projectRoot, 5000);
         const match = lsRemoteOut.match(/^([0-9a-f]{40})/i);
         if (match) {
           remoteCommitSha = match[1];
         }
       } catch (gitCheckErr: any) {
-        console.warn('[Check Update] Local git ls-remote warning:', gitCheckErr.message);
+        console.log('[Check Update] Local git ls-remote fallback notice:', gitCheckErr?.message || gitCheckErr);
       }
     }
 
@@ -512,7 +522,11 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
       log('Local Git repository detected. Setting origin and pulling latest master branch...');
       try {
         const authedRemote = `https://shahbazimasoud:${GITHUB_AUTH_TOKEN}@github.com/shahbazimasoud/Net-Management.git`;
-        await executeShell(`git remote set-url origin "${authedRemote}" 2>/dev/null || true`, projectRoot, 5000);
+        try {
+          await executeShell(`git remote set-url origin "${authedRemote}"`, projectRoot, 5000);
+        } catch {
+          await executeShell(`git remote add origin "${authedRemote}"`, projectRoot, 5000).catch(() => {});
+        }
         await executeShell('git fetch origin master', projectRoot, 30000);
         await executeShell('git checkout master 2>/dev/null || git checkout -B master origin/master', projectRoot, 10000);
         await executeShell('git reset --hard origin/master', projectRoot, 10000);
