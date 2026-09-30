@@ -1,13 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-40 -40 592 592">
   <defs>
     <filter id="s" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0.5" dy="1.2" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.45"/>
+      <feDropShadow dx="6" dy="14" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
     </filter>
   </defs>
   <g filter="url(#s)">
-    <path d="M12.5 3.5C12.5 2.67 13.17 2 14 2C14.83 2 15.5 2.67 15.5 3.5V11H16C16 10.17 16.67 9.5 17.5 9.5C18.33 9.5 19 10.17 19 11V12H19.5C19.5 11.17 20.17 10.5 21 10.5C21.83 10.5 22.5 11.17 22.5 12V14.5C22.5 20.3 18.3 25 13 25H12C8.13 25 5 21.87 5 18V15.5C5 14.67 5.67 14 6.5 14C7.03 14 7.5 14.28 7.78 14.71C8.08 13.72 9 13 10.08 13C10.37 13 10.65 13.06 10.9 13.17C11.19 12.18 12.11 11.46 13.19 11.46V3.5Z" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="12.5" y1="11" x2="12.5" y2="3.5" stroke="#0F172A" stroke-width="1.2" stroke-linecap="round"/>
-    <line x1="16" y1="11" x2="16" y2="3.5" stroke="#0F172A" stroke-width="1.2" stroke-linecap="round"/>
-    <line x1="19.5" y1="12" x2="19.5" y2="10.5" stroke="#0F172A" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 208c0 8.8-7.2 16-16 16s-16-7.2-16-16l0-176c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 272c0 1.5 0 3.1 .1 4.6L67.6 283c-16-15.2-41.3-14.6-56.6 1.4s-14.6 41.3 1.4 56.6L124.8 448c43.1 41.1 100.4 64 160 64l19.2 0c97.2 0 176-78.8 176-176l0-208c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 112c0 8.8-7.2 16-16 16s-16-7.2-16-16l0-176c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 176c0 8.8-7.2 16-16 16s-16-7.2-16-16l0-208z"
+      fill="#FFFFFF"
+      stroke="#0F172A"
+      stroke-width="22"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
   </g>
 </svg>

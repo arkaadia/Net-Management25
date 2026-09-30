@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.232.2';
+export const APP_VERSION = '1.232.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.232.3',
+    releaseDate: '2026-09-30',
+    type: 'patch',
+    title: 'اصلاح آیکون کرسر دست با ۵ انگشت کاملاً باز در حالت عادی و مشت کامل در حالت درگ با وکتورهای استاندارد',
+    title_en: 'Standard 5-Finger Open Hand and Clenched Fist Vector Cursors for Grab and Drag States',
+    changes: [
+      'جایگزینی کامل آیکون کرسر با وکتورهای استاندارد و رسمی: ۵ انگشت کاملاً باز و تفکیک‌شده (شامل شست، اشاره، میانی، حلقه و کوچک) در حالت هاور (Grab).',
+      'نمایش دست در حالت مشت کامل و گره‌خورده (Clenched Fist / Grabbing) با بند انگشتان و شست خوابیده در زمان کلیک و درگ کردن بر روی کره سه‌بعدی لاگین و بوم شماتیک.',
+      'حذف کامل تشابهات ناخواسته قبلی با تراز یکدست و طبیعی ارتفاع انگشتان بر اساس استانداردهای بین‌المللی ارگونومی UI.',
+      'تجهیز آیکون‌ها به کادر تیره عمیق (#0F172A) و سایه نرم (Drop Shadow) برای تفکیک‌پذیری و وضوح ۱۰۰ درصدی روی هر دو تم تاریک و روشن.'
+    ],
+    changes_en: [
+      'Replaced cursor icons with standard vector hand shapes: fully open 5 fingers (thumb, index, middle, ring, and pinky) for idle/hover grab state.',
+      'Clenched closed fist with visible knuckles and wrapped thumb during active drag on the Login 3D Globe and Schematic Canvas.',
+      'Completely eliminated unwanted hand geometry anomalies with natural, standard proportional finger alignment.',
+      'Equipped cursor vectors with high-contrast slate outlines and subtle drop shadows for clear visibility on both dark and light canvas themes.'
+    ]
+  },
   {
     version: '1.232.2',
     releaseDate: '2026-09-30',
