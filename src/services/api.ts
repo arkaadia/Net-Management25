@@ -17,6 +17,9 @@ import {
   PostgresRemediateConnectionResult,
   PostgresEngineOverview,
   MysqlConnectionTestResult,
+  MysqlAutoFixResult,
+  MysqlUserPrivilegesAuditResult,
+  MysqlAutoGrantResult,
   MysqlOverview,
   MysqlDatabaseItem,
   MysqlDatabaseDetails,
@@ -1420,6 +1423,42 @@ export async function testRemoteServerMysqlConnection(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function autoFixRemoteServerMysqlAccess(
+  id: string,
+  ephemeralSshPassword?: string
+): Promise<MysqlAutoFixResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/auto-fix-remote-access`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ephemeralSshPassword }),
+  });
+  return res.json();
+}
+
+export async function auditRemoteServerMysqlUserPrivileges(
+  id: string,
+  ephemeralSshPassword?: string
+): Promise<MysqlUserPrivilegesAuditResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/audit-user-privileges`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ephemeralSshPassword }),
+  });
+  return res.json();
+}
+
+export async function autoGrantRemoteServerMysqlUserPrivileges(
+  id: string,
+  options?: { database?: string; ephemeralSshPassword?: string }
+): Promise<MysqlAutoGrantResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/auto-grant-user-privileges`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
   });
   return res.json();
 }

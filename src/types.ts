@@ -1468,6 +1468,42 @@ export interface MysqlConnectionTestResult {
   errorDetail?: string;
 }
 
+export interface MysqlAutoFixResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  logs: string[];
+  configUpdated?: string;
+  firewallResult?: string;
+  connectionTest?: MysqlConnectionTestResult;
+  noSshCredentials?: boolean;
+}
+
+export interface MysqlUserPrivilegesAuditResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  userExists: boolean;
+  username: string;
+  userHosts: string[];
+  hasRemoteHost: boolean;
+  targetDatabase: string;
+  targetDbExists: boolean;
+  hasDbPrivileges: boolean;
+  grants: string[];
+  recommendedGrantSql: string;
+  noSshCredentials?: boolean;
+}
+
+export interface MysqlAutoGrantResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedSql: string;
+  connectionTest?: MysqlConnectionTestResult;
+  noSshCredentials?: boolean;
+}
+
 export interface MysqlOverview {
   serverAddress: string;
   port: number;

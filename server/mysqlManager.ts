@@ -9,6 +9,9 @@ import { runAdaptiveSshCommand } from './linuxServerMonitor';
 import { analyzeMysqlSqlSafety, MysqlSqlQuerySafetyReport } from './mysqlSqlSafety';
 import {
   MysqlConnectionTestResult,
+  MysqlAutoFixResult,
+  MysqlUserPrivilegesAuditResult,
+  MysqlAutoGrantResult,
   MysqlOverview,
   MysqlDatabaseItem,
   MysqlDatabaseDetails,
@@ -443,16 +446,17 @@ export async function testMysqlConnection(
           const sshOut = await runAdaptiveSshCommand(server, 'mysqladmin ping || systemctl is-active mysql || systemctl is-active mariadb');
           if (sshOut && (sshOut.includes('alive') || sshOut.includes('active'))) {
             return {
-              success: true,
-              status: 'connected',
-              message: `MySQL is active on host (Direct TCP port ${config.port} might be bound to 127.0.0.1 or firewalled)`,
-              messageFa: `سرویس MySQL روی سرور فعال است (پورت مستقیم ${config.port} ممکن است روی لوکال‌هاست محدود شده باشد)`,
+              success: false,
+              status: 'connection_refused',
+              message: `MySQL/MariaDB service is active on host, but TCP connection to port ${config.port} failed. Bind-address may be restricted to 127.0.0.1 or port 3306 is blocked by firewall.`,
+              messageFa: `سرویس MySQL/MariaDB روی سرور در حال اجرا است، اما ارتباط با پورت ${config.port} برقرار نشد. احتمالاً bind-address روی ۱۲۷.۰.۰.۱ قفل شده یا پورت ۳۳۰۶ در فایروال بسته است.`,
               serverAddress: config.host,
               port: config.port,
               username: config.user,
               database: config.database,
-              version: 'Active (via Host)',
+              version: 'Active on Host (TCP Unreachable)',
               testedAt,
+              errorDetail: 'Service active on host, TCP connection failed (bind-address/firewall)',
             };
           }
         } catch {}
@@ -8870,5 +8874,390 @@ export async function executeMysqlHardeningRemediation(
     };
   } finally {
     await conn.end().catch(() => {});
+  }
+}
+
+/**
+ * Automatically configures MariaDB/MySQL server to accept remote connections:
+ * 1. Modifies bind-address to 0.0.0.0 in configuration file (e.g. 50-server.cnf / my.cnf)
+ * 2. Restarts MariaDB/MySQL service
+ * 3. Opens port 3306 in server firewall (UFW / Firewalld / iptables)
+ * 4. Runs automated re-test and returns comprehensive logs
+ */
+export async function autoFixMysqlRemoteAccess(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<MysqlAutoFixResult> {
+  const logs: string[] = [];
+  const log = (msg: string) => logs.push(`[${new Date().toISOString().substring(11, 19)}] ${msg}`);
+
+  const hasSsh = Boolean(ephemeralPassword || server.ssh_password || server.ssh_key);
+  if (!hasSsh) {
+    return {
+      success: false,
+      noSshCredentials: true,
+      message: 'Linux SSH credentials are not configured on this server. Please enter root password or configure SSH in server settings.',
+      messageFa: 'مشخصات SSH سرور لینوکس ثبت نشده است. لطفاً ابتدا رمز عبور root را وارد کنید یا در ویرایش سرور، اطلاعات دسترسی SSH را تنظیم نمایید.',
+      logs: ['Error: No SSH credentials available for remote remediation.'],
+    };
+  }
+
+  log(`Initiating automated MariaDB/MySQL remote access remediation on ${server.ip}...`);
+
+  try {
+    // Step 1: Detect configuration file
+    log('Searching for MariaDB/MySQL configuration files...');
+    const findCmd = `for f in /etc/mysql/mariadb.conf.d/50-server.cnf /etc/mysql/my.cnf /etc/my.cnf /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/conf.d/mariadb.cnf; do if [ -f "$f" ]; then echo "$f"; fi; done`;
+    const findOut = await runAdaptiveSshCommand(server, findCmd, ephemeralPassword, 8000);
+    const configFiles = findOut.split('\n').map((s) => s.trim()).filter(Boolean);
+
+    let targetConfig = '';
+    if (configFiles.length > 0) {
+      targetConfig = configFiles.find((f) => f.includes('50-server.cnf')) || configFiles[0];
+      log(`Detected configuration file: ${targetConfig}`);
+    } else {
+      targetConfig = '/etc/mysql/mariadb.conf.d/50-server.cnf';
+      log(`No existing config file detected. Will create/update ${targetConfig}`);
+    }
+
+    // Step 2: Backup and update bind-address to 0.0.0.0
+    log(`Backing up and updating bind-address to 0.0.0.0 in ${targetConfig}...`);
+    const updateConfigScript = `
+      CONF="${targetConfig}"
+      mkdir -p "$(dirname "$CONF")" 2>/dev/null
+      if [ -f "$CONF" ]; then
+        cp "$CONF" "$CONF.bak.$(date +%s)" 2>/dev/null
+        if grep -q -E "^[#\\s]*bind-address" "$CONF"; then
+          sed -i -E 's/^[#\\s]*bind-address\\s*=.*/bind-address = 0.0.0.0/' "$CONF"
+        elif grep -q -E "\\[mysqld\\]" "$CONF"; then
+          sed -i '/\\[mysqld\\]/a bind-address = 0.0.0.0' "$CONF"
+        else
+          echo -e "\\n[mysqld]\\nbind-address = 0.0.0.0" >> "$CONF"
+        fi
+        sed -i -E 's/^[#\\s]*skip-networking/#skip-networking/' "$CONF"
+      else
+        echo -e "[mysqld]\\nbind-address = 0.0.0.0\\n" > "$CONF"
+      fi
+      grep -E "bind-address" "$CONF" 2>/dev/null || echo "bind-address set"
+    `;
+    const updateOut = await runAdaptiveSshCommand(server, updateConfigScript, ephemeralPassword, 10000);
+    log(`Config result: ${updateOut.trim() || 'bind-address = 0.0.0.0 applied'}`);
+
+    // Step 3: Restart MariaDB/MySQL service
+    log('Restarting MariaDB / MySQL service...');
+    const restartCmd = `systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || service mariadb restart 2>/dev/null || service mysql restart 2>/dev/null`;
+    await runAdaptiveSshCommand(server, restartCmd, ephemeralPassword, 15000);
+    log('Service restarted successfully.');
+
+    // Step 4: Check and open firewall port 3306
+    log('Checking and configuring server firewall for port 3306/tcp...');
+    const firewallScript = `
+      FW_MSG=""
+      if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow 3306/tcp >/dev/null 2>&1
+        ufw reload >/dev/null 2>&1
+        FW_MSG="UFW: Opened port 3306/tcp and reloaded"
+      fi
+      if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld 2>/dev/null | grep -q "active"; then
+        firewall-cmd --zone=public --add-port=3306/tcp --permanent >/dev/null 2>&1
+        firewall-cmd --reload >/dev/null 2>&1
+        FW_MSG="\${FW_MSG:+\$FW_MSG | }Firewalld: Added port 3306/tcp to public zone"
+      fi
+      if [ -z "$FW_MSG" ]; then
+        if command -v iptables >/dev/null 2>&1; then
+          iptables -C INPUT -p tcp --dport 3306 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 3306 -j ACCEPT 2>/dev/null
+          FW_MSG="iptables: Ensured INPUT rule for port 3306/tcp"
+        else
+          FW_MSG="No active firewall blocking (checked UFW, firewalld, iptables)"
+        fi
+      fi
+      echo "$FW_MSG"
+    `;
+    const fwOut = await runAdaptiveSshCommand(server, firewallScript, ephemeralPassword, 10000);
+    const fwMsg = fwOut.trim() || 'Port 3306 opened';
+    log(`Firewall: ${fwMsg}`);
+
+    // Step 5: Verify listening socket on 0.0.0.0:3306
+    log('Verifying active network listeners on port 3306...');
+    const verifyCmd = `ss -tulpn 2>/dev/null | grep 3306 || netstat -tulpn 2>/dev/null | grep 3306 || echo "port check complete"`;
+    const verifyOut = await runAdaptiveSshCommand(server, verifyCmd, ephemeralPassword, 8000);
+    log(`Listening socket: ${verifyOut.trim()}`);
+
+    // Step 6: Test direct connection
+    log('Testing MySQL connection after automated changes...');
+    const testResult = await testMysqlConnection(server);
+    log(`Connection test result: ${testResult.success ? 'SUCCESS' : 'FAILED - ' + testResult.message}`);
+
+    await recordMysqlAuditLog(
+      server,
+      'Auto-Fix Remote Access & Firewall',
+      'تعمیر خودکار دسترسی ریموت و فایروال MariaDB/MySQL',
+      'config_mutation',
+      targetConfig,
+      testResult.success ? 'success' : 'failure',
+      `Updated ${targetConfig} to bind-address=0.0.0.0, ${fwMsg}. Test result: ${testResult.status}`,
+      `کانفیگ ${targetConfig} به 0.0.0.0 تغییر یافت، ${fwMsg}. وضعیت تست: ${testResult.status}`
+    );
+
+    return {
+      success: true,
+      message: testResult.success
+        ? 'MariaDB configuration (bind-address = 0.0.0.0) and firewall port 3306 were successfully configured. Connection is active!'
+        : `Configuration and firewall were updated (${fwMsg}), but connection returned: ${testResult.message}`,
+      messageFa: testResult.success
+        ? 'تنظیمات Bind Address به 0.0.0.0 تغییر یافت، فایروال پورت ۳۳۰۶ باز شد و اتصال با موفقیت برقرار گردید.'
+        : `تنظیمات سرور و فایروال اصلاح گردید (${fwMsg})، اما تست اتصال گزارش داد: ${testResult.messageFa || testResult.message}`,
+      logs,
+      configUpdated: targetConfig,
+      firewallResult: fwMsg,
+      connectionTest: testResult,
+    };
+  } catch (err: any) {
+    log(`Error during automated remediation: ${err.message}`);
+    return {
+      success: false,
+      message: `Failed to apply automated configuration via SSH: ${err.message}`,
+      messageFa: `خطا در اعمال خودکار تنظیمات از طریق SSH: ${err.message}`,
+      logs,
+    };
+  }
+}
+
+/**
+ * Audits whether the configured user has access and privileges to connect and interact
+ * with the target database.
+ */
+export async function auditMysqlUserPrivileges(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<MysqlUserPrivilegesAuditResult> {
+  const username = server.mysql_user || 'root';
+  const targetDatabase = server.mysql_database || 'mysql';
+  const password = server.mysql_password ? decryptServerSecret(server.mysql_password) : '';
+  const recommendedGrantSql = `CREATE USER IF NOT EXISTS '${username}'@'%' IDENTIFIED BY '${password || 'YOUR_PASSWORD'}';\nGRANT ALL PRIVILEGES ON \`${targetDatabase}\`.* TO '${username}'@'%';\nFLUSH PRIVILEGES;`;
+
+  let userHosts: string[] = [];
+  let userExists = false;
+  let hasRemoteHost = false;
+  let targetDbExists = false;
+  let hasDbPrivileges = false;
+  const grants: string[] = [];
+
+  // 1. Try direct connection first if active
+  let directWorks = false;
+  try {
+    const conn = await getDirectMysqlConnection(server);
+    try {
+      directWorks = true;
+      const [uRows]: any = await conn.query('SELECT User, Host FROM mysql.user WHERE User = ?', [username]);
+      if (Array.isArray(uRows) && uRows.length > 0) {
+        userExists = true;
+        userHosts = uRows.map((r: any) => String(r.Host || r.host));
+        hasRemoteHost = userHosts.includes('%') || userHosts.some((h) => h !== 'localhost' && h !== '127.0.0.1');
+      }
+
+      const [dbRows]: any = await conn.query('SHOW DATABASES LIKE ?', [targetDatabase]);
+      targetDbExists = Array.isArray(dbRows) && dbRows.length > 0;
+
+      try {
+        const [grantRows]: any = await conn.query(`SHOW GRANTS FOR '${username}'@'${userHosts[0] || '%'}'`);
+        if (Array.isArray(grantRows)) {
+          grantRows.forEach((r: any) => {
+            const str = Object.values(r)[0] as string;
+            if (str) {
+              grants.push(str);
+              if (str.includes('ALL PRIVILEGES') || str.includes(`\`${targetDatabase}\``) || str.includes('*.*')) {
+                hasDbPrivileges = true;
+              }
+            }
+          });
+        }
+      } catch {
+        try {
+          const [curGrants]: any = await conn.query('SHOW GRANTS');
+          if (Array.isArray(curGrants)) {
+            curGrants.forEach((r: any) => {
+              const str = Object.values(r)[0] as string;
+              if (str) {
+                grants.push(str);
+                if (str.includes('ALL PRIVILEGES') || str.includes(`\`${targetDatabase}\``) || str.includes('*.*')) {
+                  hasDbPrivileges = true;
+                }
+              }
+            });
+          }
+        } catch {}
+      }
+    } finally {
+      await conn.end().catch(() => {});
+    }
+  } catch {}
+
+  // 2. Query via SSH root if direct didn't provide complete info
+  const hasSsh = Boolean(ephemeralPassword || server.ssh_password || server.ssh_key);
+  if (!directWorks && hasSsh) {
+    try {
+      const qScript = `
+        mariadb -u root -e "
+          SELECT CONCAT('USER_ROW:', User, '|', Host) FROM mysql.user WHERE User='${username}';
+          SHOW DATABASES LIKE '${targetDatabase}';
+          SHOW GRANTS FOR '${username}'@'%';
+          SHOW GRANTS FOR '${username}'@'localhost';
+        " 2>/dev/null || mysql -u root -e "
+          SELECT CONCAT('USER_ROW:', User, '|', Host) FROM mysql.user WHERE User='${username}';
+          SHOW DATABASES LIKE '${targetDatabase}';
+          SHOW GRANTS FOR '${username}'@'%';
+          SHOW GRANTS FOR '${username}'@'localhost';
+        " 2>/dev/null
+      `;
+      const out = await runAdaptiveSshCommand(server, qScript, ephemeralPassword, 10000);
+      const lines = out.split('\n').map((l) => l.trim()).filter(Boolean);
+
+      lines.forEach((l) => {
+        if (l.includes('USER_ROW:')) {
+          userExists = true;
+          const parts = l.replace('USER_ROW:', '').split('|');
+          if (parts[1]) userHosts.push(parts[1].trim());
+        }
+        if (l.toLowerCase() === targetDatabase.toLowerCase()) {
+          targetDbExists = true;
+        }
+        if (l.startsWith('GRANT ') || l.startsWith('grant ')) {
+          grants.push(l);
+          if (l.includes('ALL PRIVILEGES') || l.includes(`\`${targetDatabase}\``) || l.includes('*.*')) {
+            hasDbPrivileges = true;
+          }
+        }
+      });
+      userHosts = Array.from(new Set(userHosts));
+      hasRemoteHost = userHosts.includes('%') || userHosts.some((h) => h !== 'localhost' && h !== '127.0.0.1');
+    } catch {}
+  }
+
+  let message = '';
+  let messageFa = '';
+
+  if (!userExists) {
+    message = `User '${username}' does not exist in MariaDB/MySQL.`;
+    messageFa = `کاربر «${username}» در پایگاه‌داده وجود ندارد.`;
+  } else if (!hasRemoteHost) {
+    message = `User '${username}' only exists for localhost (${userHosts.join(', ')}). Remote connections from '%' are denied.`;
+    messageFa = `کاربر «${username}» صرفاً برای لوکال‌هاست (${userHosts.join(', ')}) تعریف شده و دسترسی ریموت با میزبان '%' ندارد.`;
+  } else if (!hasDbPrivileges) {
+    message = `User '${username}' exists but does not have privileges on database '${targetDatabase}'.`;
+    messageFa = `کاربر «${username}» وجود دارد اما دسترسی و مجوز کافی روی پایگاه‌داده «${targetDatabase}» را ندارد.`;
+  } else {
+    message = `User '${username}' has valid privileges on database '${targetDatabase}'.`;
+    messageFa = `کاربر «${username}» دارای مجوزهای معتبر روی پایگاه‌داده «${targetDatabase}» است.`;
+  }
+
+  return {
+    success: true,
+    message,
+    messageFa,
+    userExists,
+    username,
+    userHosts,
+    hasRemoteHost,
+    targetDatabase,
+    targetDbExists,
+    hasDbPrivileges,
+    grants: Array.from(new Set(grants)),
+    recommendedGrantSql,
+    noSshCredentials: !hasSsh,
+  };
+}
+
+/**
+ * Automatically grants full privileges on the database to the configured user,
+ * creating the database and user with '%' host if not already existing.
+ */
+export async function autoGrantMysqlUserPrivileges(
+  server: RemoteServer,
+  options?: { database?: string; ephemeralPassword?: string }
+): Promise<MysqlAutoGrantResult> {
+  const username = server.mysql_user || 'root';
+  const targetDatabase = options?.database || server.mysql_database || 'mysql';
+  const password = server.mysql_password ? decryptServerSecret(server.mysql_password) : '';
+  const hasSsh = Boolean(options?.ephemeralPassword || server.ssh_password || server.ssh_key);
+
+  const sqlStatements = [
+    `CREATE DATABASE IF NOT EXISTS \`${targetDatabase}\`;`,
+    password
+      ? `CREATE USER IF NOT EXISTS '${username}'@'%' IDENTIFIED BY '${password}';`
+      : `CREATE USER IF NOT EXISTS '${username}'@'%';`,
+    password ? `ALTER USER '${username}'@'%' IDENTIFIED BY '${password}';` : '',
+    `GRANT ALL PRIVILEGES ON \`${targetDatabase}\`.* TO '${username}'@'%';`,
+    `FLUSH PRIVILEGES;`,
+  ].filter(Boolean);
+
+  const fullSql = sqlStatements.join(' ');
+
+  if (hasSsh) {
+    try {
+      const qScript = `
+        mariadb -u root -e "${fullSql.replace(/"/g, '\\"')}" 2>/dev/null || mysql -u root -e "${fullSql.replace(/"/g, '\\"')}" 2>/dev/null
+      `;
+      await runAdaptiveSshCommand(server, qScript, options?.ephemeralPassword, 12000);
+      const testResult = await testMysqlConnection(server, { database: targetDatabase });
+
+      await recordMysqlAuditLog(
+        server,
+        'Auto-Grant User Privileges',
+        'اعطای خودکار دسترسی کاربر پایگاه‌داده',
+        'grant_revoke',
+        `${username}@% on ${targetDatabase}`,
+        testResult.success ? 'success' : 'failure',
+        `Executed: ${fullSql}. Test status: ${testResult.status}`,
+        `دستورات اعطای دسترسی به ${username} روی ${targetDatabase} اجرا شد. وضعیت: ${testResult.status}`
+      );
+
+      return {
+        success: true,
+        message: testResult.success
+          ? `Privileges on database '${targetDatabase}' successfully granted to '${username}'@'%'. Connection is verified!`
+          : `Privileges were granted, but connection test reported: ${testResult.message}`,
+        messageFa: testResult.success
+          ? `دسترسی کامل به پایگاه‌داده «${targetDatabase}» به کاربر «${username}»@'%' اعطا شد و اتصال تأیید گردید.`
+          : `مجوزها صادر شدند، اما تست اتصال گزارش داد: ${testResult.messageFa || testResult.message}`,
+        executedSql: fullSql,
+        connectionTest: testResult,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to grant privileges via SSH root: ${err.message}`,
+        messageFa: `خطا در اعطای مجوزها از طریق SSH: ${err.message}`,
+        executedSql: fullSql,
+      };
+    }
+  }
+
+  // Fallback direct execution
+  try {
+    const conn = await getDirectMysqlConnection(server);
+    try {
+      for (const statement of sqlStatements) {
+        await conn.query(statement);
+      }
+      const testResult = await testMysqlConnection(server, { database: targetDatabase });
+      return {
+        success: true,
+        message: `Privileges on database '${targetDatabase}' granted to '${username}'.`,
+        messageFa: `دسترسی به پایگاه‌داده «${targetDatabase}» به کاربر «${username}» اعطا شد.`,
+        executedSql: fullSql,
+        connectionTest: testResult,
+      };
+    } finally {
+      await conn.end().catch(() => {});
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      noSshCredentials: true,
+      message: `Failed to execute grant directly: ${err.message}. Please configure SSH credentials in server settings to allow root execution.`,
+      messageFa: `خطا در اجرای مستقیم دستورات: ${err.message}. لطفاً مشخصات SSH سرور را جهت اجرای دستوری root وارد کنید.`,
+      executedSql: fullSql,
+    };
   }
 }

@@ -140,6 +140,9 @@ import {
   executeMysqlHardeningRemediation,
   getMysqlAuditLogsReport,
   recordMysqlAuditLog,
+  autoFixMysqlRemoteAccess,
+  auditMysqlUserPrivileges,
+  autoGrantMysqlUserPrivileges,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4450,6 +4453,79 @@ apiRouter.post('/remote-servers/:id/mysql/test-connection', async (req: Request,
       status: 'unknown_error',
       message: err.message,
       messageFa: 'خطای داخلی سرور هنگام آزمایش ارتباط MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/auto-fix-remote-access - Automate bind-address and firewall configuration via SSH
+apiRouter.post('/remote-servers/:id/mysql/auto-fix-remote-access', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        message: 'Server not found in fleet',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد',
+      });
+    }
+    const { ephemeralSshPassword } = req.body || {};
+    const result = await autoFixMysqlRemoteAccess(server, ephemeralSshPassword);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Internal server error while auto-fixing MariaDB access',
+      messageFa: 'خطای داخلی سرور هنگام رفع خودکار مشکل اتصال MariaDB',
+      logs: [`Exception: ${err.message}`],
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/audit-user-privileges - Audit user existence, hosts, and database privileges
+apiRouter.post('/remote-servers/:id/mysql/audit-user-privileges', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        message: 'Server not found in fleet',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد',
+      });
+    }
+    const { ephemeralSshPassword } = req.body || {};
+    const result = await auditMysqlUserPrivileges(server, ephemeralSshPassword);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Internal server error during user privilege audit',
+      messageFa: 'خطای داخلی هنگام بررسی دسترسی‌های کاربر MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/auto-grant-user-privileges - Auto-grant user privileges and create DB if needed
+apiRouter.post('/remote-servers/:id/mysql/auto-grant-user-privileges', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        message: 'Server not found in fleet',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد',
+      });
+    }
+    const { database, ephemeralSshPassword } = req.body || {};
+    const result = await autoGrantMysqlUserPrivileges(server, { database, ephemeralPassword: ephemeralSshPassword });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Internal server error while granting user privileges',
+      messageFa: 'خطای داخلی هنگام اعطای دسترسی‌های کاربر پایگاه‌داده',
     });
   }
 });

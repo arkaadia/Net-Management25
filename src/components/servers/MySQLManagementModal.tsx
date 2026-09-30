@@ -117,6 +117,7 @@ import {
   MysqlDropTargetType,
 } from './MysqlTableStructureModal';
 import { MysqlCreateDatabaseModal } from './MysqlCreateDatabaseModal';
+import { MysqlConnectionTroubleshootPanel } from './MysqlConnectionTroubleshootPanel';
 import {
   MysqlProgrammabilityModal,
   MysqlProgrammabilityModalMode,
@@ -285,6 +286,9 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   // Database Creation State
   const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
 
+  // Connection Redirect / Error Notice State
+  const [connectionRedirectNotice, setConnectionRedirectNotice] = useState<string | null>(null);
+
   // Phase 13: Table, Column, Index & Constraint Structural Management States
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
   const [structureModalMode, setStructureModalMode] = useState<MysqlTableStructureModalMode>('create_table');
@@ -358,6 +362,19 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     try {
       const res = await testRemoteServerMysqlConnection(server.id);
       setTestResult(res);
+      if (!res.success) {
+        setActiveTab((prev) => {
+          if (prev === 'overview') {
+            setConnectionRedirectNotice(
+              isEn
+                ? 'Database connection failed. Redirected to Connection tab for troubleshooting & automated repair.'
+                : 'برقراری ارتباط با پایگاه‌داده با خطا مواجه شد. جهت بررسی و رفع خودکار مشکل به تب تنظیمات اتصال منتقل شدید.'
+            );
+            return 'connection';
+          }
+          return prev;
+        });
+      }
     } catch (err: any) {
       setTestResult({
         success: false,
@@ -368,10 +385,21 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
         username: server.mysql_user || 'root',
         testedAt: new Date().toISOString(),
       });
+      setActiveTab((prev) => {
+        if (prev === 'overview') {
+          setConnectionRedirectNotice(
+            isEn
+              ? 'Database connection failed. Redirected to Connection tab for troubleshooting & automated repair.'
+              : 'برقراری ارتباط با پایگاه‌داده با خطا مواجه شد. جهت بررسی و رفع خودکار مشکل به تب تنظیمات اتصال منتقل شدید.'
+          );
+          return 'connection';
+        }
+        return prev;
+      });
     } finally {
       setIsTesting(false);
     }
-  }, [server]);
+  }, [server, isEn]);
 
   const loadOverview = useCallback(async () => {
     if (!server) return;
@@ -1141,6 +1169,29 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          {/* Connection Redirect Alert Notice */}
+          {connectionRedirectNotice && (
+            <div
+              className={`mb-4 p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-2 ${
+                isLightMode
+                  ? 'bg-amber-50 border-amber-300 text-amber-950'
+                  : 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="leading-relaxed font-medium">{connectionRedirectNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConnectionRedirectNotice(null)}
+                className="p-1 rounded hover:bg-black/10 transition cursor-pointer text-slate-400 hover:text-white shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* 1. OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <div className="space-y-4">
@@ -1206,6 +1257,36 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* General Connection Failure Troubleshooting Prompt */}
+              {testResult && !testResult.success && (
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                    isLightMode ? 'bg-orange-50 border-orange-300 text-orange-950' : 'bg-orange-950/20 border-orange-500/40 text-orange-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Zap className="w-4 h-4 text-orange-400 shrink-0" />
+                    <div>
+                      <span className="font-bold block">
+                        {isEn ? 'Connection Failed: Troubleshooting & Auto-Fix Available' : 'ارتباط با پایگاه‌داده برقرار نشد: ابزارهای رفع مشکل و تعمیر خودکار'}
+                      </span>
+                      <span className="text-[11px] opacity-90 block mt-0.5">
+                        {isEn
+                          ? 'MariaDB may be bound to 127.0.0.1 or port 3306 is blocked. Switch to Connection tab to run 1-Click Auto-Fix via SSH or view step-by-step guides.'
+                          : 'پایگاه‌داده ممکن است روی 127.0.0.1 محدود شده یا پورت ۳۳۰۶ در فایروال مسدود باشد. برای تعمیر خودکار با یک کلیک از طریق SSH یا مشاهده راهنما به تب تنظیمات اتصال بروید.'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('connection')}
+                    className="px-3.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition cursor-pointer shrink-0 self-end sm:self-center"
+                  >
+                    {isEn ? 'Go to Connection Tab' : 'مشاهده راهکارها در تب اتصال'}
+                  </button>
+                </div>
+              )}
 
               {/* Host Not Allowed Diagnostic & Quick Remediation Card */}
               {testResult && !testResult.success && (testResult.message?.includes('is not allowed to connect') || testResult.message?.includes('not allowed')) && (
@@ -6206,104 +6287,16 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
           {/* 6. CONNECTION & SECURITY TAB */}
           {activeTab === 'connection' && (
-            <div className="space-y-4 max-w-xl">
-              <div
-                className={`p-4 rounded-xl border space-y-3 ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-white/10'
-                }`}
-              >
-                <div className="flex items-center gap-2 pb-2 border-b border-white/10">
-                  <Key className="w-4 h-4 text-orange-400" />
-                  <span className="text-xs font-bold">
-                    {isEn ? 'Connection Parameters' : 'پارامترهای اتصال پایگاه‌داده'}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-xs font-mono">
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'Target Host / IP' : 'آدرس هاست / IP'}:</span>
-                    <span className="font-bold">{server.ip}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'MySQL Port' : 'پورت اتصال'}:</span>
-                    <span className="font-bold">{server.mysql_port || 3306}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'Username' : 'نام کاربری'}:</span>
-                    <span className="font-bold text-cyan-400">{server.mysql_user || 'root'}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'Database' : 'نام پایگاه داده'}:</span>
-                    <span className="font-bold text-amber-400">{server.mysql_database || 'mysql'}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'Password Stored' : 'وضعیت رمز عبور'}:</span>
-                    <span className="font-bold text-emerald-400">
-                      {server.mysql_password_set ? (isEn ? 'Configured (Encrypted at rest)' : 'تنظیم‌شده (رمزنگاری شده)') : (isEn ? 'None' : 'ثبت‌نشده')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5">
-                    <span className="text-slate-400">{isEn ? 'Transport Protocol' : 'پروتکل ارتباطی'}:</span>
-                    <span className="font-bold text-cyan-400">
-                      {server.ssh_password || server.ssh_key
-                        ? (isEn ? 'SSH Local Tunnel (127.0.0.1:3306)' : 'تونل امن محلی SSH (۱۲۷.۰.۰.۱:۳۳۰۶)')
-                        : (isEn ? 'Direct Remote TCP' : 'ارتباط مستقیم TCP')}
-                    </span>
-                  </div>
-                </div>
-
-                {testResult && (
-                  <div
-                    className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
-                      testResult.success
-                        ? isLightMode
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                          : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                        : isLightMode
-                        ? 'bg-rose-50 border-rose-300 text-rose-900'
-                        : 'bg-rose-950/30 border-rose-500/30 text-rose-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {testResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                      )}
-                      <span className="font-mono text-[11px] leading-tight">
-                        {isEn ? testResult.message : testResult.messageFa || testResult.message}
-                      </span>
-                    </div>
-                    {testResult.latencyMs !== undefined && (
-                      <span className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-black/20 shrink-0">
-                        {testResult.latencyMs}ms
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                <div className="pt-2 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={runTestConnection}
-                    disabled={isTesting}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-                    <span>{isEn ? 'Test Connection' : 'تست مجدد اتصال'}</span>
-                  </button>
-                  {onEditServer && (
-                    <button
-                      type="button"
-                      onClick={() => onEditServer(server)}
-                      className="px-3 py-1.5 rounded-xl border border-white/10 hover:bg-white/10 text-xs font-medium transition cursor-pointer"
-                    >
-                      {isEn ? 'Edit Credentials' : 'ویرایش اطلاعات سرور'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <MysqlConnectionTroubleshootPanel
+              server={server}
+              testResult={testResult}
+              isTesting={isTesting}
+              onRunTest={runTestConnection}
+              onEditServer={onEditServer}
+              onOpenTerminal={onOpenTerminal}
+              isLightMode={isLightMode}
+              isEn={isEn}
+            />
           )}
         </div>
       </div>

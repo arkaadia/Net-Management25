@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.231.0';
+export const APP_VERSION = '1.232.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.232.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'انتقال خودکار به تب اتصال در صورت خطا، تعمیر خودکار Bind Address و فایروال با SSH، و ممیزی دسترسی‌های کاربر MySQL',
+    title_en: 'Automatic Connection Tab Transition on Failure, 1-Click SSH Bind Address & Firewall Remediation, and MySQL User Privilege Audit Suite',
+    changes: [
+      'انتقال هوشمند به تب تنظیمات اتصال در زمان بروز خطای اتصال در تب اول (Overview): در صورت عدم برقراری ارتباط با دیتابیس در تب اول یا بروز خطاهای شبکه/احراز هویت، پنل به صورت خودکار تب اتصال (Connection) را فعال کرده و پیام راهنما و علت خطا را نمایش می‌دهد.',
+      'پیاده‌سازی ابزار تعمیر و پیکربندی خودکار از راه دور با یک کلیک از طریق SSH (1-Click Auto-Fix): تغییر خودکار مقدار bind-address به 0.0.0.0 در فایل‌های پیکربندی MariaDB/MySQL سرور (مانند 50-server.cnf)، ری‌استارت سرویس و باز کردن پورت ۳۳۰۶ در فایروال لینوکس (UFW یا Firewalld).',
+      'تشخیص هوشمند مشخصات SSH سرور: در صورت ثبت نبودن اطلاعات دسترسی SSH سرور لینوکس، نمایش هشدار شفاف با امکان ورود سریع پسورد root یا هدایت مستقیم به ویرایش مشخصات سرور (Edit Server).',
+      'راهنمای تعاملی و دقیق گام‌به‌گام دستورات شل: آموزش کامل باز کردن آی‌پی سرور (Bind Address)، ویرایش فایل با nano، ری‌استارت سرویس mariadb و باز کردن پورت ۳۳۰۶ در فایروال‌های UFW و Firewalld با دکمه‌های کپی دستورات.',
+      'پیاده‌سازی مجموعه ممیزی و صدور مجوز کاربر و دیتابیس (User & Database Privileges Audit): ارزیابی وجود کاربر در دیتابیس، بررسی دسترسی ریموت با میزبان %، بررسی وجود پایگاه‌داده و سطوح مجوزها، همراه با دکمه صدور خودکار دسترسی از طریق SSH و راهنمای اتصال با ترمینال (mariadb -u root) و افزودن دیتابیس به تنظیمات سرور.'
+    ],
+    changes_en: [
+      'Implemented intelligent tab auto-redirection to Connection tab upon failure in the initial Overview tab: when database connection fails or times out, the panel automatically transitions to the Connection tab with a descriptive troubleshooting notice.',
+      'Developed 1-Click Automated Remote Remediation via SSH: automatically locates MariaDB/MySQL configuration files (50-server.cnf, my.cnf), updates bind-address to 0.0.0.0, safely restarts the database service, and allows port 3306 in active Linux firewalls (UFW / Firewalld / iptables).',
+      'Smart Linux SSH Credentials Handling: detects missing SSH access credentials and offers both a direct root password prompt for immediate execution and a one-click shortcut to the Edit Server credentials modal.',
+      'Complete Manual Configuration Guide: step-by-step terminal instructions for changing bind-address, saving via nano, restarting mariadb, and opening TCP port 3306 on UFW and Firewalld with copyable commands.',
+      'User & Database Privileges Audit & Auto-Grant Suite: audits user existence, host wildcards (%), target database existence, and privileges; provides one-click SSH privilege auto-granting and guidance for terminal connection (mariadb -u root) and server database configuration.'
+    ]
+  },
   {
     version: '1.231.0',
     releaseDate: '2026-09-30',
