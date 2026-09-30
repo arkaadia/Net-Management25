@@ -99,6 +99,20 @@ import {
   addMysqlForeignKey,
   dropMysqlForeignKey,
   manageMysqlPrimaryKey,
+  createMysqlView,
+  dropMysqlView,
+  createMysqlProcedure,
+  dropMysqlProcedure,
+  executeMysqlProcedure,
+  createMysqlFunction,
+  dropMysqlFunction,
+  createMysqlTrigger,
+  dropMysqlTrigger,
+  getMysqlEventSchedulerStatus,
+  setMysqlEventSchedulerStatus,
+  createMysqlEvent,
+  alterMysqlEventStatus,
+  dropMysqlEvent,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4775,6 +4789,220 @@ apiRouter.post('/remote-servers/:id/mysql/primary-key/manage', async (req: Reque
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در مدیریت کلید اصلی' });
+  }
+});
+
+// ==========================================
+// Phase 14: Views, Stored Procedures, Functions, Triggers & Events
+// ==========================================
+
+// POST /api/remote-servers/:id/mysql/views/create - Create or replace view
+apiRouter.post('/remote-servers/:id/mysql/views/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlView(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ایجاد نما' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/views/drop - Drop view
+apiRouter.post('/remote-servers/:id/mysql/views/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlView(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف نما' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/procedures/create - Create stored procedure
+apiRouter.post('/remote-servers/:id/mysql/procedures/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlProcedure(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ایجاد رویه' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/procedures/drop - Drop stored procedure
+apiRouter.post('/remote-servers/:id/mysql/procedures/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlProcedure(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف رویه' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/procedures/execute - Call/Execute stored procedure
+apiRouter.post('/remote-servers/:id/mysql/procedures/execute', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await executeMysqlProcedure(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در اجرای رویه' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/functions/create - Create stored function
+apiRouter.post('/remote-servers/:id/mysql/functions/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlFunction(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ایجاد تابع' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/functions/drop - Drop stored function
+apiRouter.post('/remote-servers/:id/mysql/functions/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlFunction(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف تابع' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/triggers/create - Create trigger
+apiRouter.post('/remote-servers/:id/mysql/triggers/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlTrigger(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ایجاد تریگر' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/triggers/drop - Drop trigger
+apiRouter.post('/remote-servers/:id/mysql/triggers/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlTrigger(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف تریگر' });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/events/scheduler-status - Get event scheduler status
+apiRouter.get('/remote-servers/:id/mysql/events/scheduler-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await getMysqlEventSchedulerStatus(server);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در دریافت وضعیت زمان‌بند رویدادها' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/events/scheduler-status - Set event scheduler status (ON/OFF)
+apiRouter.post('/remote-servers/:id/mysql/events/scheduler-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await setMysqlEventSchedulerStatus(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تغییر وضعیت زمان‌بند رویدادها' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/events/create - Create scheduled event
+apiRouter.post('/remote-servers/:id/mysql/events/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlEvent(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ایجاد رویداد' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/events/alter-status - Alter scheduled event status
+apiRouter.post('/remote-servers/:id/mysql/events/alter-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await alterMysqlEventStatus(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تغییر وضعیت رویداد' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/events/drop - Drop scheduled event
+apiRouter.post('/remote-servers/:id/mysql/events/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlEvent(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف رویداد' });
   }
 });
 

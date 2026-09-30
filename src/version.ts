@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.223.0';
+export const APP_VERSION = '1.224.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.224.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۴ سیستم مدیریت MySQL: مدیریت نماها، رویه‌ها، توابع، تریگرها و رویدادهای زمان‌بندی‌شده (Views, Routines, Triggers & Events Suite)',
+    title_en: 'Phase 14: MySQL Views, Stored Procedures, Functions, Triggers & Scheduled Events Management Suite',
+    changes: [
+      'طراحی و پیاده‌سازی مودال بصری و مهندسی برنامه‌پذیری MySQL (`MysqlProgrammabilityModal`) منطبق بر استانداردهای ۵گانه مودال‌ها شامل کنترل‌های سه‌گانه هدر، حریم امن فوتر، تم‌های تیره و روشن، پشتیبانی کامل دوزبانه و راهنماهای سه‌بخشی FieldInfoTooltip.',
+      'مدیریت جامع نماها (Views): ایجاد و بازتعریف نما (Create or Replace View) با امکان تعیین عبارت پرس‌وجو، زمینه امنیتی (DEFINER یا INVOKER)، بررسی محدودیت‌های به‌روزرسانی (WITH CHECK OPTION: NONE, CASCADED, LOCAL)، و حذف ایمن نما (Drop View).',
+      'مدیریت رویه‌های ذخیره‌شده (Stored Procedures): ایجاد رویه جدید همراه با سازنده پارامترهای پویا (IN, OUT, INOUT با نام و نوع داده)، تعیین ویژگی‌های DETERMINISTIC و SQL SECURITY، درج توضیحات و بدنه رویه.',
+      'سیستم تعاملی و پیشرفته فراخوانی و اجرای رویه‌ها (Execute/Call Procedure): ایجاد فرم پویا جهت دریافت مقادیر آرگومان‌های ورودی، اجرای واقعی روی سرور، و نمایش ساختاریافته مجموعه نتایج (Result Sets)، پارامترهای خروجی (OUT) و زمان پردازش کوئری.',
+      'مدیریت توابع ذخیره‌شده (Stored Functions): ایجاد تابع جدید با تعیین نوع داده بازگشتی (RETURNS)، تعریف آرگومان‌های ورودی، بدنه تابع و عبارت RETURN، و حذف ایمن توابع.',
+      'مدیریت تریگرها (Database Triggers): تعریف تریگرهای واکنشی روی جداول با زمان‌بندی BEFORE و AFTER برای رویدادهای INSERT, UPDATE, DELETE، تعریف بدنه لاجیک و حذف تریگرها.',
+      'مدیریت رویدادهای زمان‌بندی‌شده (Scheduled Events): تعریف رویدادهای زمان‌بندی‌شده دوره‌ای (EVERY با فواصل ثانیه تا سال) یا یک‌باره (AT timestamp)، تعیین پنجره‌های زمانی STARTS و ENDS، وضعیت ON COMPLETION و فعال/غیرفعال‌سازی رویداد.',
+      'کلید سراسری کنترل زمان‌بند رویدادها (Global Event Scheduler Switch): نمایش وضعیت زنده متغیر event_scheduler در سرور با نشانگر بصری و امکان روشن/خاموش کردن مستقیم آن از پنل.',
+      'پیش‌نمایش زنده دستورات SQL و اعتبارسنجی تایید دو مرحله‌ای (Live DDL Preview & Guarded Drop Confirmation) برای تمامی عملیات تخریبی حذف اشیاء دیتابیس.',
+      'یکپارچه‌سازی کامل دکمه‌های ایجاد، فراخوانی و حذف در سربرگ‌های Views, Procedures, Functions, Triggers و Events در داخل مودال اصلی مدیریت MySQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated visual programmability modal (`MysqlProgrammabilityModal`) strictly adhering to the 5 universal modal standards: triad control header, strict footer clearance, full light/dark adaptability, strict bilingual i18n, and boundary-safe 3-part FieldInfoTooltip.',
+      'Architected comprehensive View Management: Create or Replace View with SELECT query editor, security context (DEFINER or INVOKER), update constraint validation (WITH CHECK OPTION: NONE, CASCADED, LOCAL), and safe Drop View execution.',
+      'Engineered Stored Procedure Suite: Create Procedure with dynamic argument builder (IN, OUT, INOUT modes with custom data types and lengths), DETERMINISTIC and SQL SECURITY attributes, routine comments, and statement body.',
+      'Implemented interactive Procedure Execution runner (Execute/Call Procedure): dynamic argument input form, actual server invocation, and structured tabular presentation of returned Result Sets, OUT parameters, and execution timing metrics.',
+      'Built Stored Function Suite: Create Function with explicit return type (RETURNS), input arguments configuration, statement body validation, and guarded Drop Function workflow.',
+      'Engineered Database Triggers Suite: Reactive table triggers creation with BEFORE and AFTER timings for INSERT, UPDATE, and DELETE events, statement logic editor, and trigger removal.',
+      'Built Scheduled Events Suite: Periodic recurring events (EVERY interval from seconds to years) and one-time execution (AT timestamp), STARTS and ENDS scheduling windows, ON COMPLETION policy, and event enable/disable toggling.',
+      'Integrated Server Event Scheduler Control: Live status inspection and instant toggle for the MySQL global `event_scheduler` variable directly from the events sub-tab header.',
+      'Provided Live SQL Dialect Preview and two-step guarded deletion confirmation dialogs for all destructive object removals.',
+      'Seamlessly integrated Create, Call, Toggle, and Drop action triggers across Views, Procedures, Functions, Triggers, and Events sub-tabs inside MySQL Management Modal.'
+    ],
+  },
   {
     version: '1.223.0',
     releaseDate: '2026-09-30',

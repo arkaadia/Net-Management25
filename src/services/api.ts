@@ -64,6 +64,21 @@ import {
   MysqlDropForeignKeyRequest,
   MysqlManagePrimaryKeyRequest,
   MysqlDdlOperationResult,
+  MysqlCreateViewRequest,
+  MysqlDropViewRequest,
+  MysqlCreateProcedureRequest,
+  MysqlDropProcedureRequest,
+  MysqlExecuteProcedureRequest,
+  MysqlExecuteProcedureResult,
+  MysqlCreateFunctionRequest,
+  MysqlDropFunctionRequest,
+  MysqlCreateTriggerRequest,
+  MysqlDropTriggerRequest,
+  MysqlEventSchedulerStatus,
+  MysqlSetEventSchedulerRequest,
+  MysqlCreateEventRequest,
+  MysqlAlterEventStatusRequest,
+  MysqlDropEventRequest,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1638,6 +1653,173 @@ export async function manageRemoteServerMysqlPrimaryKey(
   req: MysqlManagePrimaryKeyRequest
 ): Promise<MysqlDdlOperationResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/primary-key/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+// ==========================================
+// Phase 14: Views, Stored Procedures, Functions, Triggers & Events
+// ==========================================
+
+export async function createRemoteServerMysqlView(
+  id: string,
+  req: MysqlCreateViewRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/views/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlView(
+  id: string,
+  req: MysqlDropViewRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/views/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerMysqlProcedure(
+  id: string,
+  req: MysqlCreateProcedureRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/procedures/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlProcedure(
+  id: string,
+  req: MysqlDropProcedureRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/procedures/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function executeRemoteServerMysqlProcedure(
+  id: string,
+  req: MysqlExecuteProcedureRequest
+): Promise<MysqlExecuteProcedureResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/procedures/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerMysqlFunction(
+  id: string,
+  req: MysqlCreateFunctionRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/functions/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlFunction(
+  id: string,
+  req: MysqlDropFunctionRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/functions/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerMysqlTrigger(
+  id: string,
+  req: MysqlCreateTriggerRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/triggers/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlTrigger(
+  id: string,
+  req: MysqlDropTriggerRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/triggers/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function getRemoteServerMysqlEventSchedulerStatus(
+  id: string
+): Promise<MysqlEventSchedulerStatus> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/events/scheduler-status`);
+  return res.json();
+}
+
+export async function setRemoteServerMysqlEventSchedulerStatus(
+  id: string,
+  req: MysqlSetEventSchedulerRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/events/scheduler-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerMysqlEvent(
+  id: string,
+  req: MysqlCreateEventRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/events/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function alterRemoteServerMysqlEventStatus(
+  id: string,
+  req: MysqlAlterEventStatusRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/events/alter-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlEvent(
+  id: string,
+  req: MysqlDropEventRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/events/drop`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),

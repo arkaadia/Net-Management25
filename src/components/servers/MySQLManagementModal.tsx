@@ -56,6 +56,7 @@ import {
   Link2,
   Sparkles,
   Plus,
+  Power,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -84,6 +85,7 @@ import {
   MysqlTableDataFilter,
   MysqlFilterOperator,
   MysqlRowColumnValue,
+  MysqlRoutineParameter,
 } from '../../types';
 import {
   testRemoteServerMysqlConnection,
@@ -101,6 +103,9 @@ import {
   fetchRemoteServerMysqlProcesslist,
   killRemoteServerMysqlProcess,
   fetchRemoteServerMysqlVariables,
+  getRemoteServerMysqlEventSchedulerStatus,
+  setRemoteServerMysqlEventSchedulerStatus,
+  alterRemoteServerMysqlEventStatus,
 } from '../../services/api';
 import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
 import {
@@ -108,6 +113,10 @@ import {
   MysqlTableStructureModalMode,
   MysqlDropTargetType,
 } from './MysqlTableStructureModal';
+import {
+  MysqlProgrammabilityModal,
+  MysqlProgrammabilityModalMode,
+} from './MysqlProgrammabilityModal';
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
@@ -290,6 +299,27 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     setIsStructureModalOpen(true);
   }, [selectedTreeNode.tableName]);
 
+  // Phase 14: Views, Routines, Triggers & Events States
+  const [isProgrammabilityModalOpen, setIsProgrammabilityModalOpen] = useState(false);
+  const [programmabilityModalMode, setProgrammabilityModalMode] = useState<MysqlProgrammabilityModalMode>('create_view');
+  const [programmabilityTargetName, setProgrammabilityTargetName] = useState<string>('');
+  const [programmabilityRoutineParams, setProgrammabilityRoutineParams] = useState<MysqlRoutineParameter[]>([]);
+  const [eventSchedulerEnabled, setEventSchedulerEnabled] = useState<boolean | null>(null);
+  const [isTogglingEventScheduler, setIsTogglingEventScheduler] = useState(false);
+
+  const handleOpenProgrammabilityModal = useCallback((
+    mode: MysqlProgrammabilityModalMode,
+    options?: {
+      targetName?: string;
+      routineParams?: MysqlRoutineParameter[];
+    }
+  ) => {
+    setProgrammabilityModalMode(mode);
+    setProgrammabilityTargetName(options?.targetName || '');
+    setProgrammabilityRoutineParams(options?.routineParams || []);
+    setIsProgrammabilityModalOpen(true);
+  }, []);
+
 
 
   // Run initial test and overview on open
@@ -389,6 +419,60 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     },
     [server, dbDetailsCache]
   );
+
+  const handleProgrammabilityModalSuccess = useCallback((_message?: string) => {
+    setIsProgrammabilityModalOpen(false);
+    if (selectedTreeNode.dbName) {
+      loadDatabaseDetails(selectedTreeNode.dbName, true);
+    }
+  }, [selectedTreeNode.dbName, loadDatabaseDetails]);
+
+  // Load event scheduler status
+  const loadEventSchedulerStatus = useCallback(async () => {
+    if (!server) return;
+    try {
+      const res = await getRemoteServerMysqlEventSchedulerStatus(server.id);
+      if (res && typeof res.enabled === 'boolean') {
+        setEventSchedulerEnabled(res.enabled);
+      }
+    } catch {
+      // ignore
+    }
+  }, [server]);
+
+  // Toggle event scheduler
+  const handleToggleEventScheduler = useCallback(async () => {
+    if (!server) return;
+    setIsTogglingEventScheduler(true);
+    try {
+      const nextState = eventSchedulerEnabled === null ? true : !eventSchedulerEnabled;
+      const res = await setRemoteServerMysqlEventSchedulerStatus(server.id, { enabled: nextState });
+      if (res.success) {
+        setEventSchedulerEnabled(nextState);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsTogglingEventScheduler(false);
+    }
+  }, [server, eventSchedulerEnabled]);
+
+  // Toggle individual event status
+  const handleToggleEventStatus = useCallback(async (evName: string, nextStatus: 'ENABLE' | 'DISABLE') => {
+    if (!server || !selectedTreeNode.dbName) return;
+    try {
+      const res = await alterRemoteServerMysqlEventStatus(server.id, {
+        database: selectedTreeNode.dbName,
+        eventName: evName,
+        status: nextStatus,
+      });
+      if (res.success) {
+        loadDatabaseDetails(selectedTreeNode.dbName, true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [server, selectedTreeNode.dbName, loadDatabaseDetails]);
 
   const toggleTreeNode = (nodeId: string, onExpand?: () => void) => {
     setExpandedTreeNodes((prev) => {
@@ -4854,7 +4938,10 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
                                 <button
                                   type="button"
-                                  onClick={() => setDbActiveObjectTab('events')}
+                                  onClick={() => {
+                                    setDbActiveObjectTab('events');
+                                    loadEventSchedulerStatus();
+                                  }}
                                   className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
                                     dbActiveObjectTab === 'events'
                                       ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold'
@@ -4900,6 +4987,80 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                       <Plus className="w-3.5 h-3.5" />
                                       <span>{isEn ? "Create Table" : "جدول جدید"}</span>
                                     </button>
+                                  )}
+                                  {dbActiveObjectTab === "views" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProgrammabilityModal("create_view")}
+                                      className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title={isEn ? "Create new view in this database" : "ایجاد نمای جدید در این پایگاه داده"}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>{isEn ? "Create View" : "نمای جدید"}</span>
+                                    </button>
+                                  )}
+                                  {dbActiveObjectTab === "procedures" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProgrammabilityModal("create_procedure")}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title={isEn ? "Create new stored procedure" : "ایجاد رویه ذخیره‌شده جدید"}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>{isEn ? "Create Procedure" : "رویه جدید"}</span>
+                                    </button>
+                                  )}
+                                  {dbActiveObjectTab === "functions" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProgrammabilityModal("create_function")}
+                                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title={isEn ? "Create new stored function" : "ایجاد تابع جدید"}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>{isEn ? "Create Function" : "تابع جدید"}</span>
+                                    </button>
+                                  )}
+                                  {dbActiveObjectTab === "triggers" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProgrammabilityModal("create_trigger")}
+                                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title={isEn ? "Create new database trigger" : "ایجاد تریگر جدید"}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>{isEn ? "Create Trigger" : "تریگر جدید"}</span>
+                                    </button>
+                                  )}
+                                  {dbActiveObjectTab === "events" && (
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenProgrammabilityModal("create_event")}
+                                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                        title={isEn ? "Create new scheduled event" : "ایجاد رویداد زمان‌بندی‌شده جدید"}
+                                      >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        <span>{isEn ? "Create Event" : "رویداد جدید"}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleToggleEventScheduler}
+                                        disabled={isTogglingEventScheduler}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border cursor-pointer ${
+                                          eventSchedulerEnabled
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                                            : 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
+                                        }`}
+                                        title={isEn ? "Toggle MySQL event_scheduler global variable" : "تغییر وضعیت زمان‌بند رویدادهای سرور (event_scheduler)"}
+                                      >
+                                        <Power className="w-3.5 h-3.5" />
+                                        <span>
+                                          {isEn ? 'Event Scheduler: ' : 'زمان‌بند سرور: '}
+                                          {eventSchedulerEnabled ? (isEn ? 'ON' : 'روشن') : (isEn ? 'OFF' : 'خاموش')}
+                                        </span>
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                                 <span className="text-xs text-slate-400 font-bold">
@@ -5108,6 +5269,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 >
                                                   <Play className="w-3 h-3" />
                                                 </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('drop_view', { targetName: v.name })}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 ml-1"
+                                                  title={isEn ? 'Drop View' : 'حذف نما'}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
                                               </td>
                                             </tr>
                                           ))
@@ -5178,11 +5347,27 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                               <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                                                 <button
                                                   type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('execute_procedure', { targetName: p.name, routineParams: (p as any).parameters || [] })}
+                                                  className="p-1 rounded hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 mr-1"
+                                                  title={isEn ? 'Call / Execute Procedure' : 'فراخوانی و اجرای رویه'}
+                                                >
+                                                  <Play className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  type="button"
                                                   onClick={() => copyToClipboard(`CALL \`${dbName}\`.\`${p.name}\`();`, `call-${p.name}`)}
                                                   className="p-1 rounded hover:bg-emerald-500/20 text-emerald-300"
                                                   title={isEn ? 'Copy CALL command' : 'کپی دستور فراخوانی'}
                                                 >
                                                   <Copy className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('drop_procedure', { targetName: p.name })}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 ml-1"
+                                                  title={isEn ? 'Drop Procedure' : 'حذف رویه'}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                               </td>
                                             </tr>
@@ -5266,6 +5451,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 >
                                                   <Zap className="w-3.5 h-3.5" />
                                                 </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('drop_function', { targetName: f.name })}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 ml-1"
+                                                  title={isEn ? 'Drop Function' : 'حذف تابع'}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
                                               </td>
                                             </tr>
                                           ))
@@ -5342,6 +5535,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 >
                                                   <Activity className="w-3.5 h-3.5" />
                                                 </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('drop_trigger', { targetName: tr.name })}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 ml-1"
+                                                  title={isEn ? 'Drop Trigger' : 'حذف تریگر'}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
                                               </td>
                                             </tr>
                                           ))
@@ -5412,6 +5613,22 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                               <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                                                 <button
                                                   type="button"
+                                                  onClick={() => handleToggleEventStatus(ev.name, ev.status === 'ENABLED' ? 'DISABLE' : 'ENABLE')}
+                                                  className={`p-1 rounded transition mr-1 ${
+                                                    ev.status === 'ENABLED'
+                                                      ? 'hover:bg-amber-500/20 text-slate-400 hover:text-amber-300'
+                                                      : 'hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300'
+                                                  }`}
+                                                  title={
+                                                    ev.status === 'ENABLED'
+                                                      ? (isEn ? 'Disable Event' : 'غیرفعال‌سازی رویداد')
+                                                      : (isEn ? 'Enable Event' : 'فعال‌سازی رویداد')
+                                                  }
+                                                >
+                                                  <Power className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  type="button"
                                                   onClick={() => {
                                                     setSelectedTreeNode({
                                                       type: 'event',
@@ -5425,6 +5642,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                   title={isEn ? 'Inspect Event' : 'مشاهده رویداد'}
                                                 >
                                                   <Clock className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleOpenProgrammabilityModal('drop_event', { targetName: ev.name })}
+                                                  className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 ml-1"
+                                                  title={isEn ? 'Drop Event' : 'حذف رویداد'}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                               </td>
                                             </tr>
@@ -5781,6 +6006,23 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
         onSuccess={handleStructureModalSuccess}
         isLightMode={isLightMode}
         isEn={isEn}
+      />
+
+      {/* Phase 14: MySQL Views, Stored Procedures, Functions, Triggers & Events Modal */}
+      <MysqlProgrammabilityModal
+        isOpen={isProgrammabilityModalOpen}
+        onClose={() => setIsProgrammabilityModalOpen(false)}
+        onMinimize={() => setIsProgrammabilityModalOpen(false)}
+        serverId={server.id}
+        serverName={server.name}
+        databaseName={selectedTreeNode.dbName || ""}
+        mode={programmabilityModalMode}
+        targetName={programmabilityTargetName}
+        existingTables={dbDetailsCache[selectedTreeNode.dbName || ""]?.tables?.map((t) => t.name) || []}
+        initialRoutineParams={programmabilityRoutineParams}
+        onSuccess={handleProgrammabilityModalSuccess}
+        isLightMode={isLightMode}
+        language={isEn ? 'en' : 'fa'}
       />
 
       {/* Phase 7: MySQL Table Row Mutation Modal */}

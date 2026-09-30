@@ -67,6 +67,22 @@ import {
   MysqlDropForeignKeyRequest,
   MysqlManagePrimaryKeyRequest,
   MysqlDdlOperationResult,
+  MysqlCreateViewRequest,
+  MysqlDropViewRequest,
+  MysqlRoutineParameter,
+  MysqlCreateProcedureRequest,
+  MysqlDropProcedureRequest,
+  MysqlExecuteProcedureRequest,
+  MysqlExecuteProcedureResult,
+  MysqlCreateFunctionRequest,
+  MysqlDropFunctionRequest,
+  MysqlCreateTriggerRequest,
+  MysqlDropTriggerRequest,
+  MysqlEventSchedulerStatus,
+  MysqlSetEventSchedulerRequest,
+  MysqlCreateEventRequest,
+  MysqlAlterEventStatusRequest,
+  MysqlDropEventRequest,
 } from '../src/types';
 
 /**
@@ -3745,6 +3761,774 @@ export async function manageMysqlPrimaryKey(
     };
   }
 }
+
+// ==========================================
+// Phase 14: Views, Procedures, Functions, Triggers & Events
+// ==========================================
+
+/**
+ * Creates or alters a MySQL View.
+ */
+export async function createMysqlView(
+  server: RemoteServer,
+  req: MysqlCreateViewRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  let sql = '';
+
+  try {
+    if (!req.database || !req.viewName) {
+      throw new Error('Database and view name are required.');
+    }
+    if (!req.query || !req.query.trim()) {
+      throw new Error('SELECT query is required for view creation.');
+    }
+
+    const replacePrefix = req.orReplace !== false ? 'OR REPLACE ' : '';
+    const security = req.securityType === 'INVOKER' ? 'SQL SECURITY INVOKER ' : '';
+    const checkOption =
+      req.checkOption === 'CASCADED'
+        ? ' WITH CASCADED CHECK OPTION'
+        : req.checkOption === 'LOCAL'
+        ? ' WITH LOCAL CHECK OPTION'
+        : '';
+
+    sql = `CREATE ${replacePrefix}${security}VIEW ${escapeIdent(req.database)}.${escapeIdent(req.viewName)} AS\n${req.query.trim().replace(/;+$/, '')}${checkOption};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] View created/altered: ${req.database}.${req.viewName} on ${server.name} in ${duration}ms`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `View '${req.viewName}' saved successfully.`,
+      messageFa: `نمای «${req.viewName}» با موفقیت در پایگاه داده ایجاد/بروزرسانی شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to save view '${req.viewName}'.`,
+      messageFa: `خطا در ذخیره‌سازی نمای «${req.viewName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a MySQL View.
+ */
+export async function dropMysqlView(
+  server: RemoteServer,
+  req: MysqlDropViewRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP VIEW ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.viewName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `View '${req.viewName}' dropped successfully.`,
+      messageFa: `نمای «${req.viewName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop view '${req.viewName}'.`,
+      messageFa: `خطا در حذف نمای «${req.viewName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Creates or replaces a MySQL Stored Procedure.
+ */
+export async function createMysqlProcedure(
+  server: RemoteServer,
+  req: MysqlCreateProcedureRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const executedStatements: string[] = [];
+
+  try {
+    if (!req.database || !req.procedureName) {
+      throw new Error('Database and procedure name are required.');
+    }
+    if (!req.body || !req.body.trim()) {
+      throw new Error('Procedure body is required.');
+    }
+
+    const paramsSql = (req.parameters || [])
+      .map((p) => {
+        const mode = p.mode || 'IN';
+        let typeStr = p.dataType.toUpperCase();
+        if (p.length) typeStr += `(${p.length})`;
+        return `${mode} ${escapeIdent(p.name)} ${typeStr}`;
+      })
+      .join(', ');
+
+    const deterministic = req.deterministic ? 'DETERMINISTIC' : 'NOT DETERMINISTIC';
+    const security = req.securityType === 'INVOKER' ? 'SQL SECURITY INVOKER' : 'SQL SECURITY DEFINER';
+    const comment = req.comment ? ` COMMENT '${req.comment.replace(/'/g, "''")}'` : '';
+
+    const dropSql = `DROP PROCEDURE IF EXISTS ${escapeIdent(req.database)}.${escapeIdent(req.procedureName)};`;
+    const createSql = `CREATE PROCEDURE ${escapeIdent(req.database)}.${escapeIdent(req.procedureName)} (${paramsSql})\n${deterministic}\n${security}${comment}\n${req.body.trim()};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    if (req.orReplace !== false) {
+      await conn.query(dropSql);
+      executedStatements.push(dropSql);
+    }
+    await conn.query(createSql);
+    executedStatements.push(createSql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Procedure saved: ${req.database}.${req.procedureName} on ${server.name} in ${duration}ms`);
+
+    return {
+      success: true,
+      executedSql: executedStatements.join('\n\n'),
+      executionTimeMs: duration,
+      message: `Stored procedure '${req.procedureName}' saved successfully.`,
+      messageFa: `رویه ذخیره‌شده «${req.procedureName}» با موفقیت ذخیره گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: executedStatements.join('\n\n'),
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to save stored procedure '${req.procedureName}'.`,
+      messageFa: `خطا در ذخیره‌سازی رویه «${req.procedureName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a MySQL Stored Procedure.
+ */
+export async function dropMysqlProcedure(
+  server: RemoteServer,
+  req: MysqlDropProcedureRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP PROCEDURE ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.procedureName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Stored procedure '${req.procedureName}' dropped successfully.`,
+      messageFa: `رویه ذخیره‌شده «${req.procedureName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop procedure '${req.procedureName}'.`,
+      messageFa: `خطا در حذف رویه «${req.procedureName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Executes a Stored Procedure and returns result sets and output parameters.
+ */
+export async function executeMysqlProcedure(
+  server: RemoteServer,
+  req: MysqlExecuteProcedureRequest
+): Promise<MysqlExecuteProcedureResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  try {
+    const escapedArgs: string[] = [];
+    const outVarNames: string[] = [];
+
+    for (let i = 0; i < (req.parameters || []).length; i++) {
+      const p = req.parameters[i];
+      if (p.mode === 'OUT' || p.mode === 'INOUT') {
+        const varName = `@out_${p.name.replace(/[^a-zA-Z0-9_]/g, '')}_${i}`;
+        outVarNames.push(varName);
+        escapedArgs.push(varName);
+      } else {
+        if (p.value === null || p.value === undefined || p.value === 'NULL') {
+          escapedArgs.push('NULL');
+        } else if (typeof p.value === 'number') {
+          escapedArgs.push(String(p.value));
+        } else {
+          escapedArgs.push(`'${String(p.value).replace(/'/g, "''")}'`);
+        }
+      }
+    }
+
+    const callSql = `CALL ${escapeIdent(req.database)}.${escapeIdent(req.procedureName)}(${escapedArgs.join(', ')});`;
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    const [callResult]: any = await conn.query(callSql);
+
+    const resultSets: Array<{ columns: string[]; rows: Record<string, any>[] }> = [];
+    if (Array.isArray(callResult)) {
+      for (const item of callResult) {
+        if (Array.isArray(item)) {
+          const rows = item as Record<string, any>[];
+          const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+          resultSets.push({ columns, rows });
+        }
+      }
+    }
+
+    let outputParameters: Record<string, any> | undefined = undefined;
+    if (outVarNames.length > 0) {
+      const [outRows]: any = await conn.query(`SELECT ${outVarNames.join(', ')};`);
+      if (outRows && outRows[0]) {
+        outputParameters = outRows[0];
+      }
+    }
+
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    return {
+      success: true,
+      database: req.database,
+      procedureName: req.procedureName,
+      resultSets,
+      outputParameters,
+      executionTimeMs: duration,
+      message: `Procedure executed successfully in ${duration}ms.`,
+      messageFa: `رویه با موفقیت در مدت ${duration} میلی‌ثانیه اجرا شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      database: req.database,
+      procedureName: req.procedureName,
+      resultSets: [],
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to execute procedure: ${err.message}`,
+      messageFa: `خطا در اجرای رویه: ${err.message}`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Creates or replaces a MySQL Stored Function.
+ */
+export async function createMysqlFunction(
+  server: RemoteServer,
+  req: MysqlCreateFunctionRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const executedStatements: string[] = [];
+
+  try {
+    if (!req.database || !req.functionName) {
+      throw new Error('Database and function name are required.');
+    }
+    if (!req.returnType) {
+      throw new Error('Return type is required for stored function.');
+    }
+    if (!req.body || !req.body.trim()) {
+      throw new Error('Function body is required.');
+    }
+
+    const paramsSql = (req.parameters || [])
+      .map((p) => {
+        let typeStr = p.dataType.toUpperCase();
+        if (p.length) typeStr += `(${p.length})`;
+        return `${escapeIdent(p.name)} ${typeStr}`;
+      })
+      .join(', ');
+
+    const deterministic = req.deterministic ? 'DETERMINISTIC' : 'NOT DETERMINISTIC';
+    const security = req.securityType === 'INVOKER' ? 'SQL SECURITY INVOKER' : 'SQL SECURITY DEFINER';
+    const comment = req.comment ? ` COMMENT '${req.comment.replace(/'/g, "''")}'` : '';
+
+    const dropSql = `DROP FUNCTION IF EXISTS ${escapeIdent(req.database)}.${escapeIdent(req.functionName)};`;
+    const createSql = `CREATE FUNCTION ${escapeIdent(req.database)}.${escapeIdent(req.functionName)} (${paramsSql})\nRETURNS ${req.returnType.toUpperCase()}\n${deterministic}\n${security}${comment}\n${req.body.trim()};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    if (req.orReplace !== false) {
+      await conn.query(dropSql);
+      executedStatements.push(dropSql);
+    }
+    await conn.query(createSql);
+    executedStatements.push(createSql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    return {
+      success: true,
+      executedSql: executedStatements.join('\n\n'),
+      executionTimeMs: duration,
+      message: `Stored function '${req.functionName}' saved successfully.`,
+      messageFa: `تابع ذخیره‌شده «${req.functionName}» با موفقیت ذخیره گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: executedStatements.join('\n\n'),
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to save stored function '${req.functionName}'.`,
+      messageFa: `خطا در ذخیره‌سازی تابع «${req.functionName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a MySQL Stored Function.
+ */
+export async function dropMysqlFunction(
+  server: RemoteServer,
+  req: MysqlDropFunctionRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP FUNCTION ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.functionName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Stored function '${req.functionName}' dropped successfully.`,
+      messageFa: `تابع ذخیره‌شده «${req.functionName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop function '${req.functionName}'.`,
+      messageFa: `خطا در حذف تابع «${req.functionName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Creates a MySQL Trigger.
+ */
+export async function createMysqlTrigger(
+  server: RemoteServer,
+  req: MysqlCreateTriggerRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  let sql = '';
+
+  try {
+    if (!req.database || !req.triggerName || !req.tableName) {
+      throw new Error('Database, trigger name, and table name are required.');
+    }
+    if (!req.statement || !req.statement.trim()) {
+      throw new Error('Trigger statement body is required.');
+    }
+
+    const timing = req.timing || 'AFTER';
+    const event = req.event || 'INSERT';
+
+    sql = `CREATE TRIGGER ${escapeIdent(req.database)}.${escapeIdent(req.triggerName)}\n${timing} ${event} ON ${escapeIdent(req.database)}.${escapeIdent(req.tableName)}\nFOR EACH ROW\n${req.statement.trim().replace(/;+$/, '')};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Trigger '${req.triggerName}' created successfully.`,
+      messageFa: `تریگر «${req.triggerName}» با موفقیت بر روی جدول «${req.tableName}» ایجاد شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to create trigger '${req.triggerName}'.`,
+      messageFa: `خطا در ایجاد تریگر «${req.triggerName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a MySQL Trigger.
+ */
+export async function dropMysqlTrigger(
+  server: RemoteServer,
+  req: MysqlDropTriggerRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP TRIGGER ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.triggerName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Trigger '${req.triggerName}' dropped successfully.`,
+      messageFa: `تریگر «${req.triggerName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop trigger '${req.triggerName}'.`,
+      messageFa: `خطا در حذف تریگر «${req.triggerName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Checks MySQL Event Scheduler status.
+ */
+export async function getMysqlEventSchedulerStatus(
+  server: RemoteServer
+): Promise<MysqlEventSchedulerStatus> {
+  let conn: mysql.Connection | null = null;
+  try {
+    const config = getMysqlConfig(server);
+    conn = await mysql.createConnection(config);
+    const [rows]: any = await conn.query("SHOW VARIABLES LIKE 'event_scheduler';");
+    await conn.end();
+
+    const val = rows?.[0]?.Value || 'OFF';
+    return {
+      enabled: val.toUpperCase() === 'ON',
+      rawStatus: val,
+    };
+  } catch (err) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      enabled: false,
+      rawStatus: 'UNKNOWN',
+    };
+  }
+}
+
+/**
+ * Enables or disables MySQL Event Scheduler.
+ */
+export async function setMysqlEventSchedulerStatus(
+  server: RemoteServer,
+  req: MysqlSetEventSchedulerRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const stateStr = req.enabled ? 'ON' : 'OFF';
+  const sql = `SET GLOBAL event_scheduler = ${stateStr};`;
+
+  try {
+    const config = getMysqlConfig(server);
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Event scheduler turned ${stateStr}.`,
+      messageFa: `زمان‌بند رویدادها (Event Scheduler) به حالت «${stateStr}» تغییر یافت.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to set event scheduler: ${err.message}`,
+      messageFa: `خطا در تغییر وضعیت Event Scheduler: ${err.message}`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Creates a MySQL Scheduled Event.
+ */
+export async function createMysqlEvent(
+  server: RemoteServer,
+  req: MysqlCreateEventRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  let sql = '';
+
+  try {
+    if (!req.database || !req.eventName) {
+      throw new Error('Database and event name are required.');
+    }
+    if (!req.statement || !req.statement.trim()) {
+      throw new Error('Event action statement is required.');
+    }
+
+    let scheduleSql = '';
+    if (req.scheduleType === 'AT' && req.executeAt) {
+      scheduleSql = `AT '${req.executeAt}'`;
+    } else {
+      const interval = req.intervalValue || 1;
+      const field = req.intervalField || 'DAY';
+      scheduleSql = `EVERY ${interval} ${field}`;
+      if (req.startsAt) scheduleSql += ` STARTS '${req.startsAt}'`;
+      if (req.endsAt) scheduleSql += ` ENDS '${req.endsAt}'`;
+    }
+
+    const completion = req.onCompletion === 'NOT PRESERVE' ? 'ON COMPLETION NOT PRESERVE' : 'ON COMPLETION PRESERVE';
+    const status = req.status || 'ENABLE';
+    const comment = req.comment ? ` COMMENT '${req.comment.replace(/'/g, "''")}'` : '';
+
+    sql = `CREATE EVENT ${escapeIdent(req.database)}.${escapeIdent(req.eventName)}\nON SCHEDULE ${scheduleSql}\n${completion}\n${status}${comment}\nDO\n${req.statement.trim().replace(/;+$/, '')};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Event '${req.eventName}' created successfully.`,
+      messageFa: `رویداد زمان‌بندی‌شده «${req.eventName}» با موفقیت ایجاد شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to create event '${req.eventName}'.`,
+      messageFa: `خطا در ایجاد رویداد «${req.eventName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Alters status of a MySQL Scheduled Event (ENABLE / DISABLE).
+ */
+export async function alterMysqlEventStatus(
+  server: RemoteServer,
+  req: MysqlAlterEventStatusRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `ALTER EVENT ${escapeIdent(req.database)}.${escapeIdent(req.eventName)} ${req.status};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Event '${req.eventName}' set to ${req.status}.`,
+      messageFa: `وضعیت رویداد «${req.eventName}» به ${req.status} تغییر یافت.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to alter event status.`,
+      messageFa: `خطا در تغییر وضعیت رویداد.`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a MySQL Scheduled Event.
+ */
+export async function dropMysqlEvent(
+  server: RemoteServer,
+  req: MysqlDropEventRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP EVENT ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.eventName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Event '${req.eventName}' dropped successfully.`,
+      messageFa: `رویداد زمان‌بندی‌شده «${req.eventName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop event '${req.eventName}'.`,
+      messageFa: `خطا در حذف رویداد «${req.eventName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
 
 
 

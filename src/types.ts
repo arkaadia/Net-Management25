@@ -2181,6 +2181,141 @@ export interface MysqlDdlOperationResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 14: MySQL Views, Stored Procedures, Functions, Triggers & Events
+// ==========================================
+
+export interface MysqlCreateViewRequest {
+  database: string;
+  viewName: string;
+  query: string;
+  orReplace?: boolean;
+  checkOption?: 'NONE' | 'CASCADED' | 'LOCAL';
+  securityType?: 'DEFINER' | 'INVOKER';
+}
+
+export interface MysqlDropViewRequest {
+  database: string;
+  viewName: string;
+  ifExists?: boolean;
+}
+
+export interface MysqlRoutineParameter {
+  mode?: 'IN' | 'OUT' | 'INOUT';
+  name: string;
+  dataType: string;
+  length?: string;
+}
+
+export interface MysqlCreateProcedureRequest {
+  database: string;
+  procedureName: string;
+  parameters: MysqlRoutineParameter[];
+  body: string;
+  deterministic?: boolean;
+  securityType?: 'DEFINER' | 'INVOKER';
+  comment?: string;
+  orReplace?: boolean;
+}
+
+export interface MysqlDropProcedureRequest {
+  database: string;
+  procedureName: string;
+  ifExists?: boolean;
+}
+
+export interface MysqlExecuteProcedureRequest {
+  database: string;
+  procedureName: string;
+  parameters: Array<{ name: string; value: any; mode?: string }>;
+}
+
+export interface MysqlExecuteProcedureResult {
+  success: boolean;
+  database: string;
+  procedureName: string;
+  resultSets: Array<{
+    columns: string[];
+    rows: Record<string, any>[];
+  }>;
+  outputParameters?: Record<string, any>;
+  executionTimeMs: number;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlCreateFunctionRequest {
+  database: string;
+  functionName: string;
+  parameters: MysqlRoutineParameter[];
+  returnType: string;
+  body: string;
+  deterministic?: boolean;
+  securityType?: 'DEFINER' | 'INVOKER';
+  comment?: string;
+  orReplace?: boolean;
+}
+
+export interface MysqlDropFunctionRequest {
+  database: string;
+  functionName: string;
+  ifExists?: boolean;
+}
+
+export interface MysqlCreateTriggerRequest {
+  database: string;
+  triggerName: string;
+  tableName: string;
+  timing: 'BEFORE' | 'AFTER';
+  event: 'INSERT' | 'UPDATE' | 'DELETE';
+  statement: string;
+  definer?: string;
+}
+
+export interface MysqlDropTriggerRequest {
+  database: string;
+  triggerName: string;
+  ifExists?: boolean;
+}
+
+export interface MysqlEventSchedulerStatus {
+  enabled: boolean;
+  rawStatus: string;
+}
+
+export interface MysqlSetEventSchedulerRequest {
+  enabled: boolean;
+}
+
+export interface MysqlCreateEventRequest {
+  database: string;
+  eventName: string;
+  scheduleType: 'AT' | 'EVERY';
+  executeAt?: string;
+  intervalValue?: number;
+  intervalField?: 'YEAR' | 'QUARTER' | 'MONTH' | 'DAY' | 'HOUR' | 'MINUTE' | 'WEEK' | 'SECOND';
+  startsAt?: string;
+  endsAt?: string;
+  onCompletion?: 'PRESERVE' | 'NOT PRESERVE';
+  status?: 'ENABLE' | 'DISABLE' | 'DISABLE ON SLAVE';
+  statement: string;
+  comment?: string;
+}
+
+export interface MysqlAlterEventStatusRequest {
+  database: string;
+  eventName: string;
+  status: 'ENABLE' | 'DISABLE';
+}
+
+export interface MysqlDropEventRequest {
+  database: string;
+  eventName: string;
+  ifExists?: boolean;
+}
+
 export interface MysqlVariableItem {
   name: string;
   value: string;
