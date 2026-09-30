@@ -98,6 +98,10 @@ import {
   MysqlRestoreBackupRequest,
   MysqlRestoreBackupResult,
   MysqlBackupPreviewResult,
+  MysqlMaintenanceRequest,
+  MysqlMaintenanceResult,
+  MysqlTableBloatMetric,
+  MysqlActiveMaintenanceProgress,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -2019,6 +2023,48 @@ export async function uploadRemoteServerMysqlBackup(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, content }),
   });
+  return res.json();
+}
+
+// ==========================================
+// Phase 18: MySQL Database Maintenance & Optimization API
+// ==========================================
+
+export async function runRemoteServerMysqlMaintenance(
+  id: string,
+  params: MysqlMaintenanceRequest
+): Promise<MysqlMaintenanceResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/maintenance/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlBloatMetrics(
+  id: string,
+  database?: string,
+  options?: { password?: string }
+): Promise<{ success: boolean; metrics?: MysqlTableBloatMetric[]; error?: string; errorFa?: string }> {
+  const query = new URLSearchParams();
+  if (database) query.set('database', database);
+  if (options?.password) query.set('password', options.password);
+  const qStr = query.toString() ? `?${query.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/maintenance/bloat${qStr}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlActiveMaintenance(
+  id: string,
+  database?: string,
+  options?: { password?: string }
+): Promise<{ success: boolean; active?: MysqlActiveMaintenanceProgress[]; error?: string; errorFa?: string }> {
+  const query = new URLSearchParams();
+  if (database) query.set('database', database);
+  if (options?.password) query.set('password', options.password);
+  const qStr = query.toString() ? `?${query.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/maintenance/active${qStr}`);
   return res.json();
 }
 

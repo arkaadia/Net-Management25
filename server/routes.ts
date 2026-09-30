@@ -130,6 +130,10 @@ import {
   deleteRemoteServerMysqlBackup,
   uploadRemoteServerMysqlBackup,
   getMysqlBackupsDir,
+  runMysqlMaintenance,
+  getMysqlTableBloatMetrics,
+  getMysqlActiveMaintenance,
+  evaluateMysqlMaintenanceLockWarning,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5634,6 +5638,139 @@ apiRouter.post('/remote-servers/:id/mysql/backups/upload', async (req: Request, 
       success: false,
       error: err.message || 'Failed to upload backup',
       errorFa: 'خطا در ذخیره‌سازی نسخه پشتیبان آپلود شده',
+    });
+  }
+});
+
+// ==========================================
+// Phase 18: MySQL Database Maintenance & Optimization Routes
+// ==========================================
+
+// POST /api/remote-servers/:id/mysql/maintenance/run - Run OPTIMIZE, ANALYZE, CHECK, REPAIR or REBUILD
+apiRouter.post('/remote-servers/:id/mysql/maintenance/run', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const {
+      action,
+      scope,
+      database,
+      table,
+      selectedTables,
+      noWriteToBinlog,
+      checkOption,
+      repairOption,
+      rebuildEngine,
+      port,
+      user,
+      sessionPassword,
+    } = req.body;
+
+    if (!action || !['optimize', 'analyze', 'check', 'repair', 'rebuild_index'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid MySQL maintenance action (optimize, analyze, check, repair, rebuild_index) is required.',
+        errorFa: 'انتخاب نوع عملیات نگهداری معتبر (optimize، analyze، check، repair یا rebuild_index) الزامی است.',
+      });
+    }
+
+    if (!database) {
+      return res.status(400).json({
+        success: false,
+        error: 'Target database name is required.',
+        errorFa: 'نام پایگاه داده هدف الزامی است.',
+      });
+    }
+
+    const result = await runMysqlMaintenance(server, {
+      action,
+      scope: scope || 'table',
+      database,
+      table,
+      selectedTables,
+      noWriteToBinlog: Boolean(noWriteToBinlog),
+      checkOption,
+      repairOption,
+      rebuildEngine: Boolean(rebuildEngine),
+      port: port ? Number(port) : undefined,
+      user,
+      sessionPassword,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal server error executing MySQL maintenance.',
+      errorFa: 'خطای داخلی سرور هنگام اجرای عملیات نگهداری MySQL.',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/maintenance/bloat - Get table storage bloat & fragmentation metrics
+apiRouter.get('/remote-servers/:id/mysql/maintenance/bloat', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = typeof req.query.database === 'string' ? req.query.database : undefined;
+    const password = typeof req.query.password === 'string' ? req.query.password : undefined;
+
+    const metrics = await getMysqlTableBloatMetrics(server, database, { password });
+    return res.json({
+      success: true,
+      metrics,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to introspect MySQL table storage bloat.',
+      errorFa: 'خطا در سنجش میزان تکه‌تکه‌شدگی و فضای هدررفت جداول MySQL.',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/maintenance/active - Get currently running maintenance processes
+apiRouter.get('/remote-servers/:id/mysql/maintenance/active', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const database = typeof req.query.database === 'string' ? req.query.database : undefined;
+    const password = typeof req.query.password === 'string' ? req.query.password : undefined;
+
+    const active = await getMysqlActiveMaintenance(server, database, { password });
+    return res.json({
+      success: true,
+      active,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to inspect active MySQL maintenance processes.',
+      errorFa: 'خطا در پایش فرآیندهای نگهداری فعال در MySQL.',
     });
   }
 });

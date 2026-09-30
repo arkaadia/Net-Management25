@@ -126,6 +126,8 @@ import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
 import { MysqlProcesslistTab } from './MysqlProcesslistTab';
 import { MysqlConfigManagerTab } from './MysqlConfigManagerTab';
 import { MysqlBackupRestoreManagerTab } from './MysqlBackupRestoreManagerTab';
+import { MysqlMaintenanceModal } from './MysqlMaintenanceModal';
+import { MysqlMaintenanceAction } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -333,6 +335,12 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     setBackupInitialTableName(options?.tableName);
     setIsBackupModalOpen(true);
   }, []);
+
+  // Phase 18: MySQL Database Maintenance & Optimization States
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+  const [maintenanceInitialDb, setMaintenanceInitialDb] = useState<string | undefined>(undefined);
+  const [maintenanceInitialTable, setMaintenanceInitialTable] = useState<string | undefined>(undefined);
+  const [maintenanceInitialAction, setMaintenanceInitialAction] = useState<MysqlMaintenanceAction | undefined>(undefined);
 
 
 
@@ -1088,6 +1096,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'privileges', label: isEn ? 'Privileges & Grants' : 'سطوح دسترسی و مجوزها', icon: Key },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
             { id: 'backups', label: isEn ? 'Backups & Restore' : 'پشتیبان‌گیری و بازیابی', icon: Archive },
+            { id: 'maintenance', label: isEn ? 'Maintenance & Bloat' : 'نگهداری و بهینه‌سازی', icon: Zap },
             { id: 'config', label: isEn ? 'Client Auth & my.cnf' : 'احراز هویت و my.cnf', icon: ShieldCheck },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
@@ -1098,14 +1107,23 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id as MysqlTab)}
+                onClick={() => {
+                  if (tab.id === 'maintenance') {
+                    setMaintenanceInitialDb(selectedTreeNode.dbName || databases[0]?.name || server.mysql_database || 'mysql');
+                    setMaintenanceInitialTable(selectedTreeNode.tableName);
+                    setMaintenanceInitialAction('optimize');
+                    setIsMaintenanceModalOpen(true);
+                  } else {
+                    setActiveTab(tab.id as MysqlTab);
+                  }
+                }}
                 className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap cursor-pointer ${
                   isActive
                     ? 'border-orange-500 text-orange-400 font-bold'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={`w-4 h-4 ${tab.id === 'maintenance' ? 'text-amber-400' : ''}`} />
                 <span>{tab.label}</span>
               </button>
             );
@@ -3958,6 +3976,20 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                     <RotateCcw className="w-3.5 h-3.5" />
                                     <span>{isEn ? "Restore / Import" : "بازیابی (Restore)"}</span>
                                   </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMaintenanceInitialDb(selectedTreeNode.dbName || databases[0]?.name || 'mysql');
+                                      setMaintenanceInitialTable(selectedTreeNode.tableName || selectedTreeNode.name);
+                                      setMaintenanceInitialAction('optimize');
+                                      setIsMaintenanceModalOpen(true);
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                    title={isEn ? "Open Table Maintenance & Optimization Hub (OPTIMIZE / ANALYZE / CHECK / REPAIR)" : "مرکز نگهداری و بهینه‌سازی جدول (OPTIMIZE / ANALYZE)"}
+                                  >
+                                    <Zap className="w-3.5 h-3.5" />
+                                    <span>{isEn ? "Maintenance" : "بهینه‌سازی"}</span>
+                                  </button>
                                               <button
                                                 type="button"
                                                 onClick={() => setDataHiddenColumns({})}
@@ -6132,6 +6164,22 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
         isEn={isEn}
         isLightMode={isLightMode}
       />
+
+      {/* Phase 18: MySQL Database Maintenance & Optimization Hub Modal */}
+      {isMaintenanceModalOpen && (
+        <MysqlMaintenanceModal
+          isOpen={isMaintenanceModalOpen}
+          server={server}
+          databases={databases}
+          initialDatabase={maintenanceInitialDb || selectedTreeNode.dbName || databases[0]?.name || 'mysql'}
+          initialTable={maintenanceInitialTable || selectedTreeNode.tableName}
+          initialAction={maintenanceInitialAction || 'optimize'}
+          onClose={() => setIsMaintenanceModalOpen(false)}
+          onMinimize={() => setIsMaintenanceModalOpen(false)}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
     </div>,
     document.body
   );

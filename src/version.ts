@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.227.1';
+export const APP_VERSION = '1.228.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.228.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۸ سیستم مدیریت MySQL: سامانه جامع نگهداری، بهینه‌سازی، ارزیابی قفل‌ها و کاوشگر تکه‌تکه‌شدگی جداول (Comprehensive Maintenance & Optimization Hub)',
+    title_en: 'Phase 18: MySQL Comprehensive Maintenance, Optimization Hub & Storage Bloat Analyzer',
+    changes: [
+      'طراحی و پیاده‌سازی مودال اختصاصی و پنج‌گانه استاندارد نگهداری MySQL (MysqlMaintenanceModal) شامل تب‌های سه‌گانه عملیات اجرایی، کاوشگر فضای هدررفت و فرآیندهای زنده پایش.',
+      'پشتیبانی از کلیه دستورات رسمی نگهداری MySQL: بهینه‌سازی و بازسازی فضای دیسک (OPTIMIZE TABLE)، به‌روزرسانی آمار کلیدها و کاردینالیتی (ANALYZE TABLE)، بازرسی سلامت فیزیکی و منطقی (CHECK TABLE با حالات QUICK، FAST، MEDIUM، EXTENDED) و ترمیم جداول آسیب‌دیده (REPAIR TABLE).',
+      'موتور ارزیابی قفل‌ها و همروندی (Concurrency & Lock Risk Evaluator): سنجش پیش از اجرای شدت قفل (MDL_SHARED_READ، MDL_SHARED_UPGRADABLE، TL_WRITE)، تشخیص مسدودسازی خواندن/نوشتن، و محاسبه نیاز به فضای موقت دیسک متناسب با حجم جدول.',
+      'سامانه جامع کاوشگر تکه‌تکه‌شدگی و فضای هدررفت (Storage Bloat & Fragmentation Analyzer): اسکن متمرکز از information_schema.TABLES، محاسبه نسبت تکه‌تکه‌شدگی (DATA_FREE نسبت به کل حجم)، نمایش نوارهای گرافیکی درصد هدررفت، کارت‌های شاخص کلیدی، و دکمه‌های اقدام سریع یکپارچه‌سازی.',
+      'پایشگر بلادرنگ وظایف و فرآیندهای نگهداری (Live Maintenance Tasks Monitor): استعلام خودکار از processlist با قابلیت رفرش دوره‌ای ۳ ثانیه‌ای جهت پایش کوئری‌های فعال OPTIMIZE، ANALYZE، CHECK و ALTER TABLE.',
+      'دسترسی یکپارچه و مستقیم: افزودن تب اختصاصی Maintenance & Bloat در نوار تب‌های مودال اصلی مدیریت MySQL و تعبیه دکمه اقدام سریع نگهداری در نوار ابزار جداول کاوشگر پایگاه داده.',
+      'رعایت استانداردهای پنج‌گانه Universal Modal: دکمه‌های سه‌گانه هدر (بستن، مینیمایز به داک و تمام‌صفحه)، حفظ حریم لبه پایینی فوتر (bottom-8)، انطباق با تم‌های تیره و روشن، تولتیپ‌های ۳بخشی و زبان انگلیسی دقیق بدون متن فارسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated Universal Modal for MySQL Database Maintenance & Optimization (MysqlMaintenanceModal) featuring Operations Runner, Storage Bloat Analyzer, and Live Process Tasks Monitor.',
+      'Full support for native MySQL engine maintenance suite: OPTIMIZE TABLE (online table rebuild & space reclamation), ANALYZE TABLE (innodb_index_stats key distribution updates), CHECK TABLE (integrity audits with QUICK, FAST, MEDIUM, EXTENDED modes), and REPAIR TABLE (physical corruption restoration).',
+      'Advanced Concurrency & Lock Risk Evaluator: pre-execution evaluation of lock levels (MDL_SHARED_READ, MDL_SHARED_UPGRADABLE, TL_WRITE), read/write blocking detection, and temporary disk space estimation based on table size metrics.',
+      'Table Storage Bloat & Fragmentation Analyzer: introspection of information_schema.TABLES computing fragmentation ratio (DATA_FREE vs total bytes), color-coded visual progress gauges, KPI metric cards, and one-click table optimization shortcuts.',
+      'Live Maintenance Tasks Monitor: real-time polling of information_schema.PROCESSLIST with 3-second auto-refresh to inspect and track active OPTIMIZE, ANALYZE, CHECK, REPAIR, and ALTER TABLE statements.',
+      'Seamless Gateway Integration: added dedicated "Maintenance & Bloat" tab in MySQLManagementModal navigation bar, plus quick one-click maintenance triggers directly from database browser table toolbars.',
+      'Strict adherence to 5 Universal Modal Architectural Standards: triad header controls (Close, Minimize, Fullscreen), bottom-8 footer clearance, dark/light theme ergonomics, boundary-safe 3-part FieldInfoTooltips, and zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.227.1',
     releaseDate: '2026-09-30',

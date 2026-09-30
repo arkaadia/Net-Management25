@@ -108,6 +108,16 @@ import {
   MysqlRestoreBackupRequest,
   MysqlRestoreBackupResult,
   MysqlBackupPreviewResult,
+  MysqlMaintenanceAction,
+  MysqlMaintenanceScope,
+  MysqlCheckOption,
+  MysqlRepairOption,
+  MysqlMaintenanceLockWarning,
+  MysqlMaintenanceRequest,
+  MysqlTableMaintenanceRowResult,
+  MysqlMaintenanceResult,
+  MysqlTableBloatMetric,
+  MysqlActiveMaintenanceProgress,
 } from '../src/types';
 
 /**
@@ -6793,6 +6803,432 @@ export async function uploadRemoteServerMysqlBackup(
     createdAt: stats.mtime.toISOString(),
     engineUsed: 'logical_sql_dumper',
   };
+}
+
+// ==========================================
+// Phase 18: MySQL Database Maintenance & Optimization Hub (OPTIMIZE, ANALYZE, CHECK, REPAIR)
+// ==========================================
+
+/**
+ * Evaluates locking characteristics, concurrency, and temporary disk overhead for MySQL maintenance operations.
+ */
+export function evaluateMysqlMaintenanceLockWarning(
+  action: MysqlMaintenanceAction,
+  options?: {
+    checkOption?: MysqlCheckOption;
+    repairOption?: MysqlRepairOption;
+    tableEngine?: string;
+    tableSizeBytes?: number;
+  }
+): MysqlMaintenanceLockWarning {
+  const engine = (options?.tableEngine || 'InnoDB').toLowerCase();
+  const isInnodb = engine === 'innodb';
+
+  if (action === 'optimize') {
+    if (isInnodb) {
+      return {
+        level: 'moderate',
+        lockName: 'MDL_SHARED_UPGRADABLE (Online DDL)',
+        blocksReads: false,
+        blocksWrites: false,
+        tempSpaceRequired: true,
+        estimatedTempSpace: options?.tableSizeBytes ? formatBytes(options.tableSizeBytes) : 'Equivalent to table size',
+        description:
+          'InnoDB OPTIMIZE TABLE performs an online table rebuild (ALTER TABLE ... FORCE). It reclaims unused space and defragments secondary indexes. Reads and writes remain online throughout, requiring brief metadata locks at start and end. Requires free disk space roughly equal to table data size.',
+        descriptionFa:
+          'دستور OPTIMIZE TABLE برای موتور InnoDB به صورت برخط (Online DDL) جدول را بازسازی می‌کند. این فرآیند فضای آزاد را بازگردانده و ایندکس‌ها را یکپارچه‌سازی می‌کند. خواندن و نوشتن مسدود نمی‌شوند اما نیازمند فضای خالی موقت روی دیسک معادل حجم جدول است.',
+      };
+    } else {
+      return {
+        level: 'exclusive',
+        lockName: 'TL_WRITE (Table Lock)',
+        blocksReads: false,
+        blocksWrites: true,
+        tempSpaceRequired: true,
+        description:
+          'For MyISAM/Aria tables, OPTIMIZE TABLE locks the entire table against concurrent writes until index reorganization and row compaction complete.',
+        descriptionFa:
+          'برای جداول MyISAM/Aria، دستور OPTIMIZE TABLE قفل نوشتن سراسری بر روی جدول اعمال کرده و کلیه عملیات‌های درج و ویرایش را تا پایان متوقف می‌سازد.',
+      };
+    }
+  }
+
+  if (action === 'analyze') {
+    return {
+      level: 'low',
+      lockName: 'MDL_SHARED_READ',
+      blocksReads: false,
+      blocksWrites: false,
+      tempSpaceRequired: false,
+      description:
+        'ANALYZE TABLE inspects key distributions and updates index cardinality in innodb_index_stats. It acquires a lightweight read lock and does not block concurrent SELECT, INSERT, or UPDATE queries.',
+      descriptionFa:
+        'دستور ANALYZE TABLE آمار توزیع کلیدها و کاردینالیتی ایندکس‌ها را به‌روزرسانی می‌کند. این عملیات قفل سبک موقت گرفته و فعالیت‌های عادی خواندن یا نوشتن را مسدود نمی‌کند.',
+    };
+  }
+
+  if (action === 'check') {
+    const isExtended = options?.checkOption === 'EXTENDED';
+    return {
+      level: isExtended ? 'heavy' : 'low',
+      lockName: 'MDL_SHARED_READ',
+      blocksReads: false,
+      blocksWrites: isExtended,
+      tempSpaceRequired: false,
+      description: isExtended
+        ? 'CHECK TABLE EXTENDED performs an exhaustive row-by-row key consistency audit. On large production tables, it can hold shared read locks for prolonged periods, potentially delaying concurrent writes.'
+        : 'CHECK TABLE scans table integrity and structure. Normal checks execute swiftly with read locks without blocking standard read traffic.',
+      descriptionFa: isExtended
+        ? 'گزینه EXTENDED بررسی خط‌به‌خط ساختار جدول و ایندکس‌ها را انجام می‌دهد و در جداول بزرگ تولیدی ممکن است به دلیل زمان طولانی، عملیات‌های نوشتن را در صف نگه دارد.'
+        : 'دستور CHECK TABLE ساختار فیزیکی و منطقی جدول را بازرسی می‌کند. چک‌های استاندارد سریع بوده و مانع خواندن اطلاعات نمی‌شوند.',
+    };
+  }
+
+  if (action === 'repair') {
+    return {
+      level: 'exclusive',
+      lockName: 'TL_WRITE_EXCLUSIVE',
+      blocksReads: true,
+      blocksWrites: true,
+      tempSpaceRequired: true,
+      description:
+        'REPAIR TABLE attempts physical restoration of corrupted table and index files (primarily MyISAM/Aria). It acquires an exclusive lock, blocking all concurrent reads and writes.',
+      descriptionFa:
+        'دستور REPAIR TABLE اقدام به ترمیم فیزیکی جداول آسیب‌دیده می‌کند و با اخذ قفل انحصاری کامل، کلیه دسترسی‌های خواندن و نوشتن را مسدود می‌سازد.',
+    };
+  }
+
+  // rebuild_index
+  return {
+    level: 'moderate',
+    lockName: 'MDL_SHARED_UPGRADABLE (Engine Rebuild)',
+    blocksReads: false,
+    blocksWrites: false,
+    tempSpaceRequired: true,
+    estimatedTempSpace: options?.tableSizeBytes ? formatBytes(options.tableSizeBytes) : 'Equivalent to table size',
+    description:
+      'Rebuilding table engine (ALTER TABLE ... ENGINE=InnoDB) completely defragments clustered B-Trees and secondary indexes online. Requires temporary disk space.',
+    descriptionFa:
+      'بازسازی کامل موتور جدول (ALTER TABLE ... ENGINE=InnoDB) کلاسترهای B-Tree و ایندکس‌های فرعی را بازآرایی می‌کند و به فضای خالی موقت دیسک نیاز دارد.',
+  };
+}
+
+/**
+ * Introspects table storage bloat, index allocations, and fragmentation ratio across all tables in a database.
+ */
+export async function getMysqlTableBloatMetrics(
+  server: RemoteServer,
+  database?: string,
+  options?: { password?: string }
+): Promise<MysqlTableBloatMetric[]> {
+  const config = getMysqlConfig(server, { database: database || 'mysql', password: options?.password });
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: config.database || undefined,
+      connectTimeout: 8000,
+    });
+
+    const targetDb = database && database.trim() && database !== 'all' ? database.trim() : null;
+    const query = `
+      SELECT 
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        IFNULL(ENGINE, 'Unknown') AS ENGINE,
+        IFNULL(ROW_FORMAT, 'Default') AS ROW_FORMAT,
+        IFNULL(TABLE_ROWS, 0) AS TABLE_ROWS,
+        IFNULL(DATA_LENGTH, 0) AS DATA_LENGTH,
+        IFNULL(INDEX_LENGTH, 0) AS INDEX_LENGTH,
+        IFNULL(DATA_FREE, 0) AS DATA_FREE,
+        TABLE_COLLATION,
+        CREATE_TIME,
+        UPDATE_TIME,
+        CHECK_TIME
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
+        ${targetDb ? 'AND TABLE_SCHEMA = ?' : ''}
+        AND TABLE_TYPE = 'BASE TABLE'
+      ORDER BY DATA_FREE DESC, DATA_LENGTH DESC
+      LIMIT 500;
+    `;
+
+    const [rows] = await conn.execute(query, targetDb ? [targetDb] : []);
+    const metrics: MysqlTableBloatMetric[] = (rows as any[]).map((r) => {
+      const dataBytes = Number(r.DATA_LENGTH) || 0;
+      const indexBytes = Number(r.INDEX_LENGTH) || 0;
+      const freeBytes = Number(r.DATA_FREE) || 0;
+      const totalBytes = dataBytes + indexBytes + freeBytes;
+      const fragRatio = totalBytes > 0 ? Number(((freeBytes / totalBytes) * 100).toFixed(2)) : 0;
+
+      let severity: 'healthy' | 'moderate' | 'high' | 'critical' = 'healthy';
+      if (freeBytes >= 50 * 1024 * 1024 && fragRatio >= 25) {
+        severity = 'critical';
+      } else if (freeBytes >= 10 * 1024 * 1024 && fragRatio >= 15) {
+        severity = 'high';
+      } else if (freeBytes >= 2 * 1024 * 1024 || fragRatio >= 10) {
+        severity = 'moderate';
+      }
+
+      const tableRows = Number(r.TABLE_ROWS) || 0;
+      const optimizeRec = fragRatio >= 15 && freeBytes >= 5 * 1024 * 1024;
+      const analyzeRec = !r.UPDATE_TIME || (!r.CHECK_TIME && tableRows > 500);
+      const checkRec = !r.CHECK_TIME;
+
+      return {
+        database: r.TABLE_SCHEMA,
+        tableName: r.TABLE_NAME,
+        engine: r.ENGINE,
+        rowFormat: r.ROW_FORMAT,
+        tableRows,
+        dataSizeBytes: dataBytes,
+        dataSizePretty: formatBytes(dataBytes),
+        indexSizeBytes: indexBytes,
+        indexSizePretty: formatBytes(indexBytes),
+        dataFreeBytes: freeBytes,
+        dataFreePretty: formatBytes(freeBytes),
+        totalSizeBytes: totalBytes,
+        totalSizePretty: formatBytes(totalBytes),
+        fragmentationRatio: fragRatio,
+        bloatSeverity: severity,
+        optimizeRecommended: optimizeRec,
+        analyzeRecommended: analyzeRec,
+        checkRecommended: checkRec,
+        collation: r.TABLE_COLLATION || undefined,
+        createTime: r.CREATE_TIME ? new Date(r.CREATE_TIME).toISOString() : undefined,
+        updateTime: r.UPDATE_TIME ? new Date(r.UPDATE_TIME).toISOString() : undefined,
+        checkTime: r.CHECK_TIME ? new Date(r.CHECK_TIME).toISOString() : undefined,
+      };
+    });
+
+    return metrics;
+  } finally {
+    if (conn) {
+      await conn.end().catch(() => {});
+    }
+  }
+}
+
+/**
+ * Runs OPTIMIZE, ANALYZE, CHECK, REPAIR, or REBUILD on designated tables.
+ */
+export async function runMysqlMaintenance(
+  server: RemoteServer,
+  request: MysqlMaintenanceRequest
+): Promise<MysqlMaintenanceResult> {
+  const startTime = Date.now();
+  const db = (request.database || 'mysql').trim();
+  const config = getMysqlConfig(server, {
+    database: db,
+    port: request.port,
+    user: request.user,
+    password: request.sessionPassword,
+  });
+
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: config.database || undefined,
+      connectTimeout: 10000,
+    });
+
+    // Determine tables to operate on
+    let tablesToRun: string[] = [];
+    if (request.scope === 'table' && request.table) {
+      tablesToRun = [request.table.trim()];
+    } else if (request.scope === 'selected_tables' && request.selectedTables && request.selectedTables.length > 0) {
+      tablesToRun = request.selectedTables.map((t) => t.trim());
+    } else {
+      // Scope: database (all tables)
+      const [tRows] = await conn.execute(
+        `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'`,
+        [db]
+      );
+      tablesToRun = (tRows as any[]).map((r) => r.TABLE_NAME);
+    }
+
+    if (tablesToRun.length === 0) {
+      return {
+        success: false,
+        action: request.action,
+        scope: request.scope,
+        targetDescription: `${db} (no tables found)`,
+        executedCommand: '-- No tables targeted',
+        durationMs: Date.now() - startTime,
+        message: `No base tables found to execute ${request.action} on database "${db}".`,
+        messageFa: `هیچ جدولی برای اجرای عملیات ${request.action} در پایگاه داده "${db}" یافت نشد.`,
+      };
+    }
+
+    const outputLogs: string[] = [];
+    const tableResults: MysqlTableMaintenanceRowResult[] = [];
+    const executedCommands: string[] = [];
+
+    outputLogs.push(`[${new Date().toISOString()}] Initiating MySQL Maintenance: Action="${request.action}", Scope="${request.scope}", Target="${db}" (${tablesToRun.length} tables)`);
+
+    const noBinlog = request.noWriteToBinlog ? 'NO_WRITE_TO_BINLOG ' : '';
+
+    for (const tbl of tablesToRun) {
+      const safeTbl = `\`${db}\`.\`${tbl}\``;
+      let sql = '';
+
+      if (request.action === 'optimize') {
+        sql = `OPTIMIZE ${noBinlog}TABLE ${safeTbl}`;
+      } else if (request.action === 'analyze') {
+        sql = `ANALYZE ${noBinlog}TABLE ${safeTbl}`;
+      } else if (request.action === 'check') {
+        const checkOpt = request.checkOption && request.checkOption !== 'DEFAULT' ? ` ${request.checkOption}` : '';
+        sql = `CHECK TABLE ${safeTbl}${checkOpt}`;
+      } else if (request.action === 'repair') {
+        const repairOpt = request.repairOption && request.repairOption !== 'DEFAULT' ? ` ${request.repairOption}` : '';
+        sql = `REPAIR ${noBinlog}TABLE ${safeTbl}${repairOpt}`;
+      } else if (request.action === 'rebuild_index') {
+        sql = `ALTER TABLE ${safeTbl} ENGINE=InnoDB`;
+      }
+
+      executedCommands.push(sql);
+      outputLogs.push(`Executing: ${sql}`);
+
+      try {
+        const [resultRows] = await conn.query(sql);
+        if (Array.isArray(resultRows)) {
+          for (const row of resultRows as any[]) {
+            const tableVal = String(row.Table || row.table || `${db}.${tbl}`);
+            const opVal = String(row.Op || row.op || request.action);
+            const msgTypeVal = (String(row.Msg_type || row.msg_type || 'status').toLowerCase()) as any;
+            const msgTextVal = String(row.Msg_text || row.msg_text || 'OK');
+
+            tableResults.push({
+              table: tableVal,
+              op: opVal,
+              msgType: msgTypeVal,
+              msgText: msgTextVal,
+            });
+            outputLogs.push(`  -> [${msgTypeVal.toUpperCase()}] ${tableVal}: ${msgTextVal}`);
+          }
+        } else {
+          tableResults.push({
+            table: `${db}.${tbl}`,
+            op: request.action,
+            msgType: 'status',
+            msgText: 'Completed successfully',
+          });
+          outputLogs.push(`  -> OK ${db}.${tbl}`);
+        }
+      } catch (tblErr: any) {
+        tableResults.push({
+          table: `${db}.${tbl}`,
+          op: request.action,
+          msgType: 'error',
+          msgText: tblErr.message || 'Operation failed',
+        });
+        outputLogs.push(`  -> [ERROR] ${db}.${tbl}: ${tblErr.message}`);
+      }
+    }
+
+    const durationMs = Date.now() - startTime;
+    outputLogs.push(`[${new Date().toISOString()}] Completed in ${durationMs}ms with ${tableResults.length} table operations.`);
+
+    const hasErrors = tableResults.some((t) => t.msgType === 'error');
+    const lockWarning = evaluateMysqlMaintenanceLockWarning(request.action, {
+      checkOption: request.checkOption,
+      repairOption: request.repairOption,
+    });
+
+    const targetDesc = request.scope === 'table' ? `${db}.${request.table}` : `${db} (${tablesToRun.length} tables)`;
+
+    return {
+      success: !hasErrors,
+      action: request.action,
+      scope: request.scope,
+      targetDescription: targetDesc,
+      executedCommand: executedCommands.join(';\n'),
+      durationMs,
+      message: `MySQL ${request.action.toUpperCase()} completed on ${targetDesc} in ${durationMs}ms.`,
+      messageFa: `عملیات ${request.action.toUpperCase()} بر روی ${targetDesc} با موفقیت در ${durationMs} میلی‌ثانیه به پایان رسید.`,
+      tableResults,
+      lockWarning,
+      outputLogs,
+    };
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+    return {
+      success: false,
+      action: request.action,
+      scope: request.scope,
+      targetDescription: `${db}`,
+      executedCommand: `-- Execution failed: ${err.message}`,
+      durationMs,
+      message: `Failed to execute MySQL maintenance: ${err.message}`,
+      messageFa: `خطا در اجرای عملیات نگهداری MySQL: ${err.message}`,
+      error: err.message,
+      errorFa: 'خطای سیستمی در اجرای عملیات نگهداری بر روی سرور MySQL',
+    };
+  } finally {
+    if (conn) {
+      await conn.end().catch(() => {});
+    }
+  }
+}
+
+/**
+ * Checks active maintenance or long-running database operations from processlist.
+ */
+export async function getMysqlActiveMaintenance(
+  server: RemoteServer,
+  database?: string,
+  options?: { password?: string }
+): Promise<MysqlActiveMaintenanceProgress[]> {
+  const config = getMysqlConfig(server, { database: database || 'mysql', password: options?.password });
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: config.database || undefined,
+      connectTimeout: 5000,
+    });
+
+    const [rows] = await conn.query(`
+      SELECT 
+        ID, USER, HOST, DB, COMMAND, TIME, STATE, INFO
+      FROM information_schema.PROCESSLIST
+      WHERE INFO IS NOT NULL
+        AND (
+          UPPER(INFO) LIKE '%OPTIMIZE TABLE%' OR
+          UPPER(INFO) LIKE '%ANALYZE TABLE%' OR
+          UPPER(INFO) LIKE '%CHECK TABLE%' OR
+          UPPER(INFO) LIKE '%REPAIR TABLE%' OR
+          UPPER(INFO) LIKE '%ALTER TABLE%'
+        )
+      ORDER BY TIME DESC;
+    `);
+
+    return (rows as any[]).map((r) => ({
+      id: Number(r.ID),
+      user: r.USER || 'system',
+      host: r.HOST || '',
+      db: r.DB || '',
+      command: r.COMMAND || '',
+      timeSeconds: Number(r.TIME) || 0,
+      state: r.STATE || '',
+      info: r.INFO || '',
+      stageProgress: r.STATE ? `State: ${r.STATE}` : undefined,
+    }));
+  } finally {
+    if (conn) {
+      await conn.end().catch(() => {});
+    }
+  }
 }
 
 

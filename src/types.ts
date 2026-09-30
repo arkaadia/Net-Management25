@@ -2600,6 +2600,102 @@ export interface MysqlBackupPreviewResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 18: MySQL Database Maintenance & Optimization (OPTIMIZE, ANALYZE, CHECK, REPAIR)
+// ==========================================
+
+export type MysqlMaintenanceAction = 'optimize' | 'analyze' | 'check' | 'repair' | 'rebuild_index';
+export type MysqlMaintenanceScope = 'table' | 'database' | 'selected_tables';
+export type MysqlCheckOption = 'DEFAULT' | 'QUICK' | 'FAST' | 'MEDIUM' | 'EXTENDED' | 'CHANGED';
+export type MysqlRepairOption = 'DEFAULT' | 'QUICK' | 'EXTENDED' | 'USE_FRM';
+
+export interface MysqlMaintenanceLockWarning {
+  level: 'none' | 'low' | 'moderate' | 'heavy' | 'exclusive';
+  lockName: string;
+  blocksReads: boolean;
+  blocksWrites: boolean;
+  tempSpaceRequired: boolean;
+  estimatedTempSpace?: string;
+  description: string;
+  descriptionFa: string;
+}
+
+export interface MysqlMaintenanceRequest {
+  action: MysqlMaintenanceAction;
+  scope: MysqlMaintenanceScope;
+  database: string;
+  table?: string;
+  selectedTables?: string[];
+  // Options
+  noWriteToBinlog?: boolean;
+  checkOption?: MysqlCheckOption;
+  repairOption?: MysqlRepairOption;
+  rebuildEngine?: boolean;
+  port?: number;
+  user?: string;
+  sessionPassword?: string;
+}
+
+export interface MysqlTableMaintenanceRowResult {
+  table: string;
+  op: string;
+  msgType: 'status' | 'info' | 'note' | 'warning' | 'error';
+  msgText: string;
+}
+
+export interface MysqlMaintenanceResult {
+  success: boolean;
+  action: MysqlMaintenanceAction;
+  scope: MysqlMaintenanceScope;
+  targetDescription: string;
+  executedCommand: string;
+  durationMs: number;
+  message: string;
+  messageFa: string;
+  tableResults?: MysqlTableMaintenanceRowResult[];
+  lockWarning?: MysqlMaintenanceLockWarning;
+  outputLogs?: string[];
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlTableBloatMetric {
+  database: string;
+  tableName: string;
+  engine: string;
+  rowFormat: string;
+  tableRows: number;
+  dataSizeBytes: number;
+  dataSizePretty: string;
+  indexSizeBytes: number;
+  indexSizePretty: string;
+  dataFreeBytes: number;
+  dataFreePretty: string;
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  fragmentationRatio: number;
+  bloatSeverity: 'healthy' | 'moderate' | 'high' | 'critical';
+  optimizeRecommended: boolean;
+  analyzeRecommended: boolean;
+  checkRecommended: boolean;
+  collation?: string;
+  createTime?: string;
+  updateTime?: string;
+  checkTime?: string;
+}
+
+export interface MysqlActiveMaintenanceProgress {
+  id: number;
+  user: string;
+  host: string;
+  db: string;
+  command: string;
+  timeSeconds: number;
+  state: string;
+  info: string;
+  stageProgress?: string;
+}
+
 export type MysqlSqlClassificationType =
   | 'read_only'
   | 'write'
