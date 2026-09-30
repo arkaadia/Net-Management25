@@ -29,13 +29,14 @@ import {
   BookmarkPlus,
   Check,
   Database,
+  RefreshCw,
 } from 'lucide-react';
 import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { VaultPasswordPickerModal } from '../vault/VaultPasswordPickerModal';
 import { useAuth } from '../../context/AuthContext';
-import { testStandaloneMysqlConnection } from '../../services/api';
+import { testStandaloneMysqlConnection, saveSecretToVault } from '../../services/api';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
@@ -140,6 +141,16 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [savePostgresToVault, setSavePostgresToVault] = useState(false);
   const [saveMysqlToVault, setSaveMysqlToVault] = useState(false);
   const [vaultSaveSuccess, setVaultSaveSuccess] = useState<string | null>(null);
+
+  const [savingSshVault, setSavingSshVault] = useState(false);
+  const [sshVaultSaved, setSshVaultSaved] = useState(false);
+  const [savingWinVault, setSavingWinVault] = useState(false);
+  const [winVaultSaved, setWinVaultSaved] = useState(false);
+  const [savingPostgresVault, setSavingPostgresVault] = useState(false);
+  const [postgresVaultSaved, setPostgresVaultSaved] = useState(false);
+  const [savingMysqlVault, setSavingMysqlVault] = useState(false);
+  const [mysqlVaultSaved, setMysqlVaultSaved] = useState(false);
+  const [vaultFeedbackMsg, setVaultFeedbackMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
   // Linux-specific
   const [sshPort, setSshPort] = useState<number | string>(22);
@@ -355,6 +366,15 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       setSaveWinToVault(false);
       setSavePostgresToVault(false);
       setSaveMysqlToVault(false);
+      setSavingSshVault(false);
+      setSshVaultSaved(false);
+      setSavingWinVault(false);
+      setWinVaultSaved(false);
+      setSavingPostgresVault(false);
+      setPostgresVaultSaved(false);
+      setSavingMysqlVault(false);
+      setMysqlVaultSaved(false);
+      setVaultFeedbackMsg(null);
       setPostgresTestFeedback(null);
       setMysqlTestFeedback(null);
       setVaultSaveSuccess(null);
@@ -387,6 +407,117 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
   const handleRemoveTag = (tagToRemove: string) => {
     setTags(tags.filter((t) => t !== tagToRemove));
+  };
+
+  // Instant save handlers for personal vault
+  const handleInstantSaveSshToVault = async () => {
+    if (!sshPassword.trim()) return;
+    setSavingSshVault(true);
+    setVaultFeedbackMsg(null);
+    const targetHostVal = ip.trim() || hostname.trim() || undefined;
+    const secretName = `${name.trim() || targetHostVal || 'Linux Server'} (SSH)`;
+    const res = await saveSecretToVault({
+      name: secretName,
+      username: sshUsername.trim() || 'root',
+      password: sshPassword.trim(),
+      category: 'ssh',
+      targetHost: targetHostVal,
+      notes: isEn
+        ? `Saved from Server Registration: ${name.trim() || targetHostVal || ''}`
+        : `ذخیره‌شده از فرم ثبت سرور: ${name.trim() || targetHostVal || ''}`,
+      tags: ['server', 'linux', ...(tags.length > 0 ? tags : [])],
+    });
+    setSavingSshVault(false);
+    if (res.success) {
+      setSshVaultSaved(true);
+      setSaveSshToVault(true);
+      setVaultFeedbackMsg({
+        text: isEn ? 'Password securely saved to your Personal Vault!' : 'گذرواژه با موفقیت در والت شخصی ذخیره گردید!',
+      });
+      setTimeout(() => setVaultFeedbackMsg(null), 5000);
+    } else {
+      setVaultFeedbackMsg({
+        text: res.error || (isEn ? 'Failed to save password to vault.' : 'خطا در ذخیره‌سازی گذرواژه در والت.'),
+        isError: true,
+      });
+    }
+  };
+
+  const handleInstantSaveWinToVault = async () => {
+    if (!winPassword.trim()) return;
+    setSavingWinVault(true);
+    setVaultFeedbackMsg(null);
+    const targetHostVal = ip.trim() || hostname.trim() || undefined;
+    const secretName = `${name.trim() || targetHostVal || 'Windows Server'} (${winProtocol.toUpperCase()})`;
+    const res = await saveSecretToVault({
+      name: secretName,
+      username: winUsername.trim() || 'Administrator',
+      password: winPassword.trim(),
+      category: winProtocol === 'winrm' || winProtocol === 'powershell' ? 'ssh' : 'general',
+      targetHost: targetHostVal,
+      notes: isEn
+        ? `Saved from Windows Server Registration: ${name.trim() || targetHostVal || ''}`
+        : `ذخیره‌شده از فرم ثبت سرور ویندوز: ${name.trim() || targetHostVal || ''}`,
+      tags: ['server', 'windows', winProtocol, ...(tags.length > 0 ? tags : [])],
+    });
+    setSavingWinVault(false);
+    if (res.success) {
+      setWinVaultSaved(true);
+      setSaveWinToVault(true);
+      setVaultFeedbackMsg({
+        text: isEn ? 'Password securely saved to your Personal Vault!' : 'گذرواژه با موفقیت در والت شخصی ذخیره گردید!',
+      });
+      setTimeout(() => setVaultFeedbackMsg(null), 5000);
+    } else {
+      setVaultFeedbackMsg({
+        text: res.error || (isEn ? 'Failed to save password to vault.' : 'خطا در ذخیره‌سازی گذرواژه در والت.'),
+        isError: true,
+      });
+    }
+  };
+
+  const handleInstantSavePostgresToVault = async () => {
+    if (!postgresPassword.trim()) return;
+    setSavingPostgresVault(true);
+    const targetHostVal = ip.trim() || hostname.trim() || undefined;
+    const res = await saveSecretToVault({
+      name: `${name.trim() || targetHostVal || 'Server'} (PostgreSQL)`,
+      username: postgresUser.trim() || 'postgres',
+      password: postgresPassword.trim(),
+      category: 'database',
+      targetHost: targetHostVal,
+      notes: isEn
+        ? `Saved from Database Registration: ${name.trim() || targetHostVal || ''} (Port ${postgresPort || 5432})`
+        : `ذخیره‌شده از فرم ثبت پایگاه داده: ${name.trim() || targetHostVal || ''} (پورت ${postgresPort || 5432})`,
+      tags: ['database', 'postgres', ...(tags.length > 0 ? tags : [])],
+    });
+    setSavingPostgresVault(false);
+    if (res.success) {
+      setPostgresVaultSaved(true);
+      setSavePostgresToVault(true);
+    }
+  };
+
+  const handleInstantSaveMysqlToVault = async () => {
+    if (!mysqlPassword.trim()) return;
+    setSavingMysqlVault(true);
+    const targetHostVal = ip.trim() || hostname.trim() || undefined;
+    const res = await saveSecretToVault({
+      name: `${name.trim() || targetHostVal || 'Server'} (MySQL)`,
+      username: mysqlUser.trim() || 'root',
+      password: mysqlPassword.trim(),
+      category: 'database',
+      targetHost: targetHostVal,
+      notes: isEn
+        ? `Saved from Database Registration: ${name.trim() || targetHostVal || ''} (Port ${mysqlPort || 3306})`
+        : `ذخیره‌شده از فرم ثبت پایگاه داده: ${name.trim() || targetHostVal || ''} (پورت ${mysqlPort || 3306})`,
+      tags: ['database', 'mysql', ...(tags.length > 0 ? tags : [])],
+    });
+    setSavingMysqlVault(false);
+    if (res.success) {
+      setMysqlVaultSaved(true);
+      setSaveMysqlToVault(true);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -464,9 +595,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
       await onSave(payload);
 
-      // Save credentials to personal vault if user opted-in
-      const shouldSaveSsh = osType === 'linux' && saveSshToVault && !promptPasswordOnConnect && sshPassword.trim();
-      const shouldSaveWin = osType === 'windows' && saveWinToVault && !promptPasswordOnConnect && winPassword.trim();
+      // Save credentials to personal vault if user opted-in and not already saved
+      const shouldSaveSsh = osType === 'linux' && saveSshToVault && !promptPasswordOnConnect && sshPassword.trim() && !sshVaultSaved;
+      const shouldSaveWin = osType === 'windows' && saveWinToVault && !promptPasswordOnConnect && winPassword.trim() && !winVaultSaved;
 
       if (shouldSaveSsh || shouldSaveWin) {
         try {
@@ -474,25 +605,18 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           const secretUsername = shouldSaveSsh ? (sshUsername.trim() || 'root') : (winUsername.trim() || 'Administrator');
           const targetHostVal = ip.trim() || hostname.trim() || undefined;
           const secretCategory = osType === 'linux' ? 'ssh' : (winProtocol === 'winrm' || winProtocol === 'powershell' ? 'ssh' : 'general');
-          const secretName = `${name.trim()} (${osType === 'linux' ? 'SSH' : winProtocol.toUpperCase()})`;
+          const secretName = `${name.trim() || targetHostVal || 'Server'} (${osType === 'linux' ? 'SSH' : winProtocol.toUpperCase()})`;
 
-          await fetch('/api/vault', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              name: secretName,
-              username: secretUsername,
-              password: secretPassword,
-              category: secretCategory,
-              targetHost: targetHostVal,
-              notes: isEn
-                ? `Auto-saved from Server Registration: ${name.trim()} [${targetHostVal || ''}]`
-                : `ذخیره‌سازی خودکار از فرم ثبت سرور: ${name.trim()} [${targetHostVal || ''}]`,
-              tags: ['server', osType, ...(tags.length > 0 ? tags : [])],
-            }),
+          await saveSecretToVault({
+            name: secretName,
+            username: secretUsername,
+            password: secretPassword,
+            category: secretCategory,
+            targetHost: targetHostVal,
+            notes: isEn
+              ? `Auto-saved from Server Registration: ${name.trim()} [${targetHostVal || ''}]`
+              : `ذخیره‌سازی خودکار از فرم ثبت سرور: ${name.trim()} [${targetHostVal || ''}]`,
+            tags: ['server', osType, ...(tags.length > 0 ? tags : [])],
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save password to vault:', vaultErr);
@@ -500,25 +624,19 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       }
 
       // Save PostgreSQL credentials to vault if opted-in
-      if (hasPostgres && savePostgresToVault && postgresPassword.trim()) {
+      if (hasPostgres && savePostgresToVault && postgresPassword.trim() && !postgresVaultSaved) {
         try {
-          await fetch('/api/vault', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              name: `${name.trim()} (PostgreSQL)`,
-              username: postgresUser.trim() || 'postgres',
-              password: postgresPassword.trim(),
-              category: 'database',
-              targetHost: ip.trim() || hostname.trim() || undefined,
-              notes: isEn
-                ? `Auto-saved from Database Registration: ${name.trim()} (Port ${postgresPort || 5432})`
-                : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${postgresPort || 5432})`,
-              tags: ['database', 'postgres', ...(tags.length > 0 ? tags : [])],
-            }),
+          const targetHostVal = ip.trim() || hostname.trim() || undefined;
+          await saveSecretToVault({
+            name: `${name.trim() || targetHostVal || 'Server'} (PostgreSQL)`,
+            username: postgresUser.trim() || 'postgres',
+            password: postgresPassword.trim(),
+            category: 'database',
+            targetHost: targetHostVal,
+            notes: isEn
+              ? `Auto-saved from Database Registration: ${name.trim()} (Port ${postgresPort || 5432})`
+              : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${postgresPort || 5432})`,
+            tags: ['database', 'postgres', ...(tags.length > 0 ? tags : [])],
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save postgres password to vault:', vaultErr);
@@ -526,25 +644,19 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       }
 
       // Save MySQL credentials to vault if opted-in
-      if (hasMysql && saveMysqlToVault && mysqlPassword.trim()) {
+      if (hasMysql && saveMysqlToVault && mysqlPassword.trim() && !mysqlVaultSaved) {
         try {
-          await fetch('/api/vault', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              name: `${name.trim()} (MySQL)`,
-              username: mysqlUser.trim() || 'root',
-              password: mysqlPassword.trim(),
-              category: 'database',
-              targetHost: ip.trim() || hostname.trim() || undefined,
-              notes: isEn
-                ? `Auto-saved from Database Registration: ${name.trim()} (Port ${mysqlPort || 3306})`
-                : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${mysqlPort || 3306})`,
-              tags: ['database', 'mysql', ...(tags.length > 0 ? tags : [])],
-            }),
+          const targetHostVal = ip.trim() || hostname.trim() || undefined;
+          await saveSecretToVault({
+            name: `${name.trim() || targetHostVal || 'Server'} (MySQL)`,
+            username: mysqlUser.trim() || 'root',
+            password: mysqlPassword.trim(),
+            category: 'database',
+            targetHost: targetHostVal,
+            notes: isEn
+              ? `Auto-saved from Database Registration: ${name.trim()} (Port ${mysqlPort || 3306})`
+              : `ذخیره‌سازی خودکار از فرم ثبت پایگاه داده: ${name.trim()} (پورت ${mysqlPort || 3306})`,
+            tags: ['database', 'mysql', ...(tags.length > 0 ? tags : [])],
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save mysql password to vault:', vaultErr);
@@ -1113,16 +1225,46 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       </div>
 
                       {postgresPassword.trim().length > 0 && (
-                        <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-blue-400">
-                          <input
-                            type="checkbox"
-                            checked={savePostgresToVault}
-                            onChange={(e) => setSavePostgresToVault(e.target.checked)}
-                            className="rounded accent-blue-500"
-                          />
-                          <BookmarkPlus className="w-3.5 h-3.5" />
-                          <span>{isEn ? 'Save password to Vault?' : 'ذخیره این رمز در والت شخصی؟'}</span>
-                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleInstantSavePostgresToVault}
+                            disabled={savingPostgresVault}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border cursor-pointer transition shadow-sm ${
+                              postgresVaultSaved
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border-blue-500/30'
+                            }`}
+                            title={isEn ? 'Save password to Vault in database' : 'ذخیره این رمز در ولت پایگاه‌داده'}
+                          >
+                            {savingPostgresVault ? (
+                              <RefreshCw className="w-3 h-3 animate-spin text-blue-400" />
+                            ) : postgresVaultSaved ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <BookmarkPlus className="w-3 h-3 text-blue-400" />
+                            )}
+                            <span>
+                              {postgresVaultSaved
+                                ? isEn
+                                  ? 'Saved to Vault!'
+                                  : 'در والت ذخیره شد!'
+                                : isEn
+                                ? 'Save this password to Vault'
+                                : 'ذخیره این رمز در والت شخصی'}
+                            </span>
+                          </button>
+
+                          <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-slate-400">
+                            <input
+                              type="checkbox"
+                              checked={savePostgresToVault}
+                              onChange={(e) => setSavePostgresToVault(e.target.checked)}
+                              className="rounded accent-blue-500"
+                            />
+                            <span>{isEn ? 'Auto-save' : 'ذخیره خودکار'}</span>
+                          </label>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1275,16 +1417,46 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       </div>
 
                       {mysqlPassword.trim().length > 0 && (
-                        <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-amber-400">
-                          <input
-                            type="checkbox"
-                            checked={saveMysqlToVault}
-                            onChange={(e) => setSaveMysqlToVault(e.target.checked)}
-                            className="rounded accent-amber-500"
-                          />
-                          <BookmarkPlus className="w-3.5 h-3.5" />
-                          <span>{isEn ? 'Save password to Vault?' : 'ذخیره این رمز در والت شخصی؟'}</span>
-                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleInstantSaveMysqlToVault}
+                            disabled={savingMysqlVault}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border cursor-pointer transition shadow-sm ${
+                              mysqlVaultSaved
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            }`}
+                            title={isEn ? 'Save password to Vault in database' : 'ذخیره این رمز در ولت پایگاه‌داده'}
+                          >
+                            {savingMysqlVault ? (
+                              <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+                            ) : mysqlVaultSaved ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <BookmarkPlus className="w-3 h-3 text-amber-400" />
+                            )}
+                            <span>
+                              {mysqlVaultSaved
+                                ? isEn
+                                  ? 'Saved to Vault!'
+                                  : 'در والت ذخیره شد!'
+                                : isEn
+                                ? 'Save this password to Vault'
+                                : 'ذخیره این رمز در والت شخصی'}
+                            </span>
+                          </button>
+
+                          <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-slate-400">
+                            <input
+                              type="checkbox"
+                              checked={saveMysqlToVault}
+                              onChange={(e) => setSaveMysqlToVault(e.target.checked)}
+                              className="rounded accent-amber-500"
+                            />
+                            <span>{isEn ? 'Auto-save' : 'ذخیره خودکار'}</span>
+                          </label>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1867,33 +2039,55 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   </div>
                 )}
 
-                {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                {/* Save to Personal Vault prompt and instant button */}
                 {!promptPasswordOnConnect && sshPassword.trim().length > 0 && (
-                  <div className="pt-0.5">
-                    <label
-                      className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] cursor-pointer select-none transition-all ${
-                        saveSshToVault
-                          ? isLightMode
-                            ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-sm'
-                            : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                  <div className="pt-1 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleInstantSaveSshToVault}
+                      disabled={savingSshVault}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition shadow-sm ${
+                        sshVaultSaved
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                           : isLightMode
-                          ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                          : 'bg-slate-900/40 hover:bg-slate-850 border-slate-800 text-slate-400'
+                          ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
+                          : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-200'
                       }`}
+                      title={isEn ? 'Save this password directly to your personal vault in database' : 'ذخیره آنی این رمز در ولت پایگاه‌داده'}
                     >
+                      {savingSshVault ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                      ) : sshVaultSaved ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <BookmarkPlus className="w-3.5 h-3.5 text-amber-500" />
+                      )}
+                      <span>
+                        {sshVaultSaved
+                          ? isEn
+                            ? 'Saved to Personal Vault!'
+                            : 'در والت شخصی ذخیره شد!'
+                          : isEn
+                          ? 'Save this password to your Personal Vault'
+                          : 'ذخیره این رمز در والت شخصی'}
+                      </span>
+                    </button>
+
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={saveSshToVault}
                         onChange={(e) => setSaveSshToVault(e.target.checked)}
-                        className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                        className="rounded border-slate-600 text-amber-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer accent-amber-500"
                       />
-                      <BookmarkPlus className={`w-3.5 h-3.5 ${saveSshToVault ? 'text-amber-500' : 'text-slate-400'}`} />
-                      <span>
-                        {isEn
-                          ? 'Save this password to your Personal Vault?'
-                          : 'آیا مایلید این رمز در والت شخصی شما ذخیره شود؟'}
-                      </span>
+                      <span>{isEn ? 'Auto-save on server creation' : 'ذخیره خودکار پس از ثبت سرور'}</span>
                     </label>
+
+                    {vaultFeedbackMsg && (
+                      <span className={`text-[11px] font-medium ${vaultFeedbackMsg.isError ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {vaultFeedbackMsg.text}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -2045,32 +2239,48 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                     </div>
                   )}
 
-                  {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                  {/* Save to Personal Vault prompt and instant button */}
                   {!promptPasswordOnConnect && winPassword.trim().length > 0 && (
-                    <div className="pt-0.5">
-                      <label
-                        className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] cursor-pointer select-none transition-all ${
-                          saveWinToVault
-                            ? isLightMode
-                              ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-sm'
-                              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                    <div className="pt-1 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleInstantSaveWinToVault}
+                        disabled={savingWinVault}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition shadow-sm ${
+                          winVaultSaved
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                             : isLightMode
-                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                            : 'bg-slate-900/40 hover:bg-slate-850 border-slate-800 text-slate-400'
+                            ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
+                            : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-200'
                         }`}
+                        title={isEn ? 'Save this password directly to your personal vault in database' : 'ذخیره آنی این رمز در ولت پایگاه‌داده'}
                       >
+                        {savingWinVault ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                        ) : winVaultSaved ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <BookmarkPlus className="w-3.5 h-3.5 text-amber-500" />
+                        )}
+                        <span>
+                          {winVaultSaved
+                            ? isEn
+                              ? 'Saved to Personal Vault!'
+                              : 'در والت شخصی ذخیره شد!'
+                            : isEn
+                            ? 'Save this password to your Personal Vault'
+                            : 'ذخیره این رمز در والت شخصی'}
+                        </span>
+                      </button>
+
+                      <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={saveWinToVault}
                           onChange={(e) => setSaveWinToVault(e.target.checked)}
-                          className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                          className="rounded border-slate-600 text-amber-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer accent-amber-500"
                         />
-                        <BookmarkPlus className={`w-3.5 h-3.5 ${saveWinToVault ? 'text-amber-500' : 'text-slate-400'}`} />
-                        <span>
-                          {isEn
-                            ? 'Save this password to your Personal Vault?'
-                            : 'آیا مایلید این رمز در والت شخصی شما ذخیره شود؟'}
-                        </span>
+                        <span>{isEn ? 'Auto-save on server creation' : 'ذخیره خودکار پس از ثبت سرور'}</span>
                       </label>
                     </div>
                   )}

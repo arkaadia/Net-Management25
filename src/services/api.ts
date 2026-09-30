@@ -6856,9 +6856,94 @@ export async function runLinuxCronJobNow(
   }
 }
 
+// ========================================================
+// PERSONAL PASSWORD VAULT API CLIENT HELPERS
+// ========================================================
 
+export function getVaultAuthHeaders(): Record<string, string> {
+  const token =
+    localStorage.getItem('nettopology_auth_token_v1') ||
+    sessionStorage.getItem('nettopology_auth_token_v1') ||
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
+    '';
 
+  let userId = '';
+  let username = '';
+  const rawUser =
+    localStorage.getItem('nettopology_auth_user_v1') ||
+    sessionStorage.getItem('nettopology_auth_user_v1');
+  if (rawUser) {
+    try {
+      const parsed = JSON.parse(rawUser);
+      userId = parsed.id || '';
+      username = parsed.username || '';
+    } catch {}
+  }
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (userId) {
+    headers['x-user-id'] = userId;
+  }
+  if (username) {
+    headers['x-username'] = username;
+  }
+  return headers;
+}
 
+export interface SaveVaultSecretPayload {
+  name: string;
+  username?: string;
+  password: string;
+  category?: string;
+  targetHost?: string;
+  notes?: string;
+  tags?: string[];
+  strength?: string;
+}
 
+export async function saveSecretToVault(
+  payload: SaveVaultSecretPayload
+): Promise<{ success: boolean; item?: any; error?: string; message?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/vault`, {
+      method: 'POST',
+      headers: getVaultAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse server response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}: Failed to store password in vault`;
+    }
+    return data;
+  } catch (err: any) {
+    console.error('[saveSecretToVault error]', err);
+    return { success: false, error: err?.message || 'Failed to save secret to vault' };
+  }
+}
+
+export async function fetchVaultItems(): Promise<{ success: boolean; items?: any[]; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/vault`, {
+      headers: getVaultAuthHeaders(),
+    });
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse response',
+    }));
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to fetch vault items' };
+  }
+}
 

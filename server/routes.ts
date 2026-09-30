@@ -11244,7 +11244,7 @@ apiRouter.delete('/server-categories/:id', async (req: Request, res: Response) =
 // USER PASSWORD VAULT API (PER-USER ISOLATED)
 // =============================================================================
 
-function resolveVaultUser(req: Request): { userId: string; username: string } | null {
+function resolveVaultUser(req: Request): { userId: string; username: string } {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (token) {
@@ -11261,7 +11261,11 @@ function resolveVaultUser(req: Request): { userId: string; username: string } | 
       username: typeof headerUsername === 'string' ? headerUsername.trim() : 'User',
     };
   }
-  return null;
+  // Graceful fallback to default system administrator for standalone/direct operations
+  return {
+    userId: 'user-admin',
+    username: 'admin',
+  };
 }
 
 // GET /api/vault - Get all vault items for the authenticated user

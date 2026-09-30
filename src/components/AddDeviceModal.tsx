@@ -33,7 +33,7 @@ import {
   BookmarkPlus,
 } from 'lucide-react';
 import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice } from '../types';
-import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices } from '../services/api';
+import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices, saveSecretToVault } from '../services/api';
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { CiscoTerminalModal } from './CiscoTerminalModal';
@@ -738,7 +738,6 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       const created = await onAdd(devicePayload);
 
       // Save credentials to personal vault if user opted-in
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
       const targetHostVal = sshHost.trim() || ip.trim() || undefined;
 
       if (saveSshToVault && sshPassword.trim().length > 0) {
@@ -748,23 +747,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           const devTitle = name.trim() || targetHostVal || 'Device';
           const secretName = `${devTitle} (${protoLabel})`;
 
-          await fetch('/api/vault', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              name: secretName,
-              username: sshUsername.trim() || 'admin',
-              password: sshPassword.trim(),
-              category: secretCategory,
-              targetHost: targetHostVal,
-              notes: isEn
-                ? `Auto-saved from Device Registration: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`
-                : `ذخیره‌سازی خودکار از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`,
-              tags: ['network-device', platform, type, ...(role ? [role] : [])],
-            }),
+          await saveSecretToVault({
+            name: secretName,
+            username: sshUsername.trim() || 'admin',
+            password: sshPassword.trim(),
+            category: secretCategory,
+            targetHost: targetHostVal,
+            notes: isEn
+              ? `Auto-saved from Device Registration: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`
+              : `ذخیره‌سازی خودکار از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`,
+            tags: ['network-device', platform, type, ...(role ? [role] : [])],
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save device password to vault:', vaultErr);
@@ -776,23 +768,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           const devTitle = name.trim() || targetHostVal || 'Device';
           const secretName = `${devTitle} (Enable Secret)`;
 
-          await fetch('/api/vault', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              name: secretName,
-              username: sshUsername.trim() || 'admin',
-              password: enablePassword.trim(),
-              category: 'ssh',
-              targetHost: targetHostVal,
-              notes: isEn
-                ? `Auto-saved Enable Secret from Device Registration: ${devTitle} [${targetHostVal || ''}]`
-                : `ذخیره‌سازی خودکار رمز Enable از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}]`,
-              tags: ['network-device', 'enable-secret', platform, type],
-            }),
+          await saveSecretToVault({
+            name: secretName,
+            username: sshUsername.trim() || 'admin',
+            password: enablePassword.trim(),
+            category: 'ssh',
+            targetHost: targetHostVal,
+            notes: isEn
+              ? `Auto-saved Enable Secret from Device Registration: ${devTitle} [${targetHostVal || ''}]`
+              : `ذخیره‌سازی خودکار رمز Enable از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}]`,
+            tags: ['network-device', 'enable-secret', platform, type],
           });
         } catch (vaultErr) {
           console.warn('Could not auto-save enable secret to vault:', vaultErr);
