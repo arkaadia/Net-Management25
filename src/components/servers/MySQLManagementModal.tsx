@@ -105,6 +105,7 @@ import {
 import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
+import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -118,7 +119,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'processlist' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'variables' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -924,6 +925,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'databases', label: isEn ? 'Database Browser' : 'کاوشگر پایگاه داده', icon: Layers },
             { id: 'sql', label: isEn ? 'SQL Console' : 'کنسول SQL', icon: Terminal },
             { id: 'users', label: isEn ? 'Users & Accounts' : 'کاربران و اکانت‌ها', icon: Users },
+            { id: 'privileges', label: isEn ? 'Privileges & Grants' : 'سطوح دسترسی و مجوزها', icon: Key },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
@@ -5432,6 +5434,21 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               server={server}
               isLightMode={isLightMode}
               isEn={isEn}
+              onRefreshOverview={loadOverview}
+              onManagePrivileges={() => {
+                setActiveTab('privileges');
+              }}
+            />
+          )}
+
+          {/* Phase 11: PRIVILEGES & GRANTS MANAGEMENT TAB */}
+          {activeTab === 'privileges' && server && (
+            <MysqlPermissionsManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              databases={databases}
+              initialDatabase={selectedTreeNode.dbName || (databases[0]?.name || '')}
               onRefreshOverview={loadOverview}
             />
           )}

@@ -4,6 +4,7 @@ import {
   UserPlus,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Key,
   Lock,
   Unlock,
@@ -55,6 +56,7 @@ export interface MysqlUsersManagerTabProps {
   isLightMode: boolean;
   isEn: boolean;
   onRefreshOverview?: () => void;
+  onManagePrivileges?: (user: string, host: string) => void;
 }
 
 export const MysqlUsersManagerTab: React.FC<MysqlUsersManagerTabProps> = ({
@@ -62,6 +64,7 @@ export const MysqlUsersManagerTab: React.FC<MysqlUsersManagerTabProps> = ({
   isLightMode,
   isEn,
   onRefreshOverview,
+  onManagePrivileges,
 }) => {
   const [users, setUsers] = useState<MysqlUserItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -848,6 +851,17 @@ export const MysqlUsersManagerTab: React.FC<MysqlUsersManagerTabProps> = ({
                       {/* Actions */}
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {onManagePrivileges && (
+                            <button
+                              type="button"
+                              onClick={() => onManagePrivileges(u.user, u.host)}
+                              className="p-1.5 rounded-lg border border-transparent hover:border-purple-500/30 hover:bg-purple-500/10 text-slate-400 hover:text-purple-400 transition cursor-pointer"
+                              title={isEn ? 'Manage Privileges & Grants' : 'مدیریت مجوزها و دسترسی‌ها'}
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => openPasswordModal(u)}

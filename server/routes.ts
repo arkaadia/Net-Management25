@@ -82,6 +82,9 @@ import {
   setMysqlUserLock,
   setMysqlUserPasswordExpiration,
   dropMysqlUser,
+  getMysqlUserGrants,
+  getMysqlPermissionsMatrix,
+  applyMysqlPermissions,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4649,6 +4652,96 @@ apiRouter.post('/remote-servers/:id/mysql/users/drop', async (req: Request, res:
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در حذف کاربر MySQL' });
+  }
+});
+
+// ============================================================================
+// PHASE 11: MYSQL PRIVILEGES & GRANTS ROUTES
+// ============================================================================
+
+// GET /api/remote-servers/:id/mysql/grants - Fetch raw and parsed grants for a single account
+apiRouter.get('/remote-servers/:id/mysql/grants', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const user = (req.query.user as string) || '';
+    const host = (req.query.host as string) || '%';
+    if (!user) {
+      return res.status(400).json({ success: false, error: 'Username is required', errorFa: 'نام کاربری الزامی است' });
+    }
+    const result = await getMysqlUserGrants(server, user, host);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در دریافت مجوزهای کاربر MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/permissions - Fetch visual permissions matrix for target scope
+apiRouter.post('/remote-servers/:id/mysql/permissions', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const { scope = 'global', database, table, column, routineType, routineName } = req.body || {};
+    const result = await getMysqlPermissionsMatrix(server, {
+      scope,
+      database,
+      table,
+      column,
+      routineType,
+      routineName,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در دریافت ماتریس مجوزهای MySQL' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/permissions/apply - Apply batch of GRANT/REVOKE modifications
+apiRouter.post('/remote-servers/:id/mysql/permissions/apply', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+
+    const { scope, database, table, column, routineType, routineName, deltas } = req.body || {};
+    if (!deltas || !Array.isArray(deltas) || deltas.length === 0) {
+      return res.status(400).json({ success: false, error: 'No permission changes provided', errorFa: 'هیچ تغییری در مجوزها ارسال نشده است' });
+    }
+
+    const result = await applyMysqlPermissions(server, {
+      scope,
+      database,
+      table,
+      column,
+      routineType,
+      routineName,
+      deltas,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'MySQL Permissions Modified',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Applied ${result.appliedCount} GRANT/REVOKE statements on MySQL ${scope} scope (${database || '*'}${table ? `.${table}` : ''})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+    }
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در اعمال مجوزهای MySQL' });
   }
 });
 

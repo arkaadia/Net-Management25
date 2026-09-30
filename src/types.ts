@@ -1875,6 +1875,93 @@ export interface MysqlUserDropRequest {
   ifExists?: boolean;
 }
 
+// ==========================================
+// Phase 11: MySQL Privileges & Grants
+// ==========================================
+
+export type MysqlPrivilegeScope = 'global' | 'database' | 'table' | 'column' | 'routine';
+export type MysqlRoutineType = 'PROCEDURE' | 'FUNCTION';
+
+export interface MysqlApplicablePrivilege {
+  name: string;
+  descriptionEn: string;
+  descriptionFa: string;
+  category: 'data' | 'structure' | 'admin' | 'routine';
+}
+
+export interface MysqlUserGrant {
+  rawGrant: string;
+  scope: MysqlPrivilegeScope;
+  database?: string;
+  table?: string;
+  routineType?: MysqlRoutineType;
+  routineName?: string;
+  columnName?: string;
+  privileges: string[];
+  withGrantOption: boolean;
+}
+
+export interface MysqlUserGrantsResponse {
+  success: boolean;
+  user: string;
+  host: string;
+  grants: MysqlUserGrant[];
+  rawGrants: string[];
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlAccountGrantsEntry {
+  user: string;
+  host: string;
+  isSuperuser?: boolean;
+  hasGrantOption?: boolean;
+  privileges: Record<string, boolean>;
+}
+
+export interface MysqlPermissionsMatrixResponse {
+  success: boolean;
+  scope: MysqlPrivilegeScope;
+  database?: string;
+  table?: string;
+  column?: string;
+  routineType?: MysqlRoutineType;
+  routineName?: string;
+  applicablePrivileges: MysqlApplicablePrivilege[];
+  accounts: MysqlAccountGrantsEntry[];
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlPermissionDelta {
+  user: string;
+  host: string;
+  privilege: string;
+  action: 'grant' | 'revoke';
+  withGrantOption?: boolean;
+}
+
+export interface MysqlApplyPermissionsRequest {
+  scope: MysqlPrivilegeScope;
+  database?: string;
+  table?: string;
+  column?: string;
+  routineType?: MysqlRoutineType;
+  routineName?: string;
+  deltas: MysqlPermissionDelta[];
+}
+
+export interface MysqlApplyPermissionsResult {
+  success: boolean;
+  executedStatements: string[];
+  failedStatements?: string[];
+  appliedCount: number;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface MysqlProcessItem {
   id: number;
   user: string;

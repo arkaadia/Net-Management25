@@ -39,6 +39,12 @@ import {
   MysqlUserLockRequest,
   MysqlUserExpirePasswordRequest,
   MysqlUserDropRequest,
+  MysqlUserGrantsResponse,
+  MysqlPermissionsMatrixResponse,
+  MysqlApplyPermissionsRequest,
+  MysqlApplyPermissionsResult,
+  MysqlPrivilegeScope,
+  MysqlRoutineType,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1520,6 +1526,47 @@ export async function dropRemoteServerMysqlUser(
   payload: MysqlUserDropRequest
 ): Promise<{ success: boolean; user?: string; host?: string; message?: string; error?: string; errorFa?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/users/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlGrants(
+  id: string,
+  user: string,
+  host: string = '%'
+): Promise<MysqlUserGrantsResponse> {
+  const params = new URLSearchParams({ user, host });
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/grants?${params.toString()}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlPermissions(
+  id: string,
+  options: {
+    scope: MysqlPrivilegeScope;
+    database?: string;
+    table?: string;
+    column?: string;
+    routineType?: MysqlRoutineType;
+    routineName?: string;
+  }
+): Promise<MysqlPermissionsMatrixResponse> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/permissions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  return res.json();
+}
+
+export async function applyRemoteServerMysqlPermissions(
+  id: string,
+  payload: MysqlApplyPermissionsRequest
+): Promise<MysqlApplyPermissionsResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/permissions/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

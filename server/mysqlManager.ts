@@ -38,6 +38,16 @@ import {
   MysqlUserLockRequest,
   MysqlUserExpirePasswordRequest,
   MysqlUserDropRequest,
+  MysqlPrivilegeScope,
+  MysqlRoutineType,
+  MysqlApplicablePrivilege,
+  MysqlUserGrant,
+  MysqlUserGrantsResponse,
+  MysqlAccountGrantsEntry,
+  MysqlPermissionsMatrixResponse,
+  MysqlPermissionDelta,
+  MysqlApplyPermissionsRequest,
+  MysqlApplyPermissionsResult,
 } from '../src/types';
 
 /**
@@ -2349,4 +2359,510 @@ export async function deleteMysqlTableRow(
     };
   }
 }
+
+// ============================================================================
+// PHASE 11: MYSQL PRIVILEGES & GRANTS MANAGEMENT
+// ============================================================================
+
+export const MYSQL_APPLICABLE_PRIVILEGES: Record<MysqlPrivilegeScope, MysqlApplicablePrivilege[]> = {
+  global: [
+    { name: 'ALL PRIVILEGES', descriptionEn: 'Full administrative access on all databases', descriptionFa: 'دسترسی کامل مدیریتی به تمام پایگاه‌های داده', category: 'admin' },
+    { name: 'SELECT', descriptionEn: 'Read table and view rows', descriptionFa: 'خواندن ردیف‌های جداول و ویوها', category: 'data' },
+    { name: 'INSERT', descriptionEn: 'Insert new rows into any table', descriptionFa: 'افزودن ردیف‌های جدید به جداول', category: 'data' },
+    { name: 'UPDATE', descriptionEn: 'Modify existing rows in any table', descriptionFa: 'ویرایش ردیف‌های موجود در جداول', category: 'data' },
+    { name: 'DELETE', descriptionEn: 'Delete rows from any table', descriptionFa: 'حذف ردیف‌ها از جداول', category: 'data' },
+    { name: 'CREATE', descriptionEn: 'Create new databases and tables', descriptionFa: 'ایجاد دیتابیس‌ها و جداول جدید', category: 'structure' },
+    { name: 'DROP', descriptionEn: 'Drop databases, tables, and views', descriptionFa: 'حذف کامل دیتابیس‌ها، جداول و ویوها', category: 'structure' },
+    { name: 'RELOAD', descriptionEn: 'Execute FLUSH statements and reload server logs', descriptionFa: 'اجرای دستورات FLUSH و بازنشانی لاگ‌ها', category: 'admin' },
+    { name: 'SHUTDOWN', descriptionEn: 'Shut down the MySQL server', descriptionFa: 'خاموش کردن سرور MySQL', category: 'admin' },
+    { name: 'PROCESS', descriptionEn: 'View all active threads in processlist', descriptionFa: 'مشاهده لیست تمام رشته‌های فعال پردازشی', category: 'admin' },
+    { name: 'FILE', descriptionEn: 'Read/write server files via LOAD DATA / SELECT INTO OUTFILE', descriptionFa: 'خواندن و نوشتن فایل روی سرور', category: 'data' },
+    { name: 'GRANT OPTION', descriptionEn: 'Grant own privileges to other accounts', descriptionFa: 'اعطای مجوزهای خود به سایر کاربران', category: 'admin' },
+    { name: 'REFERENCES', descriptionEn: 'Create foreign keys linking to tables', descriptionFa: 'ایجاد کلید خارجی و اتصال جداول', category: 'structure' },
+    { name: 'INDEX', descriptionEn: 'Create or drop indexes', descriptionFa: 'ایجاد یا حذف ایندکس‌ها', category: 'structure' },
+    { name: 'ALTER', descriptionEn: 'Change table structure and definitions', descriptionFa: 'تغییر ساختار و تعاریف جداول', category: 'structure' },
+    { name: 'SHOW DATABASES', descriptionEn: 'See all databases in server listing', descriptionFa: 'مشاهده نام تمامی دیتابیس‌های سرور', category: 'admin' },
+    { name: 'SUPER', descriptionEn: 'Change global variables, kill threads, configure replication', descriptionFa: 'مجوز مدیریت ارشد، تغییر متغیرها و بستن پردازش‌ها', category: 'admin' },
+    { name: 'CREATE TEMPORARY TABLES', descriptionEn: 'Create transient session tables', descriptionFa: 'ایجاد جداول موقت برای نشست جاری', category: 'structure' },
+    { name: 'LOCK TABLES', descriptionEn: 'Lock tables explicitly with LOCK TABLES', descriptionFa: 'قفل‌گذاری صریح روی جداول', category: 'data' },
+    { name: 'EXECUTE', descriptionEn: 'Execute stored procedures and functions', descriptionFa: 'اجرای رویه‌ها و توابع ذخیره‌شده', category: 'routine' },
+    { name: 'REPLICATION SLAVE', descriptionEn: 'Connect as replica to read binary log', descriptionFa: 'اتصال رپلیکا برای خواندن باینری‌لاگ', category: 'admin' },
+    { name: 'REPLICATION CLIENT', descriptionEn: 'Ask where primary or replica servers are', descriptionFa: 'استعلام وضعیت سرور اصلی و رپلیکا', category: 'admin' },
+    { name: 'CREATE VIEW', descriptionEn: 'Create new views', descriptionFa: 'ایجاد ویوهای جدید', category: 'structure' },
+    { name: 'SHOW VIEW', descriptionEn: 'Inspect view definitions with SHOW CREATE VIEW', descriptionFa: 'مشاهده دستور ساخت ویوها', category: 'structure' },
+    { name: 'CREATE ROUTINE', descriptionEn: 'Create stored procedures and functions', descriptionFa: 'ایجاد پروسیجرها و توابع ذخیره‌شده', category: 'structure' },
+    { name: 'ALTER ROUTINE', descriptionEn: 'Alter or drop stored routines', descriptionFa: 'تغییر یا حذف پروسیجرها و توابع', category: 'structure' },
+    { name: 'CREATE USER', descriptionEn: 'Create, drop, rename, or revoke user accounts', descriptionFa: 'ایجاد، حذف یا تغییر نام حساب‌های کاربری', category: 'admin' },
+    { name: 'EVENT', descriptionEn: 'Create, alter, or drop scheduled events', descriptionFa: 'ایجاد یا حذف رویدادهای زمان‌بندی شده', category: 'structure' },
+    { name: 'TRIGGER', descriptionEn: 'Create or drop table triggers', descriptionFa: 'ایجاد یا حذف تریگرهای جداول', category: 'structure' },
+  ],
+  database: [
+    { name: 'ALL PRIVILEGES', descriptionEn: 'All privileges on this database', descriptionFa: 'تمامی مجوزها روی این پایگاه داده', category: 'admin' },
+    { name: 'SELECT', descriptionEn: 'Read tables in database', descriptionFa: 'خواندن اطلاعات جداول این دیتابیس', category: 'data' },
+    { name: 'INSERT', descriptionEn: 'Insert rows into database tables', descriptionFa: 'افزودن ردیف به جداول این دیتابیس', category: 'data' },
+    { name: 'UPDATE', descriptionEn: 'Modify rows in database tables', descriptionFa: 'ویرایش ردیف‌های جداول این دیتابیس', category: 'data' },
+    { name: 'DELETE', descriptionEn: 'Delete rows from database tables', descriptionFa: 'حذف ردیف‌ها از جداول این دیتابیس', category: 'data' },
+    { name: 'CREATE', descriptionEn: 'Create new tables and indexes in database', descriptionFa: 'ایجاد جداول و ایندکس‌های جدید', category: 'structure' },
+    { name: 'DROP', descriptionEn: 'Drop tables and views in database', descriptionFa: 'حذف جداول و ویوهای این دیتابیس', category: 'structure' },
+    { name: 'GRANT OPTION', descriptionEn: 'Grant database privileges to others', descriptionFa: 'اعطای مجوزهای این دیتابیس به دیگران', category: 'admin' },
+    { name: 'REFERENCES', descriptionEn: 'Foreign key constraints in database', descriptionFa: 'کلیدهای خارجی در جداول این دیتابیس', category: 'structure' },
+    { name: 'INDEX', descriptionEn: 'Create or drop indexes in database', descriptionFa: 'ایجاد یا حذف ایندکس‌ها در دیتابیس', category: 'structure' },
+    { name: 'ALTER', descriptionEn: 'Modify structure of database tables', descriptionFa: 'تغییر ساختار جداول این دیتابیس', category: 'structure' },
+    { name: 'CREATE TEMPORARY TABLES', descriptionEn: 'Create temporary tables in database', descriptionFa: 'ایجاد جداول موقت در این دیتابیس', category: 'structure' },
+    { name: 'LOCK TABLES', descriptionEn: 'Lock tables in this database', descriptionFa: 'قفل‌گذاری روی جداول این دیتابیس', category: 'data' },
+    { name: 'EXECUTE', descriptionEn: 'Execute routines in database', descriptionFa: 'اجرای توابع و رویه‌های این دیتابیس', category: 'routine' },
+    { name: 'CREATE VIEW', descriptionEn: 'Create views in database', descriptionFa: 'ایجاد ویوها در این دیتابیس', category: 'structure' },
+    { name: 'SHOW VIEW', descriptionEn: 'Show view queries in database', descriptionFa: 'مشاهده ساختار ویوهای این دیتابیس', category: 'structure' },
+    { name: 'CREATE ROUTINE', descriptionEn: 'Create procedures/functions in database', descriptionFa: 'ایجاد رویه‌ها و توابع در این دیتابیس', category: 'structure' },
+    { name: 'ALTER ROUTINE', descriptionEn: 'Alter procedures/functions in database', descriptionFa: 'تغییر یا حذف رویه‌ها در این دیتابیس', category: 'structure' },
+    { name: 'EVENT', descriptionEn: 'Create/alter events in database', descriptionFa: 'مدیریت رویدادها در این دیتابیس', category: 'structure' },
+    { name: 'TRIGGER', descriptionEn: 'Create/drop triggers in database', descriptionFa: 'ایجاد یا حذف تریگرها در این دیتابیس', category: 'structure' },
+  ],
+  table: [
+    { name: 'ALL PRIVILEGES', descriptionEn: 'All privileges on this specific table', descriptionFa: 'تمام دسترسی‌ها روی این جدول', category: 'admin' },
+    { name: 'SELECT', descriptionEn: 'Query rows from table', descriptionFa: 'خواندن اطلاعات از جدول', category: 'data' },
+    { name: 'INSERT', descriptionEn: 'Insert rows into table', descriptionFa: 'درج ردیف در جدول', category: 'data' },
+    { name: 'UPDATE', descriptionEn: 'Update rows in table', descriptionFa: 'ویرایش ردیف‌های جدول', category: 'data' },
+    { name: 'DELETE', descriptionEn: 'Delete rows from table', descriptionFa: 'حذف ردیف‌های جدول', category: 'data' },
+    { name: 'CREATE', descriptionEn: 'Create table', descriptionFa: 'ایجاد جدول', category: 'structure' },
+    { name: 'DROP', descriptionEn: 'Drop table', descriptionFa: 'حذف کامل جدول', category: 'structure' },
+    { name: 'GRANT OPTION', descriptionEn: 'Grant table privileges to others', descriptionFa: 'اعطای مجوز این جدول به دیگران', category: 'admin' },
+    { name: 'INDEX', descriptionEn: 'Create/drop indexes on table', descriptionFa: 'مدیریت ایندکس‌های جدول', category: 'structure' },
+    { name: 'ALTER', descriptionEn: 'Alter table columns and schema', descriptionFa: 'تغییر ستون‌ها و ساختار جدول', category: 'structure' },
+    { name: 'CREATE VIEW', descriptionEn: 'Create views on table', descriptionFa: 'ایجاد ویو بر اساس جدول', category: 'structure' },
+    { name: 'SHOW VIEW', descriptionEn: 'Inspect views using this table', descriptionFa: 'مشاهده ویوهای این جدول', category: 'structure' },
+    { name: 'TRIGGER', descriptionEn: 'Create/drop triggers for table', descriptionFa: 'مدیریت تریگرهای جدول', category: 'structure' },
+    { name: 'REFERENCES', descriptionEn: 'Foreign key references to table', descriptionFa: 'ارجاعات کلید خارجی به این جدول', category: 'structure' },
+  ],
+  column: [
+    { name: 'SELECT', descriptionEn: 'Read this specific column', descriptionFa: 'خواندن این ستون خاص', category: 'data' },
+    { name: 'INSERT', descriptionEn: 'Insert values into this column', descriptionFa: 'درج مقدار در این ستون', category: 'data' },
+    { name: 'UPDATE', descriptionEn: 'Update values in this column', descriptionFa: 'ویرایش مقادیر این ستون', category: 'data' },
+    { name: 'REFERENCES', descriptionEn: 'Reference column in foreign keys', descriptionFa: 'ارجاع به این ستون در کلیدهای خارجی', category: 'structure' },
+  ],
+  routine: [
+    { name: 'EXECUTE', descriptionEn: 'Execute this stored routine', descriptionFa: 'اجرای این پروسیجر یا تابع ذخیره‌شده', category: 'routine' },
+    { name: 'ALTER ROUTINE', descriptionEn: 'Alter or drop this stored routine', descriptionFa: 'تغییر یا حذف این پروسیجر/تابع', category: 'structure' },
+    { name: 'GRANT OPTION', descriptionEn: 'Grant routine privileges to others', descriptionFa: 'اعطای دسترسی این رویه به دیگران', category: 'admin' },
+  ],
+};
+
+/**
+ * Parses raw MySQL GRANT string returned by `SHOW GRANTS FOR ...`.
+ * e.g. "GRANT SELECT, INSERT ON `test`.* TO `user`@`%` WITH GRANT OPTION"
+ */
+export function parseMysqlGrantStatement(raw: string): MysqlUserGrant {
+  const clean = raw.trim();
+  const withGrantOption = /WITH\s+GRANT\s+OPTION/i.test(clean);
+
+  // Strip WITH GRANT OPTION for regex matching
+  const statementWithoutOption = clean.replace(/\s+WITH\s+GRANT\s+OPTION/i, '').trim();
+
+  // Pattern: GRANT <privs> ON <target> TO <user>
+  const match = statementWithoutOption.match(/^GRANT\s+(.+?)\s+ON\s+(.+?)\s+TO\s+(.+)$/i);
+  if (!match) {
+    return {
+      rawGrant: raw,
+      scope: 'global',
+      privileges: [clean],
+      withGrantOption,
+    };
+  }
+
+  const rawPrivs = match[1].trim();
+  let rawTarget = match[2].trim();
+
+  let routineType: MysqlRoutineType | undefined;
+  let routineName: string | undefined;
+  let database: string | undefined;
+  let table: string | undefined;
+  let scope: MysqlPrivilegeScope = 'global';
+
+  // Check routine prefix
+  if (/^PROCEDURE\s+/i.test(rawTarget)) {
+    scope = 'routine';
+    routineType = 'PROCEDURE';
+    rawTarget = rawTarget.replace(/^PROCEDURE\s+/i, '').trim();
+  } else if (/^FUNCTION\s+/i.test(rawTarget)) {
+    scope = 'routine';
+    routineType = 'FUNCTION';
+    rawTarget = rawTarget.replace(/^FUNCTION\s+/i, '').trim();
+  } else if (/^TABLE\s+/i.test(rawTarget)) {
+    rawTarget = rawTarget.replace(/^TABLE\s+/i, '').trim();
+  }
+
+  // Parse target object
+  const cleanTarget = rawTarget.replace(/[`"]/g, '');
+  if (cleanTarget === '*.*') {
+    scope = 'global';
+  } else if (cleanTarget.endsWith('.*')) {
+    scope = 'database';
+    database = cleanTarget.replace(/\.\*$/, '');
+  } else if (cleanTarget.includes('.')) {
+    const parts = cleanTarget.split('.');
+    database = parts[0];
+    if (scope === 'routine') {
+      routineName = parts[1];
+    } else {
+      scope = 'table';
+      table = parts[1];
+    }
+  } else {
+    database = cleanTarget;
+    scope = 'database';
+  }
+
+  // Split privileges
+  const privileges = rawPrivs
+    .split(',')
+    .map((p) => p.trim().toUpperCase())
+    .filter(Boolean);
+
+  if (withGrantOption && !privileges.includes('GRANT OPTION')) {
+    privileges.push('GRANT OPTION');
+  }
+
+  return {
+    rawGrant: raw,
+    scope,
+    database,
+    table,
+    routineType,
+    routineName,
+    privileges,
+    withGrantOption,
+  };
+}
+
+/**
+ * Retrieves the full raw and parsed grants for a single MySQL user account.
+ */
+export async function getMysqlUserGrants(
+  server: RemoteServer,
+  user: string,
+  host: string
+): Promise<MysqlUserGrantsResponse> {
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+
+  const safeUser = user.replace(/'/g, "''");
+  const safeHost = host.replace(/'/g, "''");
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: 'mysql',
+      connectTimeout: 7000,
+    });
+
+    const [rows]: any = await conn.query(`SHOW GRANTS FOR '${safeUser}'@'${safeHost}';`);
+    const rawGrants: string[] = [];
+
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        const val = Object.values(row)[0];
+        if (typeof val === 'string') {
+          rawGrants.push(val);
+        }
+      }
+    }
+
+    await conn.end();
+
+    const grants = rawGrants.map(parseMysqlGrantStatement);
+
+    return {
+      success: true,
+      user,
+      host,
+      grants,
+      rawGrants,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      user,
+      host,
+      grants: [],
+      rawGrants: [],
+      error: err.message || 'Failed to fetch user grants',
+      errorFa: `خطا در واکشی مجوزهای کاربر ${user}@${host}: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Generates the full permissions matrix across all MySQL accounts for a specific scope.
+ */
+export async function getMysqlPermissionsMatrix(
+  server: RemoteServer,
+  options: {
+    scope: MysqlPrivilegeScope;
+    database?: string;
+    table?: string;
+    column?: string;
+    routineType?: MysqlRoutineType;
+    routineName?: string;
+  }
+): Promise<MysqlPermissionsMatrixResponse> {
+  const { scope, database, table, column, routineType, routineName } = options;
+  const applicablePrivileges = MYSQL_APPLICABLE_PRIVILEGES[scope] || MYSQL_APPLICABLE_PRIVILEGES.global;
+
+  try {
+    // 1. Fetch all user accounts
+    const allUsers = await getMysqlUsers(server);
+
+    // 2. Fetch grants for each account in parallel (with concurrency limit)
+    const accounts: MysqlAccountGrantsEntry[] = [];
+
+    // Parallel fetch with Promise.all
+    const grantPromises = allUsers.map(async (u) => {
+      const grantRes = await getMysqlUserGrants(server, u.user, u.host);
+      const privMap: Record<string, boolean> = {};
+      let hasGrantOption = false;
+
+      // Initialize all applicable privileges to false
+      applicablePrivileges.forEach((p) => {
+        privMap[p.name] = false;
+      });
+
+      if (grantRes.success && grantRes.grants) {
+        for (const g of grantRes.grants) {
+          // Check if this grant applies to current scope
+          let applies = false;
+
+          if (g.scope === 'global') {
+            // Global grants apply everywhere
+            applies = true;
+          } else if (scope === 'database' && g.scope === 'database') {
+            if (!database || g.database?.toLowerCase() === database.toLowerCase()) {
+              applies = true;
+            }
+          } else if (scope === 'table') {
+            if (g.scope === 'database' && (!database || g.database?.toLowerCase() === database.toLowerCase())) {
+              applies = true; // Database grant cascades to table
+            } else if (
+              g.scope === 'table' &&
+              (!database || g.database?.toLowerCase() === database.toLowerCase()) &&
+              (!table || g.table?.toLowerCase() === table.toLowerCase())
+            ) {
+              applies = true;
+            }
+          } else if (scope === 'routine') {
+            if (g.scope === 'database' && (!database || g.database?.toLowerCase() === database.toLowerCase())) {
+              applies = true;
+            } else if (
+              g.scope === 'routine' &&
+              (!database || g.database?.toLowerCase() === database.toLowerCase()) &&
+              (!routineName || g.routineName?.toLowerCase() === routineName.toLowerCase())
+            ) {
+              applies = true;
+            }
+          } else if (scope === 'column') {
+            if (g.scope === 'database' && (!database || g.database?.toLowerCase() === database.toLowerCase())) {
+              applies = true;
+            } else if (
+              g.scope === 'table' &&
+              (!database || g.database?.toLowerCase() === database.toLowerCase()) &&
+              (!table || g.table?.toLowerCase() === table.toLowerCase())
+            ) {
+              applies = true;
+            }
+          }
+
+          if (applies) {
+            if (g.withGrantOption) hasGrantOption = true;
+
+            const isAll = g.privileges.some((p) => p.includes('ALL') || p === 'ALL PRIVILEGES');
+            if (isAll) {
+              applicablePrivileges.forEach((p) => {
+                privMap[p.name] = true;
+              });
+            } else {
+              g.privileges.forEach((p) => {
+                if (privMap[p] !== undefined) {
+                  privMap[p] = true;
+                }
+              });
+            }
+          }
+        }
+      }
+
+      return {
+        user: u.user,
+        host: u.host,
+        isSuperuser: u.isSuperuser,
+        hasGrantOption,
+        privileges: privMap,
+      };
+    });
+
+    const entries = await Promise.all(grantPromises);
+    accounts.push(...entries);
+
+    return {
+      success: true,
+      scope,
+      database,
+      table,
+      column,
+      routineType,
+      routineName,
+      applicablePrivileges,
+      accounts,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      scope,
+      database,
+      table,
+      column,
+      routineType,
+      routineName,
+      applicablePrivileges,
+      accounts: [],
+      error: err.message || 'Error loading permissions matrix',
+      errorFa: `خطا در بارگذاری ماتریس مجوزها: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Applies a batch of GRANT / REVOKE actions safely on MySQL.
+ */
+export async function applyMysqlPermissions(
+  server: RemoteServer,
+  request: MysqlApplyPermissionsRequest
+): Promise<MysqlApplyPermissionsResult> {
+  const { scope, database, table, column, routineType, routineName, deltas } = request;
+
+  if (!deltas || deltas.length === 0) {
+    return {
+      success: true,
+      executedStatements: [],
+      appliedCount: 0,
+      message: 'No permission changes to apply.',
+      messageFa: 'هیچ تغییری برای اعمال انتخاب نشده است.',
+    };
+  }
+
+  // Format the target ON clause
+  let targetClause = '*.*';
+  if (scope === 'database') {
+    if (!database) throw new Error('Database name is required for database-scope permissions');
+    targetClause = `\`${database.replace(/`/g, '``')}\`.*`;
+  } else if (scope === 'table') {
+    if (!database || !table) throw new Error('Database and Table names are required for table-scope permissions');
+    targetClause = `\`${database.replace(/`/g, '``')}\`.\`${table.replace(/`/g, '``')}\``;
+  } else if (scope === 'column') {
+    if (!database || !table || !column) throw new Error('Database, Table and Column names are required for column-scope permissions');
+    targetClause = `\`${database.replace(/`/g, '``')}\`.\`${table.replace(/`/g, '``')}\``;
+  } else if (scope === 'routine') {
+    if (!database || !routineName) throw new Error('Database and Routine names are required for routine-scope permissions');
+    const rType = routineType === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE';
+    targetClause = `${rType} \`${database.replace(/`/g, '``')}\`.\`${routineName.replace(/`/g, '``')}\``;
+  }
+
+  const statements: string[] = [];
+
+  for (const delta of deltas) {
+    const safeUser = delta.user.replace(/'/g, "''");
+    const safeHost = delta.host.replace(/'/g, "''");
+    let privClause = delta.privilege;
+
+    // Handle column specific privilege
+    if (scope === 'column' && column) {
+      privClause = `${delta.privilege} (\`${column.replace(/`/g, '``')}\`)`;
+    }
+
+    if (delta.action === 'grant') {
+      if (delta.privilege === 'GRANT OPTION') {
+        statements.push(`GRANT USAGE ON ${targetClause} TO '${safeUser}'@'${safeHost}' WITH GRANT OPTION;`);
+      } else {
+        const withOpt = delta.withGrantOption ? ' WITH GRANT OPTION' : '';
+        statements.push(`GRANT ${privClause} ON ${targetClause} TO '${safeUser}'@'${safeHost}'${withOpt};`);
+      }
+    } else {
+      if (delta.privilege === 'GRANT OPTION') {
+        statements.push(`REVOKE GRANT OPTION ON ${targetClause} FROM '${safeUser}'@'${safeHost}';`);
+      } else {
+        statements.push(`REVOKE ${privClause} ON ${targetClause} FROM '${safeUser}'@'${safeHost}';`);
+      }
+    }
+  }
+
+  // Always flush privileges at the end
+  statements.push('FLUSH PRIVILEGES;');
+
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+  const executedStatements: string[] = [];
+  const failedStatements: string[] = [];
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      database: 'mysql',
+      connectTimeout: 7000,
+    });
+
+    for (const sql of statements) {
+      try {
+        await conn.query(sql);
+        executedStatements.push(sql);
+      } catch (sqlErr: any) {
+        failedStatements.push(`${sql} -> Error: ${sqlErr.message}`);
+      }
+    }
+
+    await conn.end();
+
+    const hasFailures = failedStatements.length > 0;
+    const appliedCount = executedStatements.length - (executedStatements.includes('FLUSH PRIVILEGES;') ? 1 : 0);
+
+    return {
+      success: !hasFailures,
+      executedStatements,
+      failedStatements: hasFailures ? failedStatements : undefined,
+      appliedCount,
+      message: hasFailures
+        ? `Applied ${appliedCount} statements with ${failedStatements.length} errors.`
+        : `Successfully applied ${appliedCount} permission modification(s).`,
+      messageFa: hasFailures
+        ? `تعداد ${appliedCount} مجوز اعمال شد ولی ${failedStatements.length} خطا رخ داد.`
+        : `تعداد ${appliedCount} تغییر در سطوح دسترسی و مجوزها با موفقیت اعمال گردید.`,
+      error: hasFailures ? failedStatements.join('\n') : undefined,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedStatements,
+      failedStatements,
+      appliedCount: executedStatements.length,
+      message: 'Failed to execute permission statements',
+      messageFa: 'خطا در برقراری ارتباط و اعمال مجوزها',
+      error: err.message,
+      errorFa: `خطا در اعمال مجوزهای MySQL: ${err.message}`,
+    };
+  }
+}
+
 

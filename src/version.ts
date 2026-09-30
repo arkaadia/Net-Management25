@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.220.0';
+export const APP_VERSION = '1.221.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.221.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۱ سیستم مدیریت MySQL: مدیریت جامع سطوح دسترسی، ماتریس مجوزها و اعطای دسترسی (Privileges & Grants Suite)',
+    title_en: 'Phase 11: Comprehensive MySQL Privileges, Grants & Access Control Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب اختصاصی و پیشرفته مدیریت مجوزها و دسترسی‌های MySQL (`MysqlPermissionsManagerTab`) با پشتیبانی از دامنه‌های پنج‌گانه دسترسی بومی MySQL (سراسری *.*، پایگاه داده db.*، جدول db.table، ستون جدول و رویه‌ها/توابع).',
+      'افزودن تب «سطوح دسترسی و مجوزها» (Privileges & Grants) با آیکون کلید (Key) به نوار تب‌های مودال مدیریت MySQL و اتصال مستقیم دکمه دسترسی سریع از جدول کاربران.',
+      'پیاده‌سازی ماتریس بصری پویا (Interactive Permission Matrix Grid) با نمایش ستونی تمامی مجوزهای کاربردی تفکیک‌شده به چهار دسته داده‌ای (DML)، ساختاری (DDL)، مدیریتی (Admin) و رویه‌ها (Routines).',
+      'نمایش سطری حساب‌های کاربری در قالب زوج بومی `user@host` با مشخص‌سازی کاربران ارشد (SUPER)، تفویض دسترسی (WITH GRANT OPTION) و قابلیت انتخاب و لغو دسته‌جمعی مجوزها در سطح سطر یا ستون.',
+      'پشتیبانی از الگوها و پیش‌تنظیم‌های سریع مجوزها (Quick Template Presets) شامل دسترسی فقط خواندنی (SELECT)، خواندن و نوشتن داده (DML)، توسعه‌دهنده نرم‌افزار (DDL + DML) و مدیر کامل پایگاه داده (ALL PRIVILEGES).',
+      'طراحی دیالوگ اختصاصی بازبینی و پیش‌نمایش اسکریپت SQL قبل از اجرا شامل تفکیک دستورات GRANT و REVOKE، نمایش حساب‌های متاثر و صدور خودکار دستور FLUSH PRIVILEGES با امکان کپی مستقیم کد.',
+      'پیاده‌سازی پنجره بازرسی زنده دستورات SHOW GRANTS برای هر کاربر با تحلیل تفکیکی دامنه‌های اعطاشده، وضعیت WITH GRANT OPTION و نمایش فرمت متنی خام دستورات.',
+      'پشتیبانی کامل از ممیزی امنیتی (Audit Logging) برای کلیه تغییرات مجوزها، دستورات GRANT/REVOKE و ثبت دقیق تعداد مجوزهای اعمال‌شده.',
+      'انطباق صددرصدی با استانداردهای دوزبانه (فارسی و انگلیسی)، تم‌های تیره و روشن، و ایزولاسیون کامل از سیستم مجوزهای PostgreSQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated, production-grade MySQL Privileges & Grants Management Suite (`MysqlPermissionsManagerTab`) supporting all five native MySQL scopes (Global *.*, Database db.*, Table db.table, Column-level, and Stored Routines).',
+      'Integrated dedicated "Privileges & Grants" tab into MySQL Management Modal navigation bar with direct one-click routing from Users & Accounts table rows.',
+      'Implemented dynamic Interactive Permission Matrix Grid grouping applicable MySQL privileges into Data (DML), Structure (DDL), Admin & Server, and Routine categories with color-coded badges.',
+      'Structured matrix rows by native `user@host` account identities with visual Superuser badges, WITH GRANT OPTION controls, and one-click bulk select/clear operations per account row and privilege column.',
+      'Built Quick Template Presets for rapid permission provisioning including Read-Only (SELECT), Read-Write (DML), Full Developer (DML + DDL), and Full Administrator (ALL PRIVILEGES with Grant Option).',
+      'Designed SQL Diff & Review Modal displaying exact generated GRANT/REVOKE statements, affected account summaries, and automated FLUSH PRIVILEGES execution with one-click clipboard copy.',
+      'Created SHOW GRANTS Inspector Modal providing parsed scope breakdowns and raw output visualization directly from live target MySQL server.',
+      'Integrated full audit logging capturing permission deltas, target scope, affected accounts, and execution status.',
+      'Maintained strict bilingual i18n localization, light/dark mode contrast compliance, and full isolation from PostgreSQL permission infrastructure.'
+    ],
+  },
   {
     version: '1.220.0',
     releaseDate: '2026-09-29',
