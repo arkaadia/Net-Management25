@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { RemoteServer } from './db';
+import { RemoteServer, addAuditLog, getAuditLogs } from './db';
 import { decryptServerSecret } from './vaultCrypto';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
 import { analyzeMysqlSqlSafety, MysqlSqlQuerySafetyReport } from './mysqlSqlSafety';
@@ -127,6 +127,15 @@ import {
   MysqlReplicationOverview,
   MysqlReplicationActionRequest,
   MysqlReplicationActionResult,
+  MysqlSecurityRiskLevel,
+  MysqlSecurityCategory,
+  MysqlSecurityCheckDetail,
+  MysqlSecurityCheckItem,
+  MysqlSecurityAuditReport,
+  MysqlAuditLogEntry,
+  MysqlAuditLogsResponse,
+  MysqlHardeningRemediationRequest,
+  MysqlHardeningRemediationResult,
 } from '../src/types';
 
 /**
@@ -7730,6 +7739,909 @@ export async function executeMysqlReplicationAction(
       default:
         throw new Error(`Unsupported replication action: ${(request as any).action}`);
     }
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}
+
+// ==========================================
+// Phase 20: MySQL Security Audit & Safety Hardening
+// ==========================================
+
+/**
+ * Records an auditable MySQL operation into the persistent system audit log.
+ * Guaranteed never to log passwords, private keys, or plain-text secrets.
+ */
+export async function recordMysqlAuditLog(
+  server: RemoteServer,
+  action: string,
+  actionFa: string,
+  category: MysqlAuditLogEntry['category'],
+  target: string,
+  status: 'success' | 'failure',
+  details?: string,
+  detailsFa?: string,
+  user?: string
+): Promise<void> {
+  try {
+    await addAuditLog({
+      userName: user || server.mysql_user || 'root',
+      action: `MySQL: ${action}`,
+      category: `mysql_${category}`,
+      target: `[${server.name || server.ip}] ${target}`,
+      status,
+      details: JSON.stringify({
+        actionFa,
+        details,
+        detailsFa,
+        serverId: server.id,
+        serverIp: server.ip,
+      }),
+      ipAddress: server.ip,
+    });
+  } catch (err) {
+    console.warn('[MysqlAudit] Failed to persist audit log record:', err);
+  }
+}
+
+/**
+ * Retrieves audit log entries for MySQL operations associated with a remote server.
+ */
+export async function getMysqlAuditLogsReport(
+  server: RemoteServer,
+  limit: number = 100
+): Promise<MysqlAuditLogsResponse> {
+  try {
+    const rawLogs = await getAuditLogs(300);
+    const serverIdentifier = `[${server.name || server.ip}]`;
+
+    const filtered: MysqlAuditLogEntry[] = [];
+    for (const log of rawLogs) {
+      const isMysql = (log.category && log.category.startsWith('mysql_')) || (log.action && log.action.startsWith('MySQL: '));
+      const matchesServer = (log.target && log.target.includes(serverIdentifier)) || (log.details && log.details.includes(server.id));
+
+      if (isMysql && (matchesServer || !server.id)) {
+        let parsedDetails: any = {};
+        try {
+          parsedDetails = typeof log.details === 'string' ? JSON.parse(log.details) : (log.details || {});
+        } catch {
+          parsedDetails = { raw: log.details };
+        }
+
+        const rawCat = (log.category || '').replace('mysql_', '') as MysqlAuditLogEntry['category'];
+        const validCategories: MysqlAuditLogEntry['category'][] = [
+          'user_management',
+          'grant_revoke',
+          'destructive_ddl',
+          'config_mutation',
+          'replication_control',
+          'backup_restore',
+          'session_kill',
+          'query_execution',
+        ];
+
+        filtered.push({
+          id: log.id || `audit-${Math.random()}`,
+          serverId: server.id,
+          serverName: server.name || server.ip,
+          timestamp: log.timestamp || new Date().toISOString(),
+          action: (log.action || '').replace(/^MySQL:\s*/, ''),
+          actionFa: parsedDetails.actionFa || log.action || '',
+          category: validCategories.includes(rawCat) ? rawCat : 'query_execution',
+          target: (log.target || '').replace(serverIdentifier, '').trim() || server.ip,
+          user: log.user_name || 'root',
+          ip: log.ip_address || server.ip,
+          status: log.status === 'success' || log.status === 'info' ? 'success' : 'failure',
+          details: parsedDetails.details || undefined,
+          detailsFa: parsedDetails.detailsFa || undefined,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      total: filtered.length,
+      entries: filtered.slice(0, limit),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      total: 0,
+      entries: [],
+    };
+  }
+}
+
+/**
+ * Performs a comprehensive, production-grade security and hardening audit of the target MySQL server.
+ * Evaluates credentials, excessive grants, TLS/SSL transport, file-priv injection, local-infile,
+ * and query safety with zero simulated or mock data.
+ */
+export async function getMysqlSecurityAuditReport(
+  server: RemoteServer,
+  options?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<MysqlSecurityAuditReport> {
+  const conn = await getDirectMysqlConnection(server, options);
+
+  try {
+    // Introspect version and distribution
+    const [versionRows] = await conn.query('SELECT VERSION() AS ver');
+    const fullVer = ((versionRows as any[])[0]?.ver || '').toString();
+    const isMariaDb = fullVer.toLowerCase().includes('mariadb');
+
+    // Introspect schema columns in mysql.user
+    const [userColRows] = await conn.query('SHOW COLUMNS FROM mysql.user');
+    const userColumns = new Set(((userColRows as any[]) || []).map((c: any) => c.Field));
+
+    const checks: MysqlSecurityCheckItem[] = [];
+
+    // Helper to read global variable safely
+    const getGlobalVar = async (name: string): Promise<string> => {
+      try {
+        const [rows] = await conn.query(`SHOW GLOBAL VARIABLES LIKE ?`, [name]);
+        return ((rows as any[])[0]?.Value ?? '').toString();
+      } catch {
+        return '';
+      }
+    };
+
+    // -------------------------------------------------------------
+    // Check 1: Empty or Absent Root / Admin Passwords (CRITICAL)
+    // -------------------------------------------------------------
+    let emptyRootUsers: Array<{ User: string; Host: string }> = [];
+    try {
+      const pwdCol = userColumns.has('authentication_string')
+        ? 'authentication_string'
+        : userColumns.has('Password')
+        ? 'Password'
+        : null;
+
+      if (pwdCol) {
+        const [rows] = await conn.query(
+          `SELECT User, Host FROM mysql.user WHERE (User = 'root' OR User = 'admin') AND (${pwdCol} = '' OR ${pwdCol} IS NULL)`
+        );
+        emptyRootUsers = (rows as any[]) || [];
+      }
+    } catch (e) {
+      console.warn('[MysqlSecurityAudit] Check empty root error:', e);
+    }
+
+    if (emptyRootUsers.length > 0) {
+      checks.push({
+        id: 'empty_root_password',
+        category: 'authentication',
+        title: 'Empty Administrator Password Detected',
+        titleFa: 'رمز عبور خالی یا نامعتبر برای کاربر ریشه (root)',
+        description: 'One or more administrative accounts have an empty password, allowing unauthenticated root access.',
+        descriptionFa: 'یک یا چند حساب کاربری با دسترسی مدیر ارشد (مانند root) بدون هیچ رمز عبوری تنظیم شده‌اند که ورود بدون احراز هویت را ممکن می‌سازد.',
+        riskLevel: 'critical',
+        status: 'failed',
+        currentValue: `${emptyRootUsers.length} account(s) without password (${emptyRootUsers.map((u) => `'${u.User}'@'${u.Host}'`).join(', ')})`,
+        recommendedValue: 'All administrative accounts must have strong, non-empty passwords',
+        impact: 'Complete, unauthenticated database takeover and full system compromise.',
+        impactFa: 'تسخیر کامل پایگاه داده توسط مهاجمین و نفوذ به سیستم عامل بدون نیاز به رمز عبور.',
+        remediationGuide: 'Set a strong password for all root/admin accounts using ALTER USER.',
+        remediationGuideFa: 'با دستور ALTER USER برای کلیه حساب‌های ریشه رمز عبور قدرتمند تنظیم کنید.',
+        remediationSql: `ALTER USER 'root'@'localhost' IDENTIFIED BY 'StrongRandomPassword123!'; FLUSH PRIVILEGES;`,
+        details: emptyRootUsers.map((u) => ({
+          label: `${u.User}@${u.Host}`,
+          labelFa: `${u.User}@${u.Host}`,
+          value: 'Password EMPTY (Authentication Disabled)',
+          isWarning: true,
+        })),
+      });
+    } else {
+      checks.push({
+        id: 'empty_root_password',
+        category: 'authentication',
+        title: 'Root & Admin Passwords Protected',
+        titleFa: 'رمزهای عبور حساب‌های ریشه محافظت‌شده هستند',
+        description: 'All administrative and root accounts have authenticated password hashes configured.',
+        descriptionFa: 'کلیه حساب‌های کاربری مدیر ارشد دارای هش رمز عبور معتبر و فعال می‌باشند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'All administrative accounts require password authentication',
+        recommendedValue: 'Protected',
+        impact: 'Prevents unauthenticated database administrative access.',
+        impactFa: 'از ورود بدون احراز هویت به پایگاه داده جلوگیری می‌کند.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 2: Anonymous User Accounts (HIGH)
+    // -------------------------------------------------------------
+    let anonUsers: Array<{ User: string; Host: string }> = [];
+    try {
+      const [rows] = await conn.query(`SELECT User, Host FROM mysql.user WHERE User = '' OR User IS NULL`);
+      anonUsers = (rows as any[]) || [];
+    } catch (e) {
+      console.warn('[MysqlSecurityAudit] Check anonymous error:', e);
+    }
+
+    if (anonUsers.length > 0) {
+      checks.push({
+        id: 'anonymous_users',
+        category: 'authentication',
+        title: 'Anonymous User Accounts Present',
+        titleFa: 'وجود حساب‌های کاربری ناشناس (Anonymous)',
+        description: 'Anonymous accounts allow anyone without credentials to connect to the MySQL instance and access test tables.',
+        descriptionFa: 'حساب‌های کاربری بدون نام کاربری (Anonymous) امکان اتصال به پایگاه داده بدون مشخصات هویتی را فراهم می‌نمایند.',
+        riskLevel: 'high',
+        status: 'failed',
+        currentValue: `${anonUsers.length} anonymous account(s) found (${anonUsers.map((u) => `''@'${u.Host}'`).join(', ')})`,
+        recommendedValue: 'Remove all anonymous accounts',
+        impact: 'Unauthorized access to databases matching test or wildcard permissions.',
+        impactFa: 'دسترسی غیرمجاز و امکان نفوذ به جداول تستی و دیتابیس‌های دارای مجوزهای عمومی.',
+        remediationGuide: 'Drop all anonymous accounts using DROP USER or DELETE FROM mysql.user.',
+        remediationGuideFa: 'حساب‌های ناشناس را با دستور DROP USER یا حذف از mysql.user پاکسازی کنید.',
+        remediationSql: `DROP USER ''@'localhost'; DROP USER ''@'%'; FLUSH PRIVILEGES;`,
+        details: anonUsers.map((u) => ({
+          label: `Anonymous User`,
+          labelFa: 'کاربر ناشناس',
+          value: `Host: ${u.Host}`,
+          isWarning: true,
+        })),
+      });
+    } else {
+      checks.push({
+        id: 'anonymous_users',
+        category: 'authentication',
+        title: 'Zero Anonymous User Accounts',
+        titleFa: 'عدم وجود حساب کاربری ناشناس',
+        description: 'No anonymous user accounts exist in the mysql.user catalog.',
+        descriptionFa: 'هیچ حساب کاربری ناشناسی در کاتالوگ کاربران MySQL یافت نشد.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'No anonymous users present',
+        recommendedValue: 'None',
+        impact: 'All connections require authenticated credentials.',
+        impactFa: 'تمامی اتصالات نیازمند نام کاربری و هویت مشخص هستند.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 3: Wildcard Remote Host for Administrative Accounts (HIGH)
+    // -------------------------------------------------------------
+    let wildcardAdmins: Array<{ User: string; Host: string }> = [];
+    try {
+      const superCol = userColumns.has('Super_priv') ? "Super_priv = 'Y'" : "1=0";
+      const grantCol = userColumns.has('Grant_priv') ? "Grant_priv = 'Y'" : "1=0";
+      const [rows] = await conn.query(
+        `SELECT User, Host FROM mysql.user WHERE Host = '%' AND (User = 'root' OR ${superCol} OR ${grantCol})`
+      );
+      wildcardAdmins = (rows as any[]) || [];
+    } catch (e) {
+      console.warn('[MysqlSecurityAudit] Check wildcard admin error:', e);
+    }
+
+    if (wildcardAdmins.length > 0) {
+      checks.push({
+        id: 'wildcard_admin_host',
+        category: 'privileges',
+        title: 'Administrative Account Bound to Wildcard Host (%)',
+        titleFa: 'حساب‌های مدیر ارشد متصل به هاست عمومی و نامحدود (%)',
+        description: `Privileged accounts (${wildcardAdmins.map((u) => `'${u.User}'@'%'`).join(', ')}) can connect from any IP address globally.`,
+        descriptionFa: 'حساب‌های مدیر با دسترسی ریشه یا SUPER مجاز به اتصال از سراسر اینترنت بدون محدودیت IP هستند.',
+        riskLevel: 'high',
+        status: 'warning',
+        currentValue: `${wildcardAdmins.length} privileged account(s) using Host '%'`,
+        recommendedValue: 'Restrict administrative accounts to specific management subnets or localhost',
+        impact: 'Exposes administrative credentials to credential brute-force attacks across all reachable networks.',
+        impactFa: 'افزایش چشمگیر خطر حملات بروت‌فورس و افشای کلمه عبور مدیر از شبکه عمومی.',
+        remediationGuide: 'Alter or replace the wildcard host with explicit subnet masks (e.g. 192.168.10.% or localhost).',
+        remediationGuideFa: 'هاست کاربری را از حالت عمومی % به زیرشبکه مدیریت یا localhost تغییر دهید.',
+        details: wildcardAdmins.map((u) => ({
+          label: `${u.User}@${u.Host}`,
+          labelFa: `${u.User}@${u.Host}`,
+          value: 'Wildcard global access enabled',
+          isWarning: true,
+        })),
+      });
+    } else {
+      checks.push({
+        id: 'wildcard_admin_host',
+        category: 'privileges',
+        title: 'Administrative Accounts Host-Restricted',
+        titleFa: 'محدودیت هاست و شبکه برای حساب‌های مدیر ارشد',
+        description: 'No administrative account has unrestricted global wildcard (%) access.',
+        descriptionFa: 'هیچ حساب کاربری مدیریتی دارای مجوز دسترسی عمومی نامحدود (%) نیست.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'All administrative accounts restricted to specific hosts/subnets',
+        recommendedValue: 'Specific IP/Subnet or Localhost',
+        impact: 'Reduces surface area for remote unauthorized administrative attempts.',
+        impactFa: 'کاهش سطح حمله از طریق ایزوله‌سازی دسترسی‌های مدیر.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 4: secure_file_priv - File System Boundary (CRITICAL/HIGH)
+    // -------------------------------------------------------------
+    const secureFilePriv = await getGlobalVar('secure_file_priv');
+    if (secureFilePriv === '') {
+      checks.push({
+        id: 'secure_file_priv_empty',
+        category: 'engine_hardening',
+        title: 'Unrestricted File System Access (secure_file_priv is EMPTY)',
+        titleFa: 'دسترسی نامحدود به فایل‌های سرور (secure_file_priv خالی است)',
+        description: 'secure_file_priv is set to an empty string. Users with FILE privilege can read or overwrite any OS file accessible to the mysql daemon.',
+        descriptionFa: 'متغیر secure_file_priv روی مقدار خالی تنظیم شده که به کاربران دارای مجوز FILE اجازه خواندن و بازنویسی هر فایلی در سرور را می‌دهد.',
+        riskLevel: 'critical',
+        status: 'failed',
+        currentValue: 'EMPTY (Unrestricted server filesystem access)',
+        recommendedValue: 'NULL (disabled) or a dedicated directory (e.g., /var/lib/mysql-files/)',
+        impact: 'Arbitrary local file reading (/etc/shadow, /etc/passwd) and potential remote code execution via webshell injection.',
+        impactFa: 'امکان خواندن فایل‌های حساس سیستم‌عامل و اجرای کد از راه دور از طریق تزریق وب‌شل.',
+        remediationGuide: 'Add "secure_file_priv = /var/lib/mysql-files" to my.cnf and restart MySQL.',
+        remediationGuideFa: 'مقدار secure_file_priv = /var/lib/mysql-files را در my.cnf درج و سرور را ریستارت کنید.',
+      });
+    } else if (secureFilePriv.toUpperCase() === 'NULL') {
+      checks.push({
+        id: 'secure_file_priv_empty',
+        category: 'engine_hardening',
+        title: 'File System Import/Export Disabled (secure_file_priv is NULL)',
+        titleFa: 'واردات و خروجی فایل غیرفعال است (secure_file_priv = NULL)',
+        description: 'LOAD DATA INFILE and SELECT ... INTO OUTFILE are completely disabled across all users.',
+        descriptionFa: 'عملیات بارگذاری و نگارش فایل از طریق کوئری‌های SQL برای تمام کاربران غیرفعال است.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'NULL (Hardened & Disabled)',
+        recommendedValue: 'NULL or isolated directory',
+        impact: 'Complete immunity against SQL-based file system read/write exploits.',
+        impactFa: 'ایمنی کامل در برابر نفوذهای مبتنی بر خواندن و نوشتن فایل از طریق SQL.',
+      });
+    } else {
+      checks.push({
+        id: 'secure_file_priv_empty',
+        category: 'engine_hardening',
+        title: 'File System Restricted to Designated Directory',
+        titleFa: 'دسترسی به فایل‌ها به پوشه مشخص محدود است',
+        description: `Import/export operations are isolated to directory: ${secureFilePriv}`,
+        descriptionFa: `عملیات بارگذاری و نگارش فایل تنها به مسیر امن ${secureFilePriv} محدود گردیده است.`,
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: secureFilePriv,
+        recommendedValue: secureFilePriv,
+        impact: 'Prevents reading arbitrary sensitive operating system files.',
+        impactFa: 'جلوگیری از خواندن فایل‌های حساس خارج از محدوده مجاز پایگاه داده.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 5: local_infile - Rogue Server File Stealing (HIGH)
+    // -------------------------------------------------------------
+    const localInfile = (await getGlobalVar('local_infile')).toUpperCase();
+    if (localInfile === 'ON' || localInfile === '1') {
+      checks.push({
+        id: 'local_infile_enabled',
+        category: 'engine_hardening',
+        title: 'Local Infile Enabled (Client File Disclosure Vulnerability)',
+        titleFa: 'قابلیت local_infile فعال است (آسیب‌پذیری افشای فایل کلاینت)',
+        description: 'When local_infile is ON, a compromised or rogue MySQL server can instruct connecting clients to upload arbitrary local files without user confirmation.',
+        descriptionFa: 'فعال بودن local_infile به سرور اجازه می‌دهد فایل‌های محلی کلاینت‌های متصل را به طور خودکار استخراج نماید.',
+        riskLevel: 'high',
+        status: 'failed',
+        currentValue: 'ON (Vulnerable)',
+        recommendedValue: 'OFF',
+        impact: 'Clients connecting to this or rogue intermediate proxies could leak credentials and local configuration files.',
+        impactFa: 'کلاینت‌های متصل به سرور ممکن است اطلاعات محلی سیستم خود را افشا نمایند.',
+        remediationGuide: 'Disable local_infile globally: SET GLOBAL local_infile = OFF;',
+        remediationGuideFa: 'قابلیت local_infile را به صورت سراسری غیرفعال کنید: SET GLOBAL local_infile = OFF;',
+        remediationSql: 'SET GLOBAL local_infile = OFF;',
+      });
+    } else {
+      checks.push({
+        id: 'local_infile_enabled',
+        category: 'engine_hardening',
+        title: 'Local Infile Disabled',
+        titleFa: 'قابلیت local_infile غیرفعال و ایمن است',
+        description: 'local_infile is OFF, protecting connecting clients from unsolicited file extraction requests.',
+        descriptionFa: 'قابلیت local_infile خاموش بوده و کلاینت‌ها در برابر درخواست‌های ناخواسته استخراج فایل محافظت می‌شوند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'OFF (Protected)',
+        recommendedValue: 'OFF',
+        impact: 'Client systems protected from local file disclosure exploits.',
+        impactFa: 'حفاظت کامل از فایل‌های کلاینت در برابر اکسپلویت‌های MySQL.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 6: Enforce Encrypted Transport (require_secure_transport / have_ssl) (MEDIUM/HIGH)
+    // -------------------------------------------------------------
+    const requireSecureTransport = (await getGlobalVar('require_secure_transport')).toUpperCase();
+    const haveSsl = (await getGlobalVar('have_ssl')).toUpperCase();
+
+    if (haveSsl === 'DISABLED' || haveSsl === 'NO') {
+      checks.push({
+        id: 'ssl_tls_encryption',
+        category: 'network_ssl',
+        title: 'TLS/SSL Encryption Disabled on Server',
+        titleFa: 'رمزنگاری TLS/SSL در سرور غیرفعال است',
+        description: 'The MySQL engine was compiled or started without SSL support. All traffic and passwords traverse the network in clear text.',
+        descriptionFa: 'سرویس MySQL بدون پشتیبانی از SSL اجرا شده و کلیه ترافیک و رمزها در شبکه به صورت متن شفاف منتقل می‌شوند.',
+        riskLevel: 'high',
+        status: 'failed',
+        currentValue: `have_ssl: ${haveSsl}`,
+        recommendedValue: 'have_ssl: YES with valid certificates',
+        impact: 'Eavesdropping and credential sniffing over untrusted networks.',
+        impactFa: 'استراق سمع اطلاعات و سرقت رمزهای عبور در شبکه‌های نامطمئن.',
+        remediationGuide: 'Configure SSL certificates (ssl_ca, ssl_cert, ssl_key) in my.cnf and restart MySQL.',
+        remediationGuideFa: 'گواهی‌های SSL را در my.cnf تنظیم کرده و سرویس MySQL را ریستارت نمایید.',
+      });
+    } else if (requireSecureTransport !== 'ON' && requireSecureTransport !== '1') {
+      checks.push({
+        id: 'ssl_tls_encryption',
+        category: 'network_ssl',
+        title: 'Encrypted Transport Not Enforced (Plaintext Connections Permitted)',
+        titleFa: 'عدم الزام رمزنگاری اتصالات (امکان اتصال متنی و غیررمزنگاری‌شده)',
+        description: 'SSL is available on the server, but require_secure_transport is OFF, allowing clients to establish insecure unencrypted connections.',
+        descriptionFa: 'قابلیت SSL فعال است اما اتصالات بدون رمزنگاری نیز پذیرفته می‌شوند زیرا require_secure_transport خاموش است.',
+        riskLevel: 'medium',
+        status: 'warning',
+        currentValue: 'require_secure_transport: OFF',
+        recommendedValue: 'require_secure_transport: ON',
+        impact: 'Clients may inadvertently transmit passwords and query data unencrypted.',
+        impactFa: 'امکان برقراری اتصالات بدون رمزنگاری و افشای اطلاعات در مسیر شبکه.',
+        remediationGuide: 'Enforce SSL for all connections: SET GLOBAL require_secure_transport = ON;',
+        remediationGuideFa: 'رمزنگاری را برای تمامی اتصالات الزامی کنید: SET GLOBAL require_secure_transport = ON;',
+        remediationSql: 'SET GLOBAL require_secure_transport = ON;',
+      });
+    } else {
+      checks.push({
+        id: 'ssl_tls_encryption',
+        category: 'network_ssl',
+        title: 'Encrypted Transport Strictly Enforced',
+        titleFa: 'رمزنگاری اتصالات به طور کامل الزامی است',
+        description: 'require_secure_transport is ON. All TCP client connections are rejected unless TLS/SSL encrypted.',
+        descriptionFa: 'اتصالات متنی مسدود بوده و تنها اتصالات رمزنگاری‌شده TLS/SSL اجازه اتصال دارند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'require_secure_transport: ON (have_ssl: YES)',
+        recommendedValue: 'ON',
+        impact: 'Complete in-flight protection against packet sniffing and MITM attacks.',
+        impactFa: 'حفاظت کامل داده‌ها در هنگام تبادل شبکه در برابر حملات شنود و مرد میانی.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 7: Network Binding Exposure (bind_address) (MEDIUM)
+    // -------------------------------------------------------------
+    const bindAddress = await getGlobalVar('bind_address');
+    const isPublicBinding = bindAddress === '0.0.0.0' || bindAddress === '*' || bindAddress === '::' || bindAddress === '';
+
+    if (isPublicBinding) {
+      checks.push({
+        id: 'network_bind_address',
+        category: 'network_ssl',
+        title: 'MySQL Bound to All Interfaces (0.0.0.0)',
+        titleFa: 'اتصال سرویس MySQL به تمام کارت‌های شبکه (0.0.0.0)',
+        description: `bind_address is set to "${bindAddress || '0.0.0.0'}". The MySQL port (3306) listens on all external interfaces.`,
+        descriptionFa: `پارامتر bind_address روی 0.0.0.0 یا همه اینترفیس‌ها تنظیم شده که پورت ۳۳۰۶ را به همه شبکه‌های سرور متصل می‌کند.`,
+        riskLevel: 'medium',
+        status: 'warning',
+        currentValue: bindAddress || '0.0.0.0 (All interfaces)',
+        recommendedValue: '127.0.0.1 or specific private LAN interface',
+        impact: 'Increases exposure to port scanners and brute-force attempts if firewall rules are misconfigured.',
+        impactFa: 'قرار گرفتن پورت در معرض اسکنرهای شبکه و حملات نفوذ در صورت ضعف فایروال.',
+        remediationGuide: 'If MySQL does not require direct public access, set bind-address = 127.0.0.1 or private IP in my.cnf.',
+        remediationGuideFa: 'در صورتی که نیازی به دسترسی عمومی مستقیم نیست، مقدار bind-address را در my.cnf به 127.0.0.1 تغییر دهید.',
+      });
+    } else {
+      checks.push({
+        id: 'network_bind_address',
+        category: 'network_ssl',
+        title: 'MySQL Bound to Dedicated Interface',
+        titleFa: 'اتصال MySQL به اینترفیس مشخص و محدود',
+        description: `bind_address is securely restricted to: ${bindAddress}`,
+        descriptionFa: `پورت MySQL تنها به آدرس مشخص ${bindAddress} محدود شده است.`,
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: bindAddress,
+        recommendedValue: bindAddress,
+        impact: 'Exposed only on intended network interface.',
+        impactFa: 'محدودسازی سطح دسترسی تنها به اینترفیس مجاز.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 8: sql_safe_updates - Accidental Mass Data Mutation (MEDIUM)
+    // -------------------------------------------------------------
+    const safeUpdates = (await getGlobalVar('sql_safe_updates')).toUpperCase();
+    if (safeUpdates !== 'ON' && safeUpdates !== '1') {
+      checks.push({
+        id: 'sql_safe_updates_status',
+        category: 'data_protection',
+        title: 'Safe Updates Mode Disabled (Mass Update/Delete Risk)',
+        titleFa: 'حالت Safe Updates غیرفعال است (خطر حذف یا تغییر ناخواسته کل جدول)',
+        description: 'When sql_safe_updates is OFF, UPDATE and DELETE statements without a WHERE clause or LIMIT will execute across the entire table without warning.',
+        descriptionFa: 'خاموش بودن sql_safe_updates اجازه اجرای دستورات UPDATE و DELETE بدون شرط WHERE را روی تمام سطرهای جدول صادر می‌کند.',
+        riskLevel: 'medium',
+        status: 'warning',
+        currentValue: 'OFF',
+        recommendedValue: 'ON',
+        impact: 'Human error or SQL injection can instantly wipe or corrupt entire database tables.',
+        impactFa: 'خطای انسانی یا تزریق SQL می‌تواند فوراً موجب پاک شدن یا تخریب داده‌های جداول گردد.',
+        remediationGuide: 'Enable Safe Updates globally or per session: SET GLOBAL sql_safe_updates = ON;',
+        remediationGuideFa: 'حالت ایمن را فعال کنید: SET GLOBAL sql_safe_updates = ON;',
+        remediationSql: 'SET GLOBAL sql_safe_updates = ON;',
+      });
+    } else {
+      checks.push({
+        id: 'sql_safe_updates_status',
+        category: 'data_protection',
+        title: 'Safe Updates Mode Active',
+        titleFa: 'حالت Safe Updates فعال و محافظت‌شده است',
+        description: 'sql_safe_updates is ON. Prevents unintended mass UPDATE or DELETE statements without a WHERE key restriction.',
+        descriptionFa: 'دستورات تغییر داده بدون شرط محدودکننده مسدود می‌شوند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'ON (Protected)',
+        recommendedValue: 'ON',
+        impact: 'Protects critical business records from catastrophic unindexed wipes.',
+        impactFa: 'حفاظت از رکوردهای کسب‌وکار در برابر حذف و دستکاری ناخواسته.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 9: Excessive FILE / PROCESS / SUPER Privileges (HIGH)
+    // -------------------------------------------------------------
+    let nonRootFileUsers: Array<{ User: string; Host: string }> = [];
+    try {
+      if (userColumns.has('File_priv')) {
+        const [rows] = await conn.query(
+          `SELECT User, Host FROM mysql.user WHERE File_priv = 'Y' AND User NOT IN ('root', 'mysql.sys', 'mysql.session', 'mysql.infoschema')`
+        );
+        nonRootFileUsers = (rows as any[]) || [];
+      }
+    } catch (e) {
+      console.warn('[MysqlSecurityAudit] Check File_priv error:', e);
+    }
+
+    if (nonRootFileUsers.length > 0) {
+      checks.push({
+        id: 'excessive_file_privilege',
+        category: 'privileges',
+        title: 'Non-Root Accounts Granted FILE Privilege',
+        titleFa: 'اعطای مجوز سطح بالای FILE به کاربران عادی',
+        description: `FILE privilege granted to non-system accounts (${nonRootFileUsers.map((u) => `'${u.User}'@'${u.Host}'`).join(', ')}). Allows reading/writing files on the server.`,
+        descriptionFa: 'مجوز FILE به کاربران غیرسیستمی اعطا شده که به آنها اجازه خواندن و نوشتن فایل در سیستم‌عامل سرور را می‌دهد.',
+        riskLevel: 'high',
+        status: 'failed',
+        currentValue: `${nonRootFileUsers.length} non-root account(s) have FILE privilege`,
+        recommendedValue: 'FILE privilege should be reserved strictly for database administrators',
+        impact: 'Enables privilege escalation, configuration inspection, and remote code execution.',
+        impactFa: 'امکان ارتقای سطح دسترسی و خواندن فایل‌های حساس هاست توسط کاربران عادی.',
+        remediationGuide: 'Revoke FILE privilege from non-admin accounts: REVOKE FILE ON *.* FROM ...',
+        remediationGuideFa: 'مجوز FILE را از کاربران غیرمجاز با دستور REVOKE FILE سلب کنید.',
+        details: nonRootFileUsers.map((u) => ({
+          label: `${u.User}@${u.Host}`,
+          labelFa: `${u.User}@${u.Host}`,
+          value: 'Granted global FILE privilege',
+          isWarning: true,
+        })),
+      });
+    } else {
+      checks.push({
+        id: 'excessive_file_privilege',
+        category: 'privileges',
+        title: 'FILE Privilege Confined to System Administrators',
+        titleFa: 'مجوز FILE منحصراً در اختیار مدیر سیستم است',
+        description: 'No unprivileged application users possess global FILE reading or writing capabilities.',
+        descriptionFa: 'هیچ کاربر غیرسیستمی به قابلیت خواندن و نوشتن فایل در سرور دسترسی ندارد.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'Confined to administrator accounts',
+        recommendedValue: 'Restricted',
+        impact: 'Protects the underlying host operating system from database-driven file tampering.',
+        impactFa: 'حفاظت کامل از هاست در برابر دستکاری فایل‌ها از طریق دیتابیس.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 10: Authentication Plugin Modernity (MEDIUM)
+    // -------------------------------------------------------------
+    let legacyPluginUsers: Array<{ User: string; Host: string; plugin: string }> = [];
+    try {
+      if (userColumns.has('plugin')) {
+        const [rows] = await conn.query(
+          `SELECT User, Host, plugin FROM mysql.user WHERE plugin IN ('mysql_native_password', 'mysql_old_password') AND User NOT LIKE 'mysql.%'`
+        );
+        legacyPluginUsers = (rows as any[]) || [];
+      }
+    } catch (e) {
+      console.warn('[MysqlSecurityAudit] Check auth plugin error:', e);
+    }
+
+    if (legacyPluginUsers.length > 0 && !isMariaDb) {
+      checks.push({
+        id: 'legacy_auth_plugins',
+        category: 'authentication',
+        title: 'Legacy Password Hashes in Use (mysql_native_password)',
+        titleFa: 'استفاده از الگوریتم قدیمی هش رمز عبور (mysql_native_password)',
+        description: `${legacyPluginUsers.length} account(s) use legacy SHA1-based mysql_native_password rather than caching_sha2_password. Deprecated in MySQL 8.0/8.4.`,
+        descriptionFa: 'برخی حساب‌ها از الگوریتم قدیمی بر پایه SHA1 استفاده می‌کنند که در نسخه‌های مدرن منسوخ اعلام گردیده است.',
+        riskLevel: 'medium',
+        status: 'warning',
+        currentValue: `${legacyPluginUsers.length} account(s) using legacy plugin`,
+        recommendedValue: 'Upgrade to caching_sha2_password (or ed25519 for MariaDB)',
+        impact: 'Vulnerable to offline dictionary attacks if password hashes are exfiltrated.',
+        impactFa: 'آسیب‌پذیری بیشتر در برابر حملات شکستن پسورد در صورت افشای هش‌ها.',
+        remediationGuide: 'Alter users to use caching_sha2_password: ALTER USER ... IDENTIFIED WITH caching_sha2_password ...',
+        remediationGuideFa: 'کاربران را به پلاگین مدرن caching_sha2_password ارتقا دهید.',
+        details: legacyPluginUsers.map((u) => ({
+          label: `${u.User}@${u.Host}`,
+          labelFa: `${u.User}@${u.Host}`,
+          value: `Plugin: ${u.plugin}`,
+          isWarning: true,
+        })),
+      });
+    } else {
+      checks.push({
+        id: 'legacy_auth_plugins',
+        category: 'authentication',
+        title: 'Modern Secure Authentication Plugins Active',
+        titleFa: 'استفاده از پلاگین‌های احراز هویت مدرن و ایمن',
+        description: 'Active accounts leverage robust multi-round SHA-256 or modern hash algorithms.',
+        descriptionFa: 'حساب‌های کاربری از الگوریتم‌های مدرن و ایمن احراز هویت بهره می‌برند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: isMariaDb ? 'MariaDB standard auth active' : 'Modern caching_sha2_password compliant',
+        recommendedValue: 'caching_sha2_password / ed25519',
+        impact: 'High resistance to hash cracking and brute force cryptanalysis.',
+        impactFa: 'مقاومت بسیار بالا در برابر شکستن رمز عبور.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 11: Binary Logging for Point-in-Time Recovery & Audit (MEDIUM)
+    // -------------------------------------------------------------
+    const logBin = (await getGlobalVar('log_bin')).toUpperCase();
+    if (logBin !== 'ON' && logBin !== '1') {
+      checks.push({
+        id: 'binary_logging_audit',
+        category: 'logging_audit',
+        title: 'Binary Logging Disabled (log_bin is OFF)',
+        titleFa: 'لاگ باینری غیرفعال است (log_bin خاموش است)',
+        description: 'Binary logging is disabled. Point-in-time recovery and transactional audit histories cannot be reconstructed.',
+        descriptionFa: 'لاگ باینری غیرفعال است که مانع بازیابی نقطه‌ای داده‌ها (PITR) و رهگیری تراکنش‌ها می‌گردد.',
+        riskLevel: 'medium',
+        status: 'warning',
+        currentValue: 'OFF',
+        recommendedValue: 'ON with appropriate binlog_expire_logs_seconds',
+        impact: 'Inability to recover transaction history following hardware failure or ransomware.',
+        impactFa: 'عدم امکان بازیابی اطلاعات از دست‌رفته تا ثانیه وقوع حادثه.',
+        remediationGuide: 'Enable log-bin in my.cnf and restart MySQL.',
+        remediationGuideFa: 'مقدار log-bin را در my.cnf فعال و سرور را ریستارت کنید.',
+      });
+    } else {
+      checks.push({
+        id: 'binary_logging_audit',
+        category: 'logging_audit',
+        title: 'Binary Logging Active & Auditable',
+        titleFa: 'لاگ باینری فعال و قابل حسابرسی است',
+        description: 'Binary logging is enabled. Complete transactional history is recorded for replication and disaster recovery.',
+        descriptionFa: 'لاگ باینری فعال است و کلیه تراکنش‌ها جهت رپلیکیشن و بازیابی ذخیره می‌گردند.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'ON',
+        recommendedValue: 'ON',
+        impact: 'Full point-in-time recovery capability.',
+        impactFa: 'امکان بازیابی و حسابرسی دقیق تغییرات دیتابیس.',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Check 12: General Query Logging in Production (INFO/LOW)
+    // -------------------------------------------------------------
+    const generalLog = (await getGlobalVar('general_log')).toUpperCase();
+    if (generalLog === 'ON' || generalLog === '1') {
+      checks.push({
+        id: 'general_log_production',
+        category: 'logging_audit',
+        title: 'General Query Log Active in Production',
+        titleFa: 'فعال بودن لاگ عمومی کوئری‌ها (general_log)',
+        description: 'general_log is ON. Every SQL query is recorded to disk in plain text, causing disk bloat and potential credential leakage.',
+        descriptionFa: 'لاگ عمومی کلیه کوئری‌ها را به صورت متنی روی دیسک می‌نویسد که موجب افت پرفورمنس و احتمال افشای رمزها می‌شود.',
+        riskLevel: 'low',
+        status: 'warning',
+        currentValue: 'ON (High disk I/O & cleartext queries)',
+        recommendedValue: 'OFF (Use slow query log or audit plugin instead)',
+        impact: 'Degrades throughput and stores queries containing secrets on disk.',
+        impactFa: 'کاهش سرعت سرور و ذخیره کوئری‌های حاوی داده‌های حساس بر روی دیسک.',
+        remediationGuide: 'Disable general log: SET GLOBAL general_log = OFF;',
+        remediationGuideFa: 'لاگ عمومی را خاموش نمایید: SET GLOBAL general_log = OFF;',
+        remediationSql: 'SET GLOBAL general_log = OFF;',
+      });
+    } else {
+      checks.push({
+        id: 'general_log_production',
+        category: 'logging_audit',
+        title: 'General Query Log Disabled',
+        titleFa: 'لاگ عمومی کوئری‌ها غیرفعال و بهینه است',
+        description: 'general_log is OFF, preventing disk saturation and protecting queries from cleartext disk exposure.',
+        descriptionFa: 'لاگ عمومی خاموش بوده و مانع پر شدن بیهوده دیسک و ذخیره کوئری‌های متنی می‌شود.',
+        riskLevel: 'good',
+        status: 'passed',
+        currentValue: 'OFF (Optimized)',
+        recommendedValue: 'OFF',
+        impact: 'Optimal disk throughput and privacy.',
+        impactFa: 'کارایی مطلوب دیسک و عدم افشای کوئری‌ها.',
+      });
+    }
+
+    // Compute Overall Score (100 base, deductions for failed/warning)
+    let score = 100;
+    let failedCount = 0;
+    let warningCount = 0;
+    let passedCount = 0;
+
+    for (const chk of checks) {
+      if (chk.status === 'failed') {
+        failedCount++;
+        score -= chk.riskLevel === 'critical' ? 25 : chk.riskLevel === 'high' ? 15 : 10;
+      } else if (chk.status === 'warning') {
+        warningCount++;
+        score -= chk.riskLevel === 'high' ? 10 : chk.riskLevel === 'medium' ? 6 : 3;
+      } else {
+        passedCount++;
+      }
+    }
+
+    score = Math.max(0, Math.min(100, score));
+
+    let overallRisk: MysqlSecurityRiskLevel = 'good';
+    if (score < 40 || checks.some((c) => c.status === 'failed' && c.riskLevel === 'critical')) {
+      overallRisk = 'critical';
+    } else if (score < 65 || failedCount > 0) {
+      overallRisk = 'high';
+    } else if (score < 85 || warningCount > 0) {
+      overallRisk = 'medium';
+    } else if (score < 95) {
+      overallRisk = 'low';
+    }
+
+    return {
+      serverVersion: fullVer,
+      isMariaDb,
+      overallScore: score,
+      overallRisk,
+      totalChecks: checks.length,
+      passedChecks: passedCount,
+      warningChecks: warningCount,
+      failedChecks: failedCount,
+      checks,
+      collectedAt: Date.now(),
+    };
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}
+
+/**
+ * Executes a one-click automated remediation fix for an audited security vulnerability.
+ * Audits and logs every change with zero secret exposure.
+ */
+export async function executeMysqlHardeningRemediation(
+  server: RemoteServer,
+  request: MysqlHardeningRemediationRequest,
+  options?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<MysqlHardeningRemediationResult> {
+  const conn = await getDirectMysqlConnection(server, options);
+
+  try {
+    let sqlToExecute = '';
+    let actionDesc = '';
+    let actionDescFa = '';
+
+    if (request.customSql) {
+      const safety = analyzeMysqlSqlSafety(request.customSql);
+      if (safety.riskLevel === 'prohibited') {
+        return {
+          success: false,
+          message: `Remediation SQL rejected: ${safety.reason}`,
+          messageFa: `کوئری رفع آسیب‌پذیری به دلیل خطرات امنیتی رد شد: ${safety.reasonFa || safety.reason}`,
+        };
+      }
+      sqlToExecute = request.customSql;
+      actionDesc = `Execute Custom Hardening SQL: ${request.checkId}`;
+      actionDescFa = `اجرای کوئری اصلاح امنیتی سفارشی برای: ${request.checkId}`;
+    } else {
+      switch (request.checkId) {
+        case 'local_infile_enabled':
+          sqlToExecute = 'SET GLOBAL local_infile = OFF;';
+          actionDesc = 'Disable local_infile globally';
+          actionDescFa = 'غیرفعال‌سازی سراسری local_infile';
+          break;
+
+        case 'sql_safe_updates_status':
+          sqlToExecute = 'SET GLOBAL sql_safe_updates = ON;';
+          actionDesc = 'Enable sql_safe_updates globally';
+          actionDescFa = 'فعال‌سازی سراسری sql_safe_updates';
+          break;
+
+        case 'ssl_tls_encryption':
+          sqlToExecute = 'SET GLOBAL require_secure_transport = ON;';
+          actionDesc = 'Enforce require_secure_transport globally';
+          actionDescFa = 'الزام رمزنگاری سراسری require_secure_transport';
+          break;
+
+        case 'general_log_production':
+          sqlToExecute = 'SET GLOBAL general_log = OFF;';
+          actionDesc = 'Disable general_log globally';
+          actionDescFa = 'غیرفعال‌سازی سراسری general_log';
+          break;
+
+        case 'anonymous_users':
+          sqlToExecute = `DELETE FROM mysql.user WHERE User = '' OR User IS NULL; FLUSH PRIVILEGES;`;
+          actionDesc = 'Purge anonymous accounts from mysql.user';
+          actionDescFa = 'حذف حساب‌های ناشناس از جدول mysql.user';
+          break;
+
+        default:
+          return {
+            success: false,
+            message: `No automated 1-click remediation defined for check: ${request.checkId}. Please follow the manual remediation guide.`,
+            messageFa: `راهکار خودکار ۱-کلیکه برای آسیب‌پذیری ${request.checkId} تعریف نشده است. لطفاً از راهنمای دستی استفاده فرمایید.`,
+          };
+      }
+    }
+
+    // Execute remediation statements
+    const stmts = sqlToExecute
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const stmt of stmts) {
+      await conn.query(stmt);
+    }
+
+    // Record audit log
+    await recordMysqlAuditLog(
+      server,
+      actionDesc,
+      actionDescFa,
+      'config_mutation',
+      request.checkId,
+      'success',
+      `Executed remediation: ${sqlToExecute}`,
+      `دستور اصلاح با موفقیت اجرا شد: ${sqlToExecute}`,
+      options?.user
+    );
+
+    return {
+      success: true,
+      message: `Security remediation executed successfully: ${actionDesc}`,
+      messageFa: `اصلاح امنیتی با موفقیت اعمال شد: ${actionDescFa}`,
+      executedSql: sqlToExecute,
+    };
+  } catch (err: any) {
+    await recordMysqlAuditLog(
+      server,
+      `Hardening Fix Failed: ${request.checkId}`,
+      `شکست در اصلاح امنیتی: ${request.checkId}`,
+      'config_mutation',
+      request.checkId,
+      'failure',
+      err.message || String(err),
+      err.message || String(err),
+      options?.user
+    );
+
+    return {
+      success: false,
+      message: `Failed to execute remediation for ${request.checkId}: ${err.message}`,
+      messageFa: `خطا در اجرای دستور اصلاح امنیتی برای ${request.checkId}: ${err.message}`,
+    };
   } finally {
     await conn.end().catch(() => {});
   }

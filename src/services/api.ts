@@ -105,6 +105,10 @@ import {
   MysqlReplicationOverview,
   MysqlReplicationActionRequest,
   MysqlReplicationActionResult,
+  MysqlSecurityAuditReport,
+  MysqlHardeningRemediationRequest,
+  MysqlHardeningRemediationResult,
+  MysqlAuditLogsResponse,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -2089,6 +2093,43 @@ export async function executeRemoteServerMysqlReplicationAction(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
+  return res.json();
+}
+
+// ==========================================
+// Phase 20: MySQL Security Audit & Safety Hardening API
+// ==========================================
+
+export async function fetchRemoteServerMysqlSecurityAudit(
+  id: string,
+  options?: { port?: number; user?: string; password?: string }
+): Promise<{ success: boolean; report?: MysqlSecurityAuditReport; error?: string; errorFa?: string }> {
+  const query = new URLSearchParams();
+  if (options?.port) query.set('port', String(options.port));
+  if (options?.user) query.set('user', options.user);
+  if (options?.password) query.set('password', options.password);
+  const qStr = query.toString() ? `?${query.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/security-audit${qStr}`);
+  return res.json();
+}
+
+export async function executeRemoteServerMysqlHardeningRemediation(
+  id: string,
+  request: MysqlHardeningRemediationRequest
+): Promise<MysqlHardeningRemediationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/security-audit/remediate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlAuditLogs(
+  id: string,
+  limit: number = 100
+): Promise<MysqlAuditLogsResponse> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/audit-logs?limit=${limit}`);
   return res.json();
 }
 

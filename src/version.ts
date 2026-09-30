@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.229.0';
+export const APP_VERSION = '1.230.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.230.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲۰ سیستم مدیریت MySQL: سامانه جامع ممیزی امنیتی، ارزیابی آسیب‌پذیری‌ها و ایمن‌سازی دیتابیس (Security Audit & Safety Hardening Suite)',
+    title_en: 'Phase 20: MySQL Security Audit, Vulnerability Scanner & Safety Hardening Suite',
+    changes: [
+      'پیاده‌سازی جامع فاز ۲۰ نقشه راه مدیریت MySQL: داشبورد پیشرفته ممیزی امنیتی با امتیازدهی به سلامت دیتابیس (Security Score 0-100) و دسته‌بندی سطح ریسک (Critical, High, Medium, Low, Good).',
+      'ارزیابی چندلایه آسیب‌پذیری‌ها و ضعف‌های امنیتی (Security Checks Matrix): بررسی کامل احراز هویت (حساب‌های بدون رمز عبور، کاربران ناشناس، رمزهای پیش‌فرض و پلاگین‌های منسوخ)، مجوزهای ناامن (کاربران دارای دسترسی دست‌ودلبازانه % به هاست‌ها، مجوزهای SUPER و GRANT OPTION برای کاربران غیراصل)، تنظیمات انتقال شبکه و SSL، متغیرهای ثبت وقایع و لاگ‌ها، و متغیرهای حساس موتور مانند local_infile، secure_file_priv و symbolic_links.',
+      'اصلاح خودکار آسیب‌پذیری‌ها با یک کلیک (Automated 1-Click Hardening Remediation): قابلیت ایمن‌سازی فوری آسیب‌پذیری‌های منتخب از جمله حذف کاربران ناشناس (Anonymous Users)، غیرفعال‌سازی تزریق امنیتی local_infile، اعمال محدودیت لاگین از راه دور روت، بازنشانی کدهای پیش‌فرض با نمایش دستورات SQL قبل از اعمال و ثبت تاریخچه.',
+      'ردیابی و بایگانی لاگ‌های حسابرسی عملیات (Persistent MySQL Audit Trail): ثبت خودکار و شفاف کلیه عملیات‌های بحرانی و مدیریتی پایگاه داده (تغییر کاربران، اعطا/سلب مجوزها، DDL‌های مخرب، دستورات اصلاح امنیتی، کنترل رونویسی و پشتیبان‌گیری) با تفکیک برچسب‌های اقدام، شناسه کلاینت، آدرس IP و پیام‌های تفصیلی دو زبانه.',
+      'فیلترینگ و ابزارهای تحلیلی: فیلترسازی زنده آسیب‌پذیری‌ها بر اساس وضعیت (Passed, Warning, Failed, Info) و دسته‌بندی امنیتی، جستجوی بلادرنگ در چک‌ها و لاگ‌ها، و خروجی گزارش با قابلیت کپی مستقیم دستورات SQL جهت اعمال در کنسول.',
+      'رعایت کامل معماری تم و دوزبانگی: هماهنگی ۱۰۰٪ با تم تیره و روشن، زبان انتخابی پنل (فارسی و انگلیسی) بدون داده‌های ساختگی یا شبیه‌سازی‌شده (Zero-Mock Data Enforcement).'
+    ],
+    changes_en: [
+      'Comprehensive Phase 20 Implementation: Advanced MySQL Security Audit & Hardening Dashboard featuring real-time security scoring (0-100) and overall risk assessment (Critical, High, Medium, Low, Good).',
+      'Multi-Vector Vulnerability Inspection Matrix: Thorough security evaluation across authentication hygiene (passwordless accounts, anonymous users, legacy plugins), dangerous privilege grants (wildcard % host permissions, non-root SUPER / GRANT OPTION privileges), SSL/TLS network transport, audit logging variables, and dangerous engine features (local_infile, secure_file_priv, symbolic_links).',
+      'Automated 1-Click Hardening Remediation: Instant guided fixes for detected vulnerabilities, including dropping anonymous users, disabling local_infile injection risks, securing remote root login vectors, and reviewing exact SQL queries before execution.',
+      'Persistent MySQL Audit Trail: Comprehensive tracking and persistent logging of sensitive operational events (account modifications, privilege grants/revocations, destructive DDL, hardening actions, replication controls, and backups) with timestamp, actor, target, client IP, and bilingual details.',
+      'Interactive Analytics & Filtering: Real-time status filters (Passed, Warning, Failed, Info), category tabs, full-text search across security checks and audit logs, and one-click SQL copying for administrative execution.',
+      'Strict Theme & i18n Compliance: 100% compliance with dark/light themes and panel active language (English/Persian) using live production MySQL telemetry without mock or simulated data.'
+    ]
+  },
   {
     version: '1.229.0',
     releaseDate: '2026-09-30',

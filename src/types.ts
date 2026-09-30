@@ -2893,6 +2893,100 @@ export interface MysqlReplicationActionResult {
   executedSql?: string;
 }
 
+// ==========================================
+// Phase 20: MySQL Security Audit & Safety Hardening
+// ==========================================
+export type MysqlSecurityRiskLevel = 'critical' | 'high' | 'medium' | 'low' | 'good';
+export type MysqlSecurityCategory =
+  | 'authentication'
+  | 'privileges'
+  | 'network_ssl'
+  | 'logging_audit'
+  | 'data_protection'
+  | 'engine_hardening';
+
+export interface MysqlSecurityCheckDetail {
+  label: string;
+  labelFa: string;
+  value: string;
+  isWarning?: boolean;
+}
+
+export interface MysqlSecurityCheckItem {
+  id: string;
+  category: MysqlSecurityCategory;
+  title: string;
+  titleFa: string;
+  description: string;
+  descriptionFa: string;
+  riskLevel: MysqlSecurityRiskLevel;
+  status: 'passed' | 'warning' | 'failed' | 'info';
+  currentValue: string;
+  recommendedValue: string;
+  impact: string;
+  impactFa: string;
+  remediationSql?: string;
+  remediationGuide?: string;
+  remediationGuideFa?: string;
+  details?: MysqlSecurityCheckDetail[];
+}
+
+export interface MysqlSecurityAuditReport {
+  serverVersion: string;
+  isMariaDb: boolean;
+  overallScore: number;
+  overallRisk: MysqlSecurityRiskLevel;
+  totalChecks: number;
+  passedChecks: number;
+  warningChecks: number;
+  failedChecks: number;
+  checks: MysqlSecurityCheckItem[];
+  collectedAt: number;
+}
+
+export interface MysqlAuditLogEntry {
+  id: string;
+  serverId: string;
+  serverName?: string;
+  timestamp: string;
+  action: string;
+  actionFa: string;
+  category:
+    | 'user_management'
+    | 'grant_revoke'
+    | 'destructive_ddl'
+    | 'config_mutation'
+    | 'replication_control'
+    | 'backup_restore'
+    | 'session_kill'
+    | 'query_execution';
+  target: string;
+  user: string;
+  ip: string;
+  status: 'success' | 'failure';
+  details?: string;
+  detailsFa?: string;
+}
+
+export interface MysqlAuditLogsResponse {
+  success: boolean;
+  total: number;
+  entries: MysqlAuditLogEntry[];
+}
+
+export interface MysqlHardeningRemediationRequest {
+  checkId: string;
+  action: 'apply_fix';
+  customSql?: string;
+}
+
+export interface MysqlHardeningRemediationResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedSql?: string;
+}
+
 export interface PostgresConnectionTestResult {
   success: boolean;
   status: PostgresConnectionStatus;

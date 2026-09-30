@@ -128,6 +128,7 @@ import { MysqlProcesslistTab } from './MysqlProcesslistTab';
 import { MysqlConfigManagerTab } from './MysqlConfigManagerTab';
 import { MysqlBackupRestoreManagerTab } from './MysqlBackupRestoreManagerTab';
 import { MysqlReplicationTab } from './MysqlReplicationTab';
+import { MysqlSecurityAuditTab } from './MysqlSecurityAuditTab';
 import { MysqlMaintenanceModal } from './MysqlMaintenanceModal';
 import { MysqlMaintenanceAction } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -143,7 +144,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'backups' | 'replication' | 'config' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'backups' | 'maintenance' | 'replication' | 'config' | 'variables' | 'security' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -1101,6 +1102,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'maintenance', label: isEn ? 'Maintenance & Bloat' : 'نگهداری و بهینه‌سازی', icon: Zap },
             { id: 'replication', label: isEn ? 'Replication & HA' : 'رونویسی و دسترسی بالا (HA)', icon: GitFork },
             { id: 'config', label: isEn ? 'Client Auth & my.cnf' : 'احراز هویت و my.cnf', icon: ShieldCheck },
+            { id: 'security', label: isEn ? 'Security & Hardening' : 'ممیزی و ارتقای امنیت', icon: ShieldAlert },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
           ].map((tab) => {
@@ -5979,6 +5981,19 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               server={server}
               isLightMode={isLightMode}
               isEn={isEn}
+            />
+          )}
+
+          {/* Phase 20: SECURITY AUDIT & HARDENING TAB */}
+          {activeTab === 'security' && server && (
+            <MysqlSecurityAuditTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onNavigateToSqlStudio={(sql) => {
+                setSqlQuery(sql);
+                setActiveTab('sql');
+              }}
             />
           )}
 

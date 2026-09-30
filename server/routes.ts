@@ -136,6 +136,10 @@ import {
   evaluateMysqlMaintenanceLockWarning,
   getMysqlReplicationOverview,
   executeMysqlReplicationAction,
+  getMysqlSecurityAuditReport,
+  executeMysqlHardeningRemediation,
+  getMysqlAuditLogsReport,
+  recordMysqlAuditLog,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5840,6 +5844,107 @@ apiRouter.post('/remote-servers/:id/mysql/replication/action', async (req: Reque
       success: false,
       error: err.message || 'Failed to execute MySQL replication action.',
       errorFa: 'خطا در اجرای عملیات رونویسی MySQL.',
+    });
+  }
+});
+
+// ==========================================
+// Phase 20: MySQL Security Audit & Safety Hardening API Routes
+// ==========================================
+
+// GET /api/remote-servers/:id/mysql/security-audit - Perform comprehensive security & vulnerability audit
+apiRouter.get('/remote-servers/:id/mysql/security-audit', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { port, user, password } = req.query;
+    const report = await getMysqlSecurityAuditReport(server, {
+      port: port ? parseInt(String(port), 10) : undefined,
+      user: user ? String(user) : undefined,
+      password: password ? String(password) : undefined,
+    });
+
+    return res.json({
+      success: true,
+      report,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute MySQL security audit.',
+      errorFa: 'خطا در اجرای ممیزی امنیتی پایگاه داده MySQL.',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/security-audit/remediate - Execute automated 1-click hardening remediation
+apiRouter.post('/remote-servers/:id/mysql/security-audit/remediate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { checkId, action, customSql } = req.body || {};
+    if (!checkId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Check ID is required for remediation.',
+        errorFa: 'شناسه آسیب‌پذیری مورد نظر ارسال نشده است.',
+      });
+    }
+
+    const result = await executeMysqlHardeningRemediation(server, {
+      checkId,
+      action: action || 'apply_fix',
+      customSql,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute hardening remediation.',
+      errorFa: 'خطا در اجرای دستور اصلاح امنیتی MySQL.',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/audit-logs - Retrieve persistent audit logs for MySQL operations
+apiRouter.get('/remote-servers/:id/mysql/audit-logs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 100;
+    const logsReport = await getMysqlAuditLogsReport(server, limit);
+
+    return res.json(logsReport);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch MySQL audit logs.',
+      errorFa: 'خطا در واکشی لاگ‌های حسابرسی MySQL.',
     });
   }
 });
