@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.221.0';
+export const APP_VERSION = '1.222.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.222.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۲ سیستم مدیریت MySQL: پایش بی‌درنگ پروسس‌ها، مدیریت تردها و لغو کوئری‌ها (Processlist & Query Cancellation Suite)',
+    title_en: 'Phase 12: Real-time MySQL Processlist, Threads & Query Cancellation Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب اختصاصی و پیشرفته پایش پروسس‌ها و اتصالات MySQL (`MysqlProcesslistTab`) با نمایش کامل مشخصات تردهای پردازشی (شناسه ترد، نام کاربر، آدرس هاست، دیتابیس فعال، دستور اجرایی، زمان سپری شده، وضعیت و متن کوئری).',
+      'تفکیک صریح و مهندسی میان دستورات لغو کوئری (`KILL QUERY <id>`) و قطع کامل اتصال (`KILL CONNECTION <id>`) جهت جلوگیری از قطع ناخواسته ارتباط برنامه‌های کاربردی.',
+      'پیاده‌سازی دیالوگ تایید هوشمند لغو/قطع با نمایش متن کوئری، دیتابیس هدف، مدت زمان سپری‌شده و شناسه ترد به همراه اخطار اختصاصی برای نشست جاری.',
+      'افزودن کارت‌های خلاصه آماری بی‌درنگ شامل تعداد کل اتصالات فعال، کوئری‌های در حال اجرا، اتصالات بیکار (Sleeping)، تردهای منتظر قفل متادیتا (Waiting for Lock) و طولانی‌ترین زمان اجرای پرس‌وجو.',
+      'پشتیبانی از قابلیت تازه‌سازی خودکار (Auto-Refresh) با فواصل زمانی متغیر (۱، ۲، ۵، ۱۰ و ۳۰ ثانیه) همراه با شمارش معکوس و انیمیشن بصری وضعیت.',
+      'طراحی سیستم فیلترینگ و جستجوی پیشرفته شامل فیلتر بر اساس کاربر، پایگاه داده، نوع دستور، مخفی‌سازی اتصالات بیکار (Hide Sleep) و آستانه حداقل زمان اجرا (>1s, >5s, >10s, >60s).',
+      'پشتیبانی کامل از مرتب‌سازی صعودی و نزولی بر روی تمامی ستون‌ها (شناسه، کاربر، هاست، دیتابیس، زمان، دستور و وضعیت).',
+      'امکان مشاهده متن کامل کوئری در مودال مجزا با فونت مونو، تمایز کلمات کلیدی، و قابلیت کپی مستقیم در کلیپ‌بورد.',
+      'ثبت ممیزی امنیتی (Audit Logging) برای کلیه دستورات KILL QUERY و KILL CONNECTION با ذکر شناسه ترد و کاربر مجری.',
+      'انطباق صددرصدی با استانداردهای دوزبانه (فارسی و انگلیسی)، تم‌های تیره و روشن، و ایزولاسیون کامل از سیستم مدیریت پروسس‌های PostgreSQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated, production-grade MySQL Processlist & Live Thread Monitor suite (`MysqlProcesslistTab`) displaying comprehensive thread metadata (Id, User, Host:Port, Database, Command, Duration, State, and executing SQL Statement).',
+      'Explicitly distinguished between `KILL QUERY <id>` (terminates running query while keeping connection intact) and `KILL CONNECTION <id>` (terminates connection socket and thread) to prevent unintended client application disconnects.',
+      'Implemented intuitive Kill Confirmation Dialog detailing target query text, execution duration, thread ID, and database context with safety guards protecting the current session.',
+      'Built real-time Summary KPI Cards tracking Total Threads, Active Executing Queries, Sleeping Connections, Metadata Lock Waiters, and Maximum Query Execution Time.',
+      'Added configurable Auto-Refresh engine with selectable polling intervals (1s, 2s, 5s, 10s, 30s), live countdown badge, and manual instant refresh.',
+      'Architected multi-dimension filtering including User, Database, Command type, Idle Sleep toggle, execution duration thresholds (>1s, >5s, >10s, >60s), and live text search.',
+      'Implemented bi-directional sorting across all processlist columns (Id, User, Host, db, Command, Time, and State).',
+      'Created dedicated Query Inspection Modal for viewing full long-running SQL statements with one-click clipboard copy.',
+      'Integrated security audit logging for all query cancellations and connection drops with target thread IDs and operator metadata.',
+      'Maintained strict bilingual i18n localization, light/dark mode contrast compliance, and full isolation from PostgreSQL activity monitoring.'
+    ],
+  },
   {
     version: '1.221.0',
     releaseDate: '2026-09-30',

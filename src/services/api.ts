@@ -45,6 +45,9 @@ import {
   MysqlApplyPermissionsResult,
   MysqlPrivilegeScope,
   MysqlRoutineType,
+  MysqlKillType,
+  MysqlProcesslistResponse,
+  MysqlKillProcessResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1612,19 +1615,20 @@ export async function checkRemoteServerMysqlQuerySafety(
 
 export async function fetchRemoteServerMysqlProcesslist(
   id: string
-): Promise<{ success: boolean; processes?: MysqlProcessItem[]; error?: string }> {
+): Promise<MysqlProcesslistResponse> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/processlist`);
   return res.json();
 }
 
 export async function killRemoteServerMysqlProcess(
   id: string,
-  processId: number
-): Promise<{ success: boolean; message: string }> {
+  processId: number,
+  type: MysqlKillType = 'connection'
+): Promise<MysqlKillProcessResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/kill-process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ processId }),
+    body: JSON.stringify({ processId, type }),
   });
   return res.json();
 }

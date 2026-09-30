@@ -106,6 +106,7 @@ import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEdit
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
+import { MysqlProcesslistTab } from './MysqlProcesslistTab';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -5453,86 +5454,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             />
           )}
 
-          {/* 4. PROCESSLIST TAB */}
-          {activeTab === 'processlist' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold">
-                  {isEn ? 'Active Connections & Threads' : 'پروسس‌ها و اتصالات فعال'}
-                </span>
-                <button
-                  type="button"
-                  onClick={loadProcesslist}
-                  disabled={isLoadingProcesses}
-                  className="px-3 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 hover:bg-white/10 transition cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingProcesses ? 'animate-spin text-orange-400' : ''}`} />
-                  <span>{isEn ? 'Refresh Threads' : 'تازه‌سازی'}</span>
-                </button>
-              </div>
-
-              <div
-                className={`rounded-xl border overflow-hidden ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-white/10'
-                }`}
-              >
-                <table className="w-full text-xs text-left">
-                  <thead className={isLightMode ? 'bg-slate-100' : 'bg-black/20'}>
-                    <tr className="border-b border-white/10">
-                      <th className="p-2.5">ID</th>
-                      <th className="p-2.5">{isEn ? 'User' : 'کاربر'}</th>
-                      <th className="p-2.5">{isEn ? 'Host' : 'مبدا'}</th>
-                      <th className="p-2.5">{isEn ? 'Database' : 'دیتابیس'}</th>
-                      <th className="p-2.5">{isEn ? 'Command' : 'دستور'}</th>
-                      <th className="p-2.5">{isEn ? 'Time (s)' : 'زمان (ثانیه)'}</th>
-                      <th className="p-2.5">{isEn ? 'Query Info' : 'کوئری / وضعیت'}</th>
-                      <th className="p-2.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                    {isLoadingProcesses ? (
-                      <tr>
-                        <td colSpan={8} className="p-8 text-center text-slate-400">
-                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-orange-400 mb-2" />
-                          <span>{isEn ? 'Loading processlist...' : 'در حال بارگذاری پروسس‌ها...'}</span>
-                        </td>
-                      </tr>
-                    ) : processes.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="p-8 text-center text-slate-400 font-sans">
-                          {isEn ? 'No running processes.' : 'پروسس فعالی یافت نشد.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      processes.map((p) => (
-                        <tr key={p.id} className={isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/5'}>
-                          <td className="p-2.5 text-slate-400 font-bold">{p.id}</td>
-                          <td className="p-2.5 text-cyan-400">{p.user}</td>
-                          <td className="p-2.5 text-slate-400">{p.host}</td>
-                          <td className="p-2.5 text-amber-400">{p.db || '—'}</td>
-                          <td className="p-2.5">{p.command}</td>
-                          <td className="p-2.5 text-slate-300 font-bold">{p.time}s</td>
-                          <td className="p-2.5 max-w-xs truncate text-slate-300" title={p.info || ''}>
-                            {p.info || p.state || 'Sleep'}
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleKillProcess(p.id)}
-                              disabled={killingId === p.id}
-                              className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition text-[10px] cursor-pointer"
-                              title={isEn ? `Kill Thread ${p.id}` : `بستن اتصال ${p.id}`}
-                            >
-                              {killingId === p.id ? '...' : isEn ? 'Kill' : 'پایان'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          {/* Phase 12: PROCESSLIST & THREADS MANAGEMENT TAB */}
+          {activeTab === 'processlist' && server && (
+            <MysqlProcesslistTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onRefreshOverview={loadOverview}
+            />
           )}
 
           {/* 5. VARIABLES TAB */}

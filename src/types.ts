@@ -1962,6 +1962,12 @@ export interface MysqlApplyPermissionsResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 12: MySQL Processlist & Query Cancellation
+// ==========================================
+
+export type MysqlKillType = 'query' | 'connection';
+
 export interface MysqlProcessItem {
   id: number;
   user: string;
@@ -1971,6 +1977,37 @@ export interface MysqlProcessItem {
   time: number;
   state: string | null;
   info: string | null;
+  isCurrentConnection?: boolean;
+}
+
+export interface MysqlProcesslistResponse {
+  success: boolean;
+  processes: MysqlProcessItem[];
+  currentConnectionId?: number;
+  summary: {
+    total: number;
+    activeQueries: number;
+    sleeping: number;
+    locked: number;
+    maxDurationSeconds: number;
+  };
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlKillProcessRequest {
+  processId: number;
+  type?: MysqlKillType;
+}
+
+export interface MysqlKillProcessResult {
+  success: boolean;
+  processId: number;
+  type: MysqlKillType;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
 }
 
 export interface MysqlVariableItem {

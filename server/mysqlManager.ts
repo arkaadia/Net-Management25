@@ -48,6 +48,9 @@ import {
   MysqlPermissionDelta,
   MysqlApplyPermissionsRequest,
   MysqlApplyPermissionsResult,
+  MysqlKillType,
+  MysqlProcesslistResponse,
+  MysqlKillProcessResult,
 } from '../src/types';
 
 /**
@@ -1374,7 +1377,7 @@ export async function executeMysqlQuery(
 /**
  * Retrieves the live running process list in MySQL.
  */
-export async function getMysqlProcesslist(server: RemoteServer): Promise<MysqlProcessItem[]> {
+export async function getMysqlProcesslist(server: RemoteServer): Promise<MysqlProcesslistResponse> {
   const config = getMysqlConfig(server);
   let conn: mysql.Connection | null = null;
 
@@ -1386,52 +1389,50 @@ export async function getMysqlProcesslist(server: RemoteServer): Promise<MysqlPr
       password: config.password,
       connectTimeout: 5000,
     });
+
+    // Determine current connection ID so own thread can be identified
+    let currentConnectionId: number | undefined;
+    try {
+      const [cidRows]: any = await conn.query('SELECT CONNECTION_ID() AS cid');
+      if (Array.isArray(cidRows) && cidRows[0]?.cid) {
+        currentConnectionId = Number(cidRows[0].cid);
+      }
+    } catch {}
 
     const [rows]: any = await conn.query('SHOW FULL PROCESSLIST');
     await conn.end();
 
-    return (rows || []).map((r: any) => ({
-      id: Number(r.Id),
-      user: r.User || '',
-      host: r.Host || '',
-      db: r.db || null,
-      command: r.Command || '',
-      time: Number(r.Time) || 0,
-      state: r.State || null,
-      info: r.Info || null,
-    }));
-  } catch (err: any) {
-    if (conn) {
-      try {
-        await conn.end();
-      } catch {}
-    }
-    throw new Error(`Failed to fetch MySQL processlist: ${err.message}`);
-  }
-}
-
-/**
- * Terminates a stuck or long-running MySQL thread / connection.
- */
-export async function killMysqlProcess(server: RemoteServer, processId: number): Promise<{ success: boolean; message: string }> {
-  const config = getMysqlConfig(server);
-  let conn: mysql.Connection | null = null;
-
-  try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      connectTimeout: 5000,
+    const processes: MysqlProcessItem[] = (rows || []).map((r: any) => {
+      const pid = Number(r.Id);
+      return {
+        id: pid,
+        user: r.User || '',
+        host: r.Host || '',
+        db: r.db || null,
+        command: r.Command || '',
+        time: Number(r.Time) || 0,
+        state: r.State || null,
+        info: r.Info || null,
+        isCurrentConnection: currentConnectionId !== undefined && pid === currentConnectionId,
+      };
     });
 
-    await conn.query(`KILL ${Number(processId)}`);
-    await conn.end();
+    const activeQueries = processes.filter((p) => p.command.toLowerCase() === 'query' && !p.isCurrentConnection).length;
+    const sleeping = processes.filter((p) => p.command.toLowerCase() === 'sleep').length;
+    const locked = processes.filter((p) => p.state && p.state.toLowerCase().includes('lock')).length;
+    const maxDurationSeconds = processes.reduce((max, p) => Math.max(max, p.time), 0);
 
     return {
       success: true,
-      message: `Process ID ${processId} terminated successfully.`,
+      processes,
+      currentConnectionId,
+      summary: {
+        total: processes.length,
+        activeQueries,
+        sleeping,
+        locked,
+        maxDurationSeconds,
+      },
     };
   } catch (err: any) {
     if (conn) {
@@ -1441,7 +1442,72 @@ export async function killMysqlProcess(server: RemoteServer, processId: number):
     }
     return {
       success: false,
-      message: `Failed to kill process ${processId}: ${err.message}`,
+      processes: [],
+      summary: {
+        total: 0,
+        activeQueries: 0,
+        sleeping: 0,
+        locked: 0,
+        maxDurationSeconds: 0,
+      },
+      error: err.message,
+      errorFa: `خطا در دریافت لیست پروسس‌های MySQL: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Terminates a stuck query or drops an entire connection in MySQL.
+ * Explicitly distinguishes between KILL QUERY and KILL CONNECTION.
+ */
+export async function killMysqlProcess(
+  server: RemoteServer,
+  processId: number,
+  type: MysqlKillType = 'connection'
+): Promise<MysqlKillProcessResult> {
+  const config = getMysqlConfig(server);
+  let conn: mysql.Connection | null = null;
+  const numId = Number(processId);
+
+  try {
+    conn = await mysql.createConnection({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      connectTimeout: 5000,
+    });
+
+    const killSql = type === 'query' ? `KILL QUERY ${numId}` : `KILL CONNECTION ${numId}`;
+    await conn.query(killSql);
+    await conn.end();
+
+    const isQuery = type === 'query';
+    return {
+      success: true,
+      processId: numId,
+      type,
+      message: isQuery
+        ? `Running query on thread ID ${numId} was successfully terminated.`
+        : `Connection and thread ID ${numId} were successfully terminated.`,
+      messageFa: isQuery
+        ? `کوئری فعال در ترد شماره ${numId} متوقف گردید (اتصال حفظ شد).`
+        : `اتصال و ترد شماره ${numId} به طور کامل قطع و بسته شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      processId: numId,
+      type,
+      message: `Failed to terminate ${type} for thread ${numId}: ${err.message}`,
+      messageFa: `خطا در متوقف‌سازی ${type === 'query' ? 'کوئری' : 'اتصال'} شماره ${numId}: ${err.message}`,
+      error: err.message,
+      errorFa: `خطای MySQL: ${err.message}`,
     };
   }
 }

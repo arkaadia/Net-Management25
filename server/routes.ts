@@ -4788,31 +4788,45 @@ apiRouter.get('/remote-servers/:id/mysql/processlist', async (req: Request, res:
     const { id } = req.params;
     const server = await getRemoteServerById(id);
     if (!server) {
-      return res.status(404).json({ success: false, error: 'Server not found' });
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
     }
-    const processes = await getMysqlProcesslist(server);
-    return res.json({ success: true, processes });
+    const result = await getMysqlProcesslist(server);
+    return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در واکشی پروسس‌های MySQL' });
   }
 });
 
-// POST /api/remote-servers/:id/mysql/kill-process - Kill connection by ID
+// POST /api/remote-servers/:id/mysql/kill-process - Kill query or connection by thread ID
 apiRouter.post('/remote-servers/:id/mysql/kill-process', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const server = await getRemoteServerById(id);
     if (!server) {
-      return res.status(404).json({ success: false, error: 'Server not found' });
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
     }
-    const { processId } = req.body || {};
+    const { processId, type = 'connection' } = req.body || {};
     if (!processId) {
-      return res.status(400).json({ success: false, error: 'processId is required' });
+      return res.status(400).json({ success: false, error: 'processId is required', errorFa: 'شناسه پردازش الزامی است' });
     }
-    const result = await killMysqlProcess(server, Number(processId));
+    const result = await killMysqlProcess(server, Number(processId), type);
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: type === 'query' ? 'MySQL Query Cancelled' : 'MySQL Connection Terminated',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `${type === 'query' ? 'KILL QUERY' : 'KILL CONNECTION'} executed for thread ID ${processId}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+    }
+
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در خاتمه پروسس MySQL' });
   }
 });
 
