@@ -497,7 +497,30 @@ export const MysqlTableStructureModal: React.FC<MysqlTableStructureModalProps> =
     targetForeignKey,
   ]);
 
-  if (!isOpen) return null;
+  const modalTitle = useMemo(() => {
+    switch (mode) {
+      case 'create_table':
+        return isEn ? `Create New Table in "${databaseName}"` : `ساخت جدول جدید در پایگاه داده «${databaseName}»`;
+      case 'alter_table':
+        return isEn ? `Table Options & Rename: "${tableName}"` : `تنظیمات و تغییر نام جدول «${tableName}»`;
+      case 'add_column':
+        return isEn ? `Add Column to "${tableName}"` : `افزودن ستون به جدول «${tableName}»`;
+      case 'modify_column':
+        return isEn ? `Modify Column "${targetColumn?.name}" in "${tableName}"` : `ویرایش مشخصات ستون «${targetColumn?.name}» در جدول «${tableName}»`;
+      case 'rename_column':
+        return isEn ? `Rename Column "${targetColumn?.name}" in "${tableName}"` : `تغییر نام ستون «${targetColumn?.name}» در جدول «${tableName}»`;
+      case 'create_index':
+        return isEn ? `Create Index on "${tableName}"` : `ساخت ایندکس جدید بر روی جدول «${tableName}»`;
+      case 'add_foreign_key':
+        return isEn ? `Add Foreign Key Constraint to "${tableName}"` : `افزودن قید کلید خارجی (Foreign Key) به جدول «${tableName}»`;
+      case 'manage_primary_key':
+        return isEn ? `Manage Primary Key on "${tableName}"` : `مدیریت کلید اصلی (Primary Key) جدول «${tableName}»`;
+      case 'drop_confirm':
+        return isEn ? `Confirm Destructive Action on "${tableName}"` : `تایید عملیات حساس و تخریبی بر روی جدول «${tableName}»`;
+      default:
+        return isEn ? 'Table Structural Management' : 'مدیریت ساختار جدول';
+    }
+  }, [mode, databaseName, tableName, targetColumn, isEn]);
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(computedSqlPreview);
@@ -687,30 +710,7 @@ export const MysqlTableStructureModal: React.FC<MysqlTableStructureModalProps> =
     }
   };
 
-  const modalTitle = useMemo(() => {
-    switch (mode) {
-      case 'create_table':
-        return isEn ? `Create New Table in "${databaseName}"` : `ساخت جدول جدید در پایگاه داده «${databaseName}»`;
-      case 'alter_table':
-        return isEn ? `Table Options & Rename: "${tableName}"` : `تنظیمات و تغییر نام جدول «${tableName}»`;
-      case 'add_column':
-        return isEn ? `Add Column to "${tableName}"` : `افزودن ستون به جدول «${tableName}»`;
-      case 'modify_column':
-        return isEn ? `Modify Column "${targetColumn?.name}" in "${tableName}"` : `ویرایش مشخصات ستون «${targetColumn?.name}» در جدول «${tableName}»`;
-      case 'rename_column':
-        return isEn ? `Rename Column "${targetColumn?.name}" in "${tableName}"` : `تغییر نام ستون «${targetColumn?.name}» در جدول «${tableName}»`;
-      case 'create_index':
-        return isEn ? `Create Index on "${tableName}"` : `ساخت ایندکس جدید بر روی جدول «${tableName}»`;
-      case 'add_foreign_key':
-        return isEn ? `Add Foreign Key Constraint to "${tableName}"` : `افزودن قید کلید خارجی (Foreign Key) به جدول «${tableName}»`;
-      case 'manage_primary_key':
-        return isEn ? `Manage Primary Key on "${tableName}"` : `مدیریت کلید اصلی (Primary Key) جدول «${tableName}»`;
-      case 'drop_confirm':
-        return isEn ? `Confirm Destructive Action on "${tableName}"` : `تایید عملیات حساس و تخریبی بر روی جدول «${tableName}»`;
-      default:
-        return isEn ? 'Table Structural Management' : 'مدیریت ساختار جدول';
-    }
-  }, [mode, databaseName, tableName, targetColumn, isEn]);
+  if (!isOpen) return null;
 
   return createPortal(
     <div

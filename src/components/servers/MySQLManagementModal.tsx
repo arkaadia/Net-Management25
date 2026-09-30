@@ -116,6 +116,7 @@ import {
   MysqlTableStructureModalMode,
   MysqlDropTargetType,
 } from './MysqlTableStructureModal';
+import { MysqlCreateDatabaseModal } from './MysqlCreateDatabaseModal';
 import {
   MysqlProgrammabilityModal,
   MysqlProgrammabilityModalMode,
@@ -280,6 +281,9 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [rowMutationModalMode, setRowMutationModalMode] = useState<'insert' | 'edit' | 'delete'>('insert');
   const [selectedRowForMutation, setSelectedRowForMutation] = useState<Record<string, any> | null>(null);
   const [rowMutationNotice, setRowMutationNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Database Creation State
+  const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
 
   // Phase 13: Table, Column, Index & Constraint Structural Management States
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
@@ -1635,6 +1639,17 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                               <span className="truncate font-sans font-medium text-xs">
                                 {isEn ? 'Databases' : 'پایگاه‌های داده'}
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setIsCreateDbModalOpen(true);
+                                }}
+                                className="p-0.5 rounded hover:bg-orange-500/20 text-slate-400 hover:text-orange-400 cursor-pointer transition ml-1"
+                                title={isEn ? 'Create New Database' : 'ساخت پایگاه داده جدید'}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
                               <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
                                 {databases.length}
                               </span>
@@ -2622,6 +2637,32 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                   {/* ---------------------------------------------------- */}
                   {selectedTreeNode.type === 'databases_folder' && (
                     <div className="space-y-4">
+                      {/* View B Action Bar */}
+                      <div className="flex items-center justify-between gap-3 flex-wrap p-3 rounded-xl border border-white/10 bg-black/20">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                            <Database className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-sm text-slate-100">
+                              {isEn ? 'MySQL Databases Overview' : 'نمای کلی پایگاه‌های داده MySQL'}
+                            </h3>
+                            <p className="text-[11px] text-slate-400 font-mono">
+                              {databases.length} {isEn ? 'databases on' : 'پایگاه داده روی سرور'} {server.name}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateDbModalOpen(true)}
+                          className="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                          title={isEn ? 'Create new database' : 'ساخت پایگاه داده جدید'}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Create Database' : 'ساخت پایگاه داده'}</span>
+                        </button>
+                      </div>
+
                       {/* Stat summary cards */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <div className="p-3 rounded-xl border border-white/10 bg-black/10">
@@ -5018,6 +5059,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
+                                    onClick={() => setIsCreateDbModalOpen(true)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm transition"
+                                    title={isEn ? 'Create new database on this server' : 'ساخت پایگاه داده جدید روی این سرور'}
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'New DB' : 'دیتابیس جدید'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => loadDatabaseDetails(dbName, true)}
                                     disabled={isLoading}
                                     className="p-1.5 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 text-xs flex items-center gap-1 cursor-pointer"
@@ -6257,6 +6307,34 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Create Database Modal */}
+      <MysqlCreateDatabaseModal
+        isOpen={isCreateDbModalOpen}
+        onClose={() => setIsCreateDbModalOpen(false)}
+        onMinimize={() => setIsCreateDbModalOpen(false)}
+        serverId={server.id}
+        serverName={server.name}
+        existingDatabases={databases.map((d) => d.name)}
+        onSuccess={(newDbName) => {
+          loadDatabases();
+          setSelectedTreeNode({
+            type: 'database',
+            id: `db:${newDbName}`,
+            name: newDbName,
+            dbName: newDbName,
+          });
+          loadDatabaseDetails(newDbName);
+          setRowMutationNotice({
+            type: 'success',
+            message: isEn
+              ? `Database "${newDbName}" was created successfully.`
+              : `پایگاه داده «${newDbName}» با موفقیت ایجاد گردید.`,
+          });
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
 
       {/* Phase 13: MySQL Table, Index & Constraint Structural Management Modal */}
       <MysqlTableStructureModal

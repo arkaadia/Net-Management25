@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.230.1';
+export const APP_VERSION = '1.231.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.231.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'رفع خطای رندرینگ React #310 در ساخت جدول و پیاده‌سازی مودال تعاملی ساخت دیتابیس در کاوشگر MySQL',
+    title_en: 'Fix React Error #310 on Create Table & Implement Interactive MySQL Create Database Modal in Database Browser',
+    changes: [
+      'رفع ریشه‌ای خطای React Error #310 (Component Rendering Interrupted / Rules of Hooks violation): اصلاح جایگاه بازگشت زودهنگام if (!isOpen) return null در مودال ساختار جدول (MysqlTableStructureModal) و اطمینان از فراخوانی بدون شرط هوک‌ها بر اساس استانداردهای رسمی ری‌اکت.',
+      'پیاده‌سازی مودال جامع و استاندارد ساخت پایگاه داده جدید (MysqlCreateDatabaseModal): پشتیبانی کامل از استاندارد ۵گانه مودال‌ها شامل دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز، تمام‌صفحه)، مهار حریم فوتر (bottom-8)، رندر در پرتال، انطباق کامل با تم‌های تیره و روشن، و دوزبانگی دقیق.',
+      'افزودن امکان انتخاب مجموعه نویسه‌ها (Character Set) با پیش‌فرض استاندارد utf8mb4، ترتیب مقایسه (Collation) با پشتیبانی اختصاصی از utf8mb4_persian_ci و utf8mb4_unicode_ci، شرط محافظتی IF NOT EXISTS، و پیش‌نمایش زنده دستور SQL با قابلیت کپی مستقیم.',
+      'تجهیز کاوشگر دیتابیس به دکمه‌های ساخت دیتابیس جدید در سه موقعیت کلیدی: کارت سربرگ دیتابیس فعال (Header Card)، نمای کلی فهرست دیتابیس‌ها (Databases Grid View)، و شاخه دیتابیس‌ها در درخت ناوبری سایدبار.',
+      'اجرای مستقیم و بدون شبیه‌سازی دستور ساخت پایگاه داده روی سرور واقعی MySQL و به‌روزرسانی خودکار کش و ساختار درختی پس از ساخت موفق.'
+    ],
+    changes_en: [
+      'Resolved root cause of Minified React Error #310 (Rules of Hooks violation) in MysqlTableStructureModal by relocating the early return condition (if (!isOpen) return null) after all hook declarations.',
+      'Implemented dedicated, production-grade MysqlCreateDatabaseModal adhering strictly to the universal 5-point modal standard (minimize, fullscreen toggle, close buttons, bottom-8 footer clearance, portal rendering, theme adaptability, and strict bilingual i18n).',
+      'Added comprehensive database creation controls: customizable character set selection (utf8mb4 default), language-specific collation options (including utf8mb4_persian_ci and utf8mb4_unicode_ci), IF NOT EXISTS guard flag, and live copyable SQL preview.',
+      'Equipped the MySQL Database Browser with multiple intuitive "Create Database" entrypoints: in the active Database Header Card, within the Databases Grid Overview, and directly on the sidebar tree node.',
+      'Executes authentic CREATE DATABASE SQL statements on the real target database without fake data, and automatically refreshes and navigates to the newly created schema upon completion.'
+    ]
+  },
   {
     version: '1.230.1',
     releaseDate: '2026-09-30',
