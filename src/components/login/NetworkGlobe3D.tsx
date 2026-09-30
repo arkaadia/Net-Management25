@@ -294,6 +294,8 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
       isDragging = true;
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
+      document.body.classList.add('is-canvas-dragging');
+      canvas.style.cursor = 'grabbing';
     };
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
@@ -307,6 +309,8 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
     };
     const onMouseUp = () => {
       isDragging = false;
+      document.body.classList.remove('is-canvas-dragging');
+      canvas.style.cursor = '';
     };
 
     canvas.addEventListener('mousedown', onMouseDown);
@@ -319,6 +323,7 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
         isDragging = true;
         lastMouseX = e.touches[0].clientX;
         lastMouseY = e.touches[0].clientY;
+        document.body.classList.add('is-canvas-dragging');
       }
     };
     const onTouchMove = (e: TouchEvent) => {
@@ -333,6 +338,7 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
     };
     const onTouchEnd = () => {
       isDragging = false;
+      document.body.classList.remove('is-canvas-dragging');
     };
 
     canvas.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -659,6 +665,7 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
     return () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
+      document.body.classList.remove('is-canvas-dragging');
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.232.1';
+export const APP_VERSION = '1.232.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.232.2',
+    releaseDate: '2026-09-30',
+    type: 'patch',
+    title: 'اصلاح نشانه گر موس در انیمیشن سه‌بعدی لاگین و شماتیک شبکه (دست باز در حالت عادی و مشت بسته در زمان درگ)',
+    title_en: 'Universal Ergonomic Hand Cursor for Login 3D Globe and Schematic Canvas (Open Hand & Closed Fist Drag)',
+    changes: [
+      'اصلاح و یکپارچه‌سازی ظاهر نشانه‌گر موس بر روی انیمیشن کره سه‌بعدی صفحه لاگین (NetworkGlobe3D) و بوم شماتیک شبکه (SchematicTopologyView).',
+      'طراحی و تعبیه آیکون‌های وکتور اختصاصی SVG با کنتراست بالا برای دست باز (Open Hand / Grab) در حالت هاور و دست جمع‌شده (Closed Fist / Grabbing) در زمان کلیک و درگ کردن.',
+      'افزودن کلاس وضعیت سراسری is-canvas-dragging بر روی document.body در هنگام درگ و پن کردن جهت تثبیت وضعیت دست جمع‌شده در سراسر مانیتور و جلوگیری از پرش کرسر به فلش پیش‌فرض یا I-beam متنی.',
+      'همگام‌سازی کامل با انواع مرورگرها و سیستم‌های عامل (ویندوز، مک و لینوکس/X11) با فالبک‌های استاندارد -webkit-grab و grab.'
+    ],
+    changes_en: [
+      'Standardized and refined mouse cursor interaction on the Login 3D Globe animation (NetworkGlobe3D) and the Schematic Topology Canvas (SchematicTopologyView).',
+      'Engineered crisp, high-contrast standalone vector SVG cursor assets for Open Hand (grab) during hover and Closed Fist (grabbing) during active drag and pan operations.',
+      'Introduced global body drag state synchronization (is-canvas-dragging) ensuring the closed-hand cursor remains locked across the entire viewport without flickering to default arrow or text I-beam.',
+      'Provided seamless cross-browser and cross-platform compatibility across Windows, macOS, and Linux/X11 environments with robust CSS vendor prefixes and native grab/grabbing fallbacks.'
+    ]
+  },
   {
     version: '1.232.1',
     releaseDate: '2026-09-30',

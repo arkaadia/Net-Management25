@@ -4635,16 +4635,37 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         setIsPanning(false);
         saveViewport(zoom, pan);
       }
+      document.body.classList.remove('is-canvas-dragging');
     };
 
     window.addEventListener('mousemove', handleGlobalMouseMove);
     window.addEventListener('mouseup', handleGlobalMouseUp);
 
     return () => {
+      document.body.classList.remove('is-canvas-dragging');
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
   }, [draggingNodeId, draggingRackId, draggingTowerId, draggingNoteId, isPanning, panStart, pan, zoom, currentCustomMap, customMaps, saveCustomMaps, saveNodePositions, saveViewport, activeMapId, globalDeviceViewMode]);
+
+  // Synchronize global body dragging cursor and disable text-selection while any drag or pan is active
+  useEffect(() => {
+    const isAnyDragging = Boolean(
+      isPanning ||
+      draggingNodeId ||
+      draggingRackId ||
+      draggingTowerId ||
+      draggingNoteId
+    );
+    if (isAnyDragging) {
+      document.body.classList.add('is-canvas-dragging');
+    } else {
+      document.body.classList.remove('is-canvas-dragging');
+    }
+    return () => {
+      document.body.classList.remove('is-canvas-dragging');
+    };
+  }, [isPanning, draggingNodeId, draggingRackId, draggingTowerId, draggingNoteId]);
 
   // Mouse Wheel Zoom with cursor focal anchoring
   useEffect(() => {
@@ -5753,10 +5774,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           <div
             ref={containerRef}
             onMouseDown={handleCanvasMouseDown}
-            className={`flex-1 h-full relative overflow-hidden bg-slate-950/80 bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] select-none ${
-              draggingNodeId
-                ? 'cursor-grabbing'
-                : isPanning
+            className={`flex-1 h-full relative overflow-hidden bg-slate-950/80 bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] select-none schematic-canvas ${
+              isPanning || draggingNodeId || draggingRackId || draggingTowerId || draggingNoteId
                 ? 'cursor-grabbing'
                 : 'cursor-grab'
             }`}
@@ -5866,7 +5885,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             {/* SVG Schematic Canvas - Unbounded Infinite Viewport */}
             <svg
-              className="w-full h-full absolute inset-0 select-none overflow-visible pointer-events-auto"
+              className="w-full h-full absolute inset-0 select-none overflow-visible pointer-events-auto cursor-inherit"
               style={{ overflow: 'visible' }}
             >
               <defs>

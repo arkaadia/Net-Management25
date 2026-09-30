@@ -2089,6 +2089,42 @@
   color: #e2e8f0 !important;
 }
 
+/* ========================================================
+   UNIVERSAL HAND CURSORS (Open Hand Grab & Closed Hand Grabbing)
+   Guarantees standard iconic hand cursors across all operating systems & browsers
+   ======================================================== */
 
+:root {
+  --cursor-hand-grab: url("/cursors/grab.svg") 14 14, url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2232%22 height=%2232%22 viewBox=%220 0 32 32%22%3E%3Cdefs%3E%3Cfilter id=%22s%22 x=%22-30%25%22 y=%22-30%25%22 width=%22160%22 height=%22160%22%3E%3CfeDropShadow dx=%220.5%22 dy=%221.2%22 stdDeviation=%221.2%22 flood-color=%22%23000000%22 flood-opacity=%220.45%22/%3E%3C/filter%3E%3C/defs%3E%3Cg filter=%22url(%23s)%22%3E%3Cpath d=%22M12.5 3.5C12.5 2.67 13.17 2 14 2C14.83 2 15.5 2.67 15.5 3.5V11H16C16 10.17 16.67 9.5 17.5 9.5C18.33 9.5 19 10.17 19 11V12H19.5C19.5 11.17 20.17 10.5 21 10.5C21.83 10.5 22.5 11.17 22.5 12V14.5C22.5 20.3 18.3 25 13 25H12C8.13 25 5 21.87 5 18V15.5C5 14.67 5.67 14 6.5 14C7.03 14 7.5 14.28 7.78 14.71C8.08 13.72 9 13 10.08 13C10.37 13 10.65 13.06 10.9 13.17C11.19 12.18 12.11 11.46 13.19 11.46V3.5Z%22 fill=%22%23FFFFFF%22 stroke=%22%230F172A%22 stroke-width=%221.6%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3Cline x1=%2212.5%22 y1=%2211%22 x2=%2212.5%22 y2=%223.5%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3Cline x1=%2216%22 y1=%2211%22 x2=%2216%22 y2=%223.5%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3Cline x1=%2219.5%22 y1=%2212%22 x2=%2219.5%22 y2=%2210.5%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3C/g%3E%3C/svg%3E") 14 14;
 
+  --cursor-hand-grabbing: url("/cursors/grabbing.svg") 14 14, url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2232%22 height=%2232%22 viewBox=%220 0 32 32%22%3E%3Cdefs%3E%3Cfilter id=%22s%22 x=%22-30%25%22 y=%22-30%25%22 width=%22160%22 height=%22160%22%3E%3CfeDropShadow dx=%220.5%22 dy=%221.2%22 stdDeviation=%221.2%22 flood-color=%22%23000000%22 flood-opacity=%220.45%22/%3E%3C/filter%3E%3C/defs%3E%3Cg filter=%22url(%23s)%22%3E%3Cpath d=%22M11 7C11 6.17 11.67 5.5 12.5 5.5C13.33 5.5 14 6.17 14 7V8.5H14.5C14.5 7.67 15.17 7 16 7C16.83 7 17.5 7.67 17.5 8.5V9.5H18C18 8.67 18.67 8 19.5 8C20.33 8 21 8.67 21 9.5V13C21 18.52 17 23 12 23H11C7.13 23 4 19.87 4 16V14.5C4 13.67 4.67 13 5.5 13C6.03 13 6.5 13.28 6.78 13.71C7.08 12.72 8 12 9.08 12C9.37 12 9.65 12.06 9.9 12.17C10.19 11.18 11.11 10.46 12.19 10.46V7Z%22 fill=%22%23FFFFFF%22 stroke=%22%230F172A%22 stroke-width=%221.6%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3Cline x1=%2211%22 y1=%2210%22 x2=%2211%22 y2=%227%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3Cline x1=%2214%22 y1=%2210%22 x2=%2214%22 y2=%227%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3Cline x1=%2217.5%22 y1=%2210.5%22 x2=%2217.5%22 y2=%228.5%22 stroke=%22%230F172A%22 stroke-width=%221.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M6 14C7.5 15.5 9.5 16 12 16C13.5 16 14.5 15.5 15 15%22 stroke=%22%230F172A%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/%3E%3C/g%3E%3C/svg%3E") 14 14;
+}
 
+/* Open hand cursor state */
+.cursor-grab,
+[data-cursor="grab"],
+canvas.cursor-grab,
+.schematic-canvas,
+.schematic-canvas svg {
+  cursor: -webkit-grab !important;
+  cursor: grab !important;
+  cursor: var(--cursor-hand-grab), grab !important;
+}
+
+/* Closed hand cursor state (on active click / drag / pan) */
+.cursor-grabbing,
+.active\:cursor-grabbing:active,
+canvas.active\:cursor-grabbing:active,
+[data-cursor="grabbing"],
+.schematic-canvas.cursor-grabbing,
+.schematic-canvas.cursor-grabbing svg,
+body.is-canvas-dragging,
+body.is-canvas-dragging *,
+body.is-canvas-dragging .schematic-canvas,
+body.is-canvas-dragging .schematic-canvas * {
+  cursor: -webkit-grabbing !important;
+  cursor: grabbing !important;
+  cursor: var(--cursor-hand-grabbing), grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
