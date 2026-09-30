@@ -113,6 +113,7 @@ import {
   createMysqlEvent,
   alterMysqlEventStatus,
   dropMysqlEvent,
+  generateMysqlDump,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5003,6 +5004,25 @@ apiRouter.post('/remote-servers/:id/mysql/events/drop', async (req: Request, res
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف رویداد' });
+  }
+});
+
+// ==========================================
+// Phase 15: MySQL Full Database & Table Backup, Dump & Export Suite
+// ==========================================
+
+// POST /api/remote-servers/:id/mysql/backup/dump - Generate MySQL dump / export
+apiRouter.post('/remote-servers/:id/mysql/backup/dump', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await generateMysqlDump(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تهیه فایل پشتیبان' });
   }
 });
 

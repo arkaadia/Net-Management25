@@ -83,6 +83,8 @@ import {
   MysqlCreateEventRequest,
   MysqlAlterEventStatusRequest,
   MysqlDropEventRequest,
+  MysqlDumpOptions,
+  MysqlDumpResult,
 } from '../src/types';
 
 /**
@@ -4523,6 +4525,442 @@ export async function dropMysqlEvent(
       executionTimeMs: Date.now() - startTime,
       message: `Failed to drop event '${req.eventName}'.`,
       messageFa: `خطا در حذف رویداد «${req.eventName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+// ==========================================
+// Phase 15: MySQL Full Database & Table Backup, Dump & Export Suite
+// ==========================================
+
+function formatSqlLiteral(val: any): string {
+  if (val === null || val === undefined) return 'NULL';
+  if (typeof val === 'number') {
+    if (isNaN(val) || !isFinite(val)) return 'NULL';
+    return String(val);
+  }
+  if (typeof val === 'boolean') return val ? '1' : '0';
+  if (val instanceof Date) {
+    return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+  }
+  if (Buffer.isBuffer(val)) {
+    return `X'${val.toString('hex')}'`;
+  }
+  if (typeof val === 'object') {
+    try {
+      const jsonStr = JSON.stringify(val);
+      return `'${jsonStr.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+    } catch {
+      return `'${String(val).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+    }
+  }
+  const str = String(val);
+  return `'${str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\0/g, '\\0').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}'`;
+}
+
+/**
+ * Generates full or selective MySQL Dump / Export in SQL, JSON, or CSV format.
+ */
+export async function generateMysqlDump(
+  server: RemoteServer,
+  options: MysqlDumpOptions
+): Promise<MysqlDumpResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  try {
+    if (!options.database) {
+      throw new Error('Target database name is required for dump.');
+    }
+
+    const format = options.format || 'sql';
+    const scope = options.scope || 'all';
+    const includeDrop = options.includeDropTable !== false;
+    const includeCreateDb = Boolean(options.includeCreateDb);
+    const disableFk = options.disableForeignKeyChecks !== false;
+    const includeViews = options.includeViews !== false;
+    const includeRoutines = options.includeRoutines !== false;
+    const includeTriggers = options.includeTriggers !== false;
+    const includeEvents = options.includeEvents !== false;
+    const maxRows = options.maxRowsPerTable && options.maxRowsPerTable > 0 ? options.maxRowsPerTable : 0;
+    const batchSize = options.insertBatchSize && options.insertBatchSize > 0 ? options.insertBatchSize : 100;
+
+    const config = getMysqlConfig(server, { database: options.database });
+    conn = await mysql.createConnection(config);
+
+    // 1. Discover all base tables and views in database
+    const [tableRows] = (await conn.query(
+      `SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME ASC`,
+      [options.database]
+    )) as [any[], any];
+
+    const allBaseTables: string[] = [];
+    const allViews: string[] = [];
+
+    tableRows.forEach((r) => {
+      const type = (r.TABLE_TYPE || '').toUpperCase();
+      if (type.includes('VIEW')) {
+        allViews.push(r.TABLE_NAME);
+      } else {
+        allBaseTables.push(r.TABLE_NAME);
+      }
+    });
+
+    // Filter by selected tables if requested
+    const targetBaseTables =
+      options.selectedTables && options.selectedTables.length > 0
+        ? allBaseTables.filter((t) => options.selectedTables!.includes(t))
+        : allBaseTables;
+
+    const targetViews =
+      options.selectedTables && options.selectedTables.length > 0
+        ? allViews.filter((v) => options.selectedTables!.includes(v))
+        : allViews;
+
+    let outputContent = '';
+    let totalRowsExported = 0;
+
+    if (format === 'sql') {
+      const nowStr = new Date().toISOString();
+      const parts: string[] = [];
+
+      // Header comments and session configurations
+      parts.push(`-- ------------------------------------------------------`);
+      parts.push(`-- NetTopology MySQL Database Dump & Export Suite`);
+      parts.push(`-- Server: ${server.name || 'Remote Host'} (${server.ip})`);
+      parts.push(`-- Database: \`${options.database}\``);
+      parts.push(`-- Dump Scope: ${scope}`);
+      parts.push(`-- Generated At: ${nowStr}`);
+      parts.push(`-- ------------------------------------------------------\n`);
+
+      parts.push(`/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;`);
+      parts.push(`/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;`);
+      parts.push(`/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;`);
+      parts.push(`/*!40101 SET NAMES utf8mb4 */;`);
+      parts.push(`/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;`);
+      if (disableFk) {
+        parts.push(`/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;`);
+      }
+      parts.push(`/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;`);
+      parts.push(`/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;\n`);
+
+      // Optional CREATE DATABASE statement
+      if (includeCreateDb) {
+        parts.push(`CREATE DATABASE /*!32312 IF NOT EXISTS*/ ${escapeIdent(options.database)} /*!40100 DEFAULT CHARACTER SET utf8mb4 */;`);
+        parts.push(`USE ${escapeIdent(options.database)};\n`);
+      }
+
+      // Process Base Tables
+      for (const tbl of targetBaseTables) {
+        parts.push(`--`);
+        parts.push(`-- Table structure & data for table \`${tbl}\``);
+        parts.push(`--`);
+
+        // DDL Structure
+        if (scope !== 'data_only') {
+          if (includeDrop) {
+            parts.push(`DROP TABLE IF EXISTS ${escapeIdent(tbl)};`);
+          }
+          try {
+            const [createRows] = (await conn.query(`SHOW CREATE TABLE ${escapeIdent(tbl)}`)) as [any[], any];
+            if (createRows && createRows[0]) {
+              const createSql = createRows[0]['Create Table'] || Object.values(createRows[0])[1];
+              parts.push(`${createSql};\n`);
+            }
+          } catch (err: any) {
+            parts.push(`-- Error retrieving CREATE TABLE for ${tbl}: ${err.message}\n`);
+          }
+        }
+
+        // Data Rows (INSERT statements)
+        if (scope !== 'structure_only') {
+          try {
+            const limitClause = maxRows > 0 ? `LIMIT ${maxRows}` : '';
+            const [rows] = (await conn.query(`SELECT * FROM ${escapeIdent(tbl)} ${limitClause}`)) as [any[], any];
+
+            if (rows && rows.length > 0) {
+              totalRowsExported += rows.length;
+              parts.push(`LOCK TABLES ${escapeIdent(tbl)} WRITE;`);
+              parts.push(`/*!40000 ALTER TABLE ${escapeIdent(tbl)} DISABLE KEYS */;`);
+
+              const columns = Object.keys(rows[0]);
+              const colListSql = columns.map(escapeIdent).join(', ');
+
+              for (let i = 0; i < rows.length; i += batchSize) {
+                const batch = rows.slice(i, i + batchSize);
+                const valuesSql = batch
+                  .map((row) => {
+                    const vals = columns.map((col) => formatSqlLiteral(row[col])).join(', ');
+                    return `(${vals})`;
+                  })
+                  .join(',\n  ');
+
+                parts.push(`INSERT INTO ${escapeIdent(tbl)} (${colListSql}) VALUES\n  ${valuesSql};`);
+              }
+
+              parts.push(`/*!40000 ALTER TABLE ${escapeIdent(tbl)} ENABLE KEYS */;`);
+              parts.push(`UNLOCK TABLES;\n`);
+            } else {
+              parts.push(`-- Table \`${tbl}\` is empty; no rows exported.\n`);
+            }
+          } catch (err: any) {
+            parts.push(`-- Error dumping data for table ${tbl}: ${err.message}\n`);
+          }
+        }
+      }
+
+      // Process Views
+      if (includeViews && scope !== 'data_only' && targetViews.length > 0) {
+        parts.push(`--`);
+        parts.push(`-- View structures`);
+        parts.push(`--`);
+
+        for (const v of targetViews) {
+          try {
+            if (includeDrop) {
+              parts.push(`DROP VIEW IF EXISTS ${escapeIdent(v)};`);
+            }
+            const [viewCreateRows] = (await conn.query(`SHOW CREATE VIEW ${escapeIdent(v)}`)) as [any[], any];
+            if (viewCreateRows && viewCreateRows[0]) {
+              const viewSql = viewCreateRows[0]['Create View'] || Object.values(viewCreateRows[0])[1];
+              parts.push(`${viewSql};\n`);
+            }
+          } catch (err: any) {
+            parts.push(`-- Error retrieving CREATE VIEW for ${v}: ${err.message}\n`);
+          }
+        }
+      }
+
+      // Process Stored Routines (Procedures & Functions)
+      if (includeRoutines && scope !== 'data_only') {
+        try {
+          const [routines] = (await conn.query(
+            `SELECT ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_NAME ASC`,
+            [options.database]
+          )) as [any[], any];
+
+          if (routines && routines.length > 0) {
+            parts.push(`--`);
+            parts.push(`-- Stored Routines (Procedures & Functions)`);
+            parts.push(`--`);
+
+            for (const r of routines) {
+              const rType = r.ROUTINE_TYPE;
+              const rName = r.ROUTINE_NAME;
+              try {
+                if (includeDrop) {
+                  parts.push(`DROP ${rType} IF EXISTS ${escapeIdent(rName)};`);
+                }
+                const [rCreateRows] = (await conn.query(`SHOW CREATE ${rType} ${escapeIdent(rName)}`)) as [any[], any];
+                if (rCreateRows && rCreateRows[0]) {
+                  const rSql = rCreateRows[0][`Create ${rType === 'PROCEDURE' ? 'Procedure' : 'Function'}`] || Object.values(rCreateRows[0])[2];
+                  parts.push(`DELIMITER //`);
+                  parts.push(`${rSql} //`);
+                  parts.push(`DELIMITER ;\n`);
+                }
+              } catch (err: any) {
+                parts.push(`-- Error retrieving ${rType} ${rName}: ${err.message}\n`);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Process Triggers
+      if (includeTriggers && scope !== 'data_only') {
+        try {
+          const [triggers] = (await conn.query(
+            `SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? ORDER BY TRIGGER_NAME ASC`,
+            [options.database]
+          )) as [any[], any];
+
+          if (triggers && triggers.length > 0) {
+            parts.push(`--`);
+            parts.push(`-- Database Triggers`);
+            parts.push(`--`);
+
+            for (const trg of triggers) {
+              try {
+                if (includeDrop) {
+                  parts.push(`DROP TRIGGER IF EXISTS ${escapeIdent(trg.TRIGGER_NAME)};`);
+                }
+                const [trgCreateRows] = (await conn.query(`SHOW CREATE TRIGGER ${escapeIdent(trg.TRIGGER_NAME)}`)) as [any[], any];
+                if (trgCreateRows && trgCreateRows[0]) {
+                  const trgSql = trgCreateRows[0]['SQL Original Statement'] || Object.values(trgCreateRows[0])[2];
+                  parts.push(`DELIMITER //`);
+                  parts.push(`${trgSql} //`);
+                  parts.push(`DELIMITER ;\n`);
+                }
+              } catch (err: any) {
+                parts.push(`-- Error retrieving TRIGGER ${trg.TRIGGER_NAME}: ${err.message}\n`);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Process Scheduled Events
+      if (includeEvents && scope !== 'data_only') {
+        try {
+          const [events] = (await conn.query(
+            `SELECT EVENT_NAME FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ? ORDER BY EVENT_NAME ASC`,
+            [options.database]
+          )) as [any[], any];
+
+          if (events && events.length > 0) {
+            parts.push(`--`);
+            parts.push(`-- Scheduled Events`);
+            parts.push(`--`);
+
+            for (const ev of events) {
+              try {
+                if (includeDrop) {
+                  parts.push(`DROP EVENT IF EXISTS ${escapeIdent(ev.EVENT_NAME)};`);
+                }
+                const [evCreateRows] = (await conn.query(`SHOW CREATE EVENT ${escapeIdent(ev.EVENT_NAME)}`)) as [any[], any];
+                if (evCreateRows && evCreateRows[0]) {
+                  const evSql = evCreateRows[0]['Create Event'] || Object.values(evCreateRows[0])[3];
+                  parts.push(`${evSql};\n`);
+                }
+              } catch (err: any) {
+                parts.push(`-- Error retrieving EVENT ${ev.EVENT_NAME}: ${err.message}\n`);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Restoration footer
+      parts.push(`/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;`);
+      if (disableFk) {
+        parts.push(`/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;`);
+      }
+      parts.push(`/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;`);
+      parts.push(`/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;`);
+      parts.push(`/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;`);
+      parts.push(`/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;`);
+      parts.push(`/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;`);
+      parts.push(`\n-- Dump completed on ${new Date().toISOString()}`);
+
+      outputContent = parts.join('\n');
+    } else if (format === 'json') {
+      const jsonExport: Record<string, any> = {
+        metadata: {
+          server: server.name,
+          host: server.ip,
+          database: options.database,
+          exportedAt: new Date().toISOString(),
+          scope,
+          tablesCount: targetBaseTables.length,
+        },
+        tables: {} as Record<string, any>,
+      };
+
+      for (const tbl of targetBaseTables) {
+        const tableEntry: Record<string, any> = {};
+
+        if (scope !== 'data_only') {
+          try {
+            const [createRows] = (await conn.query(`SHOW CREATE TABLE ${escapeIdent(tbl)}`)) as [any[], any];
+            if (createRows && createRows[0]) {
+              tableEntry.createTableSql = createRows[0]['Create Table'] || Object.values(createRows[0])[1];
+            }
+          } catch {}
+        }
+
+        if (scope !== 'structure_only') {
+          try {
+            const limitClause = maxRows > 0 ? `LIMIT ${maxRows}` : '';
+            const [rows] = (await conn.query(`SELECT * FROM ${escapeIdent(tbl)} ${limitClause}`)) as [any[], any];
+            tableEntry.rows = rows || [];
+            totalRowsExported += (rows || []).length;
+          } catch {
+            tableEntry.rows = [];
+          }
+        }
+
+        jsonExport.tables[tbl] = tableEntry;
+      }
+
+      outputContent = JSON.stringify(jsonExport, null, 2);
+    } else if (format === 'csv') {
+      const csvSections: string[] = [];
+
+      for (const tbl of targetBaseTables) {
+        try {
+          const limitClause = maxRows > 0 ? `LIMIT ${maxRows}` : '';
+          const [rows] = (await conn.query(`SELECT * FROM ${escapeIdent(tbl)} ${limitClause}`)) as [any[], any];
+
+          if (rows && rows.length > 0) {
+            totalRowsExported += rows.length;
+            const headers = Object.keys(rows[0]);
+            const headerRow = headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(',');
+
+            const dataRows = rows.map((row) =>
+              headers
+                .map((h) => {
+                  const val = row[h];
+                  if (val === null || val === undefined) return '';
+                  const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                  return `"${str.replace(/"/g, '""')}"`;
+                })
+                .join(',')
+            );
+
+            if (targetBaseTables.length > 1) {
+              csvSections.push(`### TABLE: ${tbl} (${rows.length} rows) ###`);
+            }
+            csvSections.push(headerRow);
+            csvSections.push(...dataRows);
+            csvSections.push('');
+          }
+        } catch {}
+      }
+
+      outputContent = csvSections.join('\n');
+    }
+
+    await conn.end();
+
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const filename = `${options.database}_${scope}_${timestamp}.${format}`;
+    const duration = Date.now() - startTime;
+
+    return {
+      success: true,
+      database: options.database,
+      format,
+      scope,
+      tablesCount: targetBaseTables.length,
+      totalRowsExported,
+      totalBytes: Buffer.byteLength(outputContent, 'utf8'),
+      content: outputContent,
+      filename,
+      executionTimeMs: duration,
+      message: `Export completed successfully (${totalRowsExported} rows, ${targetBaseTables.length} tables).`,
+      messageFa: `پشتیبان‌گیری با موفقیت تکمیل شد (${totalRowsExported} سطر، ${targetBaseTables.length} جدول).`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      database: options.database,
+      format: options.format || 'sql',
+      scope: options.scope || 'all',
+      tablesCount: 0,
+      totalRowsExported: 0,
+      totalBytes: 0,
+      content: '',
+      filename: `${options.database}_dump_error.txt`,
+      executionTimeMs: Date.now() - startTime,
+      message: `Backup dump failed: ${err.message}`,
+      messageFa: `خطا در تهیه پشتیبان: ${err.message}`,
       error: err.message,
       errorFa: err.message,
     };

@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.224.0';
+export const APP_VERSION = '1.225.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.225.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۵ سیستم مدیریت MySQL: ماژول جامع پشتیبان‌گیری، دامپ و استخراج دیتابیس و جداول (Full Database & Table Backup, Dump & Export Suite)',
+    title_en: 'Phase 15: MySQL Full Database & Table Backup, Dump & Export Suite',
+    changes: [
+      'طراحی و پیاده‌سازی مودال مهندسی و بصری پشتیبان‌گیری و خروجی MySQL (`MysqlBackupExportModal`) منطبق با استانداردهای ۵گانه مودال‌ها شامل کنترل‌های سه‌گانه، حریم امن فوتر، انطباق کامل تم تیره و روشن، پشتیبانی صددرصد دوزبانه و راهنماهای سه‌بخشی FieldInfoTooltip.',
+      'پشتیبانی از سه فرمت استاندارد خروجی: اسکریپت ساختار و داده استاندارد SQL (.sql)، اشیاء داده سلسله‌مراتبی JSON (.json) و قالب فلت جدول‌بندی‌شده CSV (.csv).',
+      'سه حالت تفکیک‌شده محدوده استخراج (Export Scope): استخراج کامل ساختار و داده‌ها (Full Structure & Data)، فقط ساختار جداول بدون داده (Structure Only / DDL)، و فقط داده‌های ذخیره‌شده (Data Only / INSERTS).',
+      'فیلتر و انتخاب انتخابی جداول (Table Selection & Filtering): امکان انتخاب تمامی جداول یا انتخاب گزینشی، جستجوی بلادرنگ جداول، دکمه‌های انتخاب همه و لغو انتخاب با نمایش تعداد سطرهای هر جدول.',
+      'تنظیمات پیشرفته دامپ SQL: افزودن گزینه‌های DROP TABLE IF EXISTS، ایجاد خودکار دیتابیس (CREATE DATABASE)، غیرفعال‌سازی موقت بررسی کلیدهای خارجی (SET FOREIGN_KEY_CHECKS=0) و تفکیک اشیاء جانبی (نماها، رویه‌ها، توابع، تریگرها و رویدادها).',
+      'مدیریت حجم و دسته‌بندی سطرها: امکان محدودسازی تعداد سطرها در هر جدول (Limit rows per table) و دسته‌بندی کوئری‌های INSERT به بسته‌های بهینه (Batch Size).',
+      'پیش‌نمایش زنده و تعاملی محتوا: نمایش بلادرنگ متون تولیدشده با شماره خط، کپی مستقیم با یک کلیک به کلیپ‌بورد و دانلود آنی فایل با نام‌گذاری هوشمند بر اساس دیتابیس، تاریخ و فرمت انتخابی.',
+      'یکپارچه‌سازی دسترسی آسان به پشتیبان‌گیری در نوار ابزار دیتابیس، نوار ابزار جدول فعال و آیکون سریع در لیست جداول مودال اصلی مدیریت MySQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated visual Backup & Export modal (`MysqlBackupExportModal`) strictly adhering to the 5 universal modal standards: triad control header, strict footer clearance, full light/dark theme adaptability, strict bilingual i18n, and boundary-safe 3-part FieldInfoTooltip.',
+      'Multi-format export engine: standard SQL dump (.sql), structured JSON document (.json), and comma-separated values (.csv) format.',
+      'Three granular export scopes: Full Dump (Structure & Data), Structure Only (DDL definitions), and Data Only (Data rows / INSERTS).',
+      'Selective table picker & live filter: full or selective table picking, real-time table name filtering, select all/none controls, and per-table row count metrics.',
+      'Advanced SQL dump flags: DROP TABLE IF EXISTS guards, CREATE DATABASE statement inclusion, disable foreign key checks (FOREIGN_KEY_CHECKS=0), and selective export of Views, Routines, Triggers, and Scheduled Events.',
+      'Volume controls & row limits: configurable maximum rows per table and optimized multi-row INSERT batch sizing.',
+      'Interactive syntax preview & instant download: live line-numbered preview pane, one-click clipboard copy, and immediate browser file download with timestamped intelligent naming.',
+      'Seamless access points: integrated Dump / Backup triggers in the database overview toolbar, active table action bar, and table list rows in MySQL Management Modal.'
+    ],
+  },
   {
     version: '1.224.0',
     releaseDate: '2026-09-30',

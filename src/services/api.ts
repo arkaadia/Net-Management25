@@ -79,6 +79,8 @@ import {
   MysqlCreateEventRequest,
   MysqlAlterEventStatusRequest,
   MysqlDropEventRequest,
+  MysqlDumpOptions,
+  MysqlDumpResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1823,6 +1825,22 @@ export async function dropRemoteServerMysqlEvent(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+// ==========================================
+// Phase 15: MySQL Full Database & Table Backup, Dump & Export Suite
+// ==========================================
+
+export async function generateRemoteServerMysqlDump(
+  id: string,
+  options: MysqlDumpOptions
+): Promise<MysqlDumpResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/backup/dump`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
   });
   return res.json();
 }

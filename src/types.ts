@@ -2316,6 +2316,46 @@ export interface MysqlDropEventRequest {
   ifExists?: boolean;
 }
 
+// ==========================================
+// Phase 15: MySQL Backup, Dump & Export Suite
+// ==========================================
+
+export type MysqlExportFormat = 'sql' | 'json' | 'csv';
+export type MysqlExportScope = 'all' | 'structure_only' | 'data_only';
+
+export interface MysqlDumpOptions {
+  database: string;
+  format?: MysqlExportFormat;
+  scope?: MysqlExportScope;
+  selectedTables?: string[];
+  includeDropTable?: boolean;
+  includeCreateDb?: boolean;
+  disableForeignKeyChecks?: boolean;
+  includeViews?: boolean;
+  includeRoutines?: boolean;
+  includeTriggers?: boolean;
+  includeEvents?: boolean;
+  maxRowsPerTable?: number;
+  insertBatchSize?: number;
+}
+
+export interface MysqlDumpResult {
+  success: boolean;
+  database: string;
+  format: MysqlExportFormat;
+  scope: MysqlExportScope;
+  tablesCount: number;
+  totalRowsExported: number;
+  totalBytes: number;
+  content: string;
+  filename: string;
+  executionTimeMs: number;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface MysqlVariableItem {
   name: string;
   value: string;

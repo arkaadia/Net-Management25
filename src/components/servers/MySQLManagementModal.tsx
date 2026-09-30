@@ -117,6 +117,7 @@ import {
   MysqlProgrammabilityModal,
   MysqlProgrammabilityModalMode,
 } from './MysqlProgrammabilityModal';
+import { MysqlBackupExportModal } from './MysqlBackupExportModal';
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
@@ -318,6 +319,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     setProgrammabilityTargetName(options?.targetName || '');
     setProgrammabilityRoutineParams(options?.routineParams || []);
     setIsProgrammabilityModalOpen(true);
+  }, []);
+
+  // Phase 15: MySQL Full Database & Table Backup, Dump & Export States
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [backupInitialTableName, setBackupInitialTableName] = useState<string | undefined>(undefined);
+
+  const handleOpenBackupModal = useCallback((options?: { tableName?: string }) => {
+    setBackupInitialTableName(options?.tableName);
+    setIsBackupModalOpen(true);
   }, []);
 
 
@@ -977,6 +987,20 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30">
               <Database className="w-5 h-5" />
+
+      {/* Phase 15: MySQL Full Database & Table Backup, Dump & Export Modal */}
+      <MysqlBackupExportModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        onMinimize={() => setIsBackupModalOpen(false)}
+        serverId={server.id}
+        serverName={server.name}
+        databaseName={selectedTreeNode.dbName || ""}
+        initialTableName={backupInitialTableName}
+        availableTables={dbDetailsCache[selectedTreeNode.dbName || ""]?.tables?.map((t) => t.name) || []}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -3329,6 +3353,16 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                       <Sliders className="w-3.5 h-3.5 text-cyan-400" />
                                       <span>{isEn ? "Table Options" : "تنظیمات جدول"}</span>
                                     </button>
+                                    {/* Phase 15: Table Export & Dump Modal Trigger */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenBackupModal({ tableName })}
+                                      className="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                                      title={isEn ? "Export or Dump this table to SQL/JSON/CSV" : "استخراج و تهیه فایل پشتیبان از این جدول"}
+                                    >
+                                      <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
+                                      <span>{isEn ? "Export / Dump" : "پشتیبان / خروجی"}</span>
+                                    </button>
 
                                     {/* Phase 13: Truncate Table Action */}
                                     <button
@@ -3900,6 +3934,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                               <span>{isEn ? 'Column Visibility' : 'نمایش و مخفی‌سازی ستون‌ها'}</span>
                                             </h6>
                                             <div className="flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenBackupModal()}
+                                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                    title={isEn ? "Generate full or selective MySQL Dump / Backup" : "تهیه فایل پشتیبان و استخراج دیتابیس (Dump/Backup)"}
+                                  >
+                                    <HardDrive className="w-3.5 h-3.5" />
+                                    <span>{isEn ? "Dump / Backup" : "پشتیبان‌گیری (Dump)"}</span>
+                                  </button>
                                               <button
                                                 type="button"
                                                 onClick={() => setDataHiddenColumns({})}
@@ -5161,6 +5204,14 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                   >
                                                     <Sliders className="w-3 h-3" />
                                                   </button>
+                                                   <button
+                                                     type="button"
+                                                     onClick={() => handleOpenBackupModal({ tableName: t.name })}
+                                                     className="p-1 rounded hover:bg-indigo-500/20 text-slate-400 hover:text-indigo-300"
+                                                     title={isEn ? "Export / Dump this table" : "تولید فایل پشتیبان از این جدول"}
+                                                   >
+                                                     <HardDrive className="w-3 h-3" />
+                                                   </button>
                                                   <button
                                                     type="button"
                                                     onClick={() => handleOpenStructureModal("drop_confirm", { tableName: t.name, dropType: "truncate_table" })}
