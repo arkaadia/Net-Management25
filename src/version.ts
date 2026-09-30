@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.232.3';
+export const APP_VERSION = '1.233.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.233.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'همگام‌سازی و ارتقای جدول تجهیزات شبکه با ناوگان سرورها (ویرایش، حذف مستقیم، حذف گروهی و سفارشی‌سازی ستون‌ها)',
+    title_en: 'Network Equipment Table Modernization: Column Customization, Direct Edit, and Bulk Deletion',
+    changes: [
+      'پیاده‌سازی سیستم جامع سفارشی‌سازی و مدیریت ستون‌های جدول تجهیزات شبکه (Columns Selector) مشابه بخش ناوگان سرورها با قابلیت فعال/غیرفعال کردن هر ستون، دکمه بازنشانی به پیش‌فرض (Reset Default) و ذخیره‌سازی دائمی تنظیمات در localStorage.',
+      'افزودن دکمه‌های اقدام سریع مستقیم (Direct Quick Action Buttons) در ستون عملیات جدول شامل دکمه ویرایش (Edit با رنگ کهربایی) و دکمه حذف (Delete با رنگ سرخابی/رز) در کنار یادداشت استیکی و منوی سه‌نقطه.',
+      'پیاده‌سازی نوار عملیات گروهی بر روی تجهیزات انتخاب‌شده (Multi-Device Selection Bar) شامل شمارنده لحظه‌ای، دکمه‌های فیلتر سریع (Only Cisco, Only MikroTik, Only Online)، لغو انتخاب و اجرای پیکربندی گروهی.',
+      'طراحی و تعبیه مودال اختصاصی تأیید حذف گروهی تجهیزات (Bulk Delete Confirmation Modal) با رعایت حریم فوتر، پیش‌نمایش فهرست تجهیزات انتخابی با آی‌پی و مدل، هشدار برگشت‌ناپذیری و وضعیت لودینگ در حال حذف.',
+      'انطباق و بازطراحی کامل کادر جدول، سطرهای داده، هاور، رنگ متون و بردرها با هر دو تم تاریک و روشن (Dark / Light Mode) بر اساس استانداردهای ارگونومی رابط کاربری.'
+    ],
+    changes_en: [
+      'Implemented comprehensive table column customization (Columns Selector) in Network Equipment Inventory matching Remote Servers fleet, with toggleable column checkboxes, Reset Default button, and persistent localStorage sync.',
+      'Added direct inline quick action buttons in the Actions column: amber Quick Edit button and rose Quick Delete button alongside Sticky Note indicator and 3-dots context menu.',
+      'Implemented Multi-Device Selection Action Bar with real-time selection counter, quick filter shortcuts (Only Cisco, Only MikroTik, Only Online), Clear Selection, and Bulk Configure launch.',
+      'Engineered dedicated Bulk Delete Confirmation Modal compliant with footer boundary clearances, displaying scrollable preview of selected devices (name, model, IP), irreversible action warning, and progress spinner.',
+      'Polished full dark and light mode ergonomic theme adaptability across the inventory table container, borders, headers, rows, and modal dialogs.'
+    ]
+  },
   {
     version: '1.232.3',
     releaseDate: '2026-09-30',

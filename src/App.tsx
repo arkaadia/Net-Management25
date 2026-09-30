@@ -688,6 +688,7 @@ export default function App() {
               onWriteMemory={handleWriteMemory}
               onRefreshAll={handleRefreshAll}
               isRefreshing={isRefreshing}
+              isLightMode={panelTheme === 'light'}
               onOpenBulkConfig={(selected) => {
                 setBulkConfigDevices(selected);
                 setIsBulkConfigOpen(true);

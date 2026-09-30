@@ -28,6 +28,7 @@ import {
   X,
   Globe,
   ExternalLink,
+  Columns3,
 } from 'lucide-react';
 import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
 import { useLanguage } from '../i18n';
@@ -37,6 +38,25 @@ import { EditDeviceModal } from './EditDeviceModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DeviceStickyNoteModal } from './DeviceStickyNoteModal';
 import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
+
+export interface DeviceColumnDef {
+  key: string;
+  labelEn: string;
+  labelFa: string;
+  required?: boolean;
+}
+
+export const DEVICE_COLUMNS: DeviceColumnDef[] = [
+  { key: 'select', labelEn: 'Selection Checkbox', labelFa: 'چک‌باکس انتخاب' },
+  { key: 'name', labelEn: 'Device Name & ID', labelFa: 'نام و شناسه تجهیز', required: true },
+  { key: 'model', labelEn: 'Role, Model & MAC', labelFa: 'نوع، مدل و مک‌آدرس' },
+  { key: 'ip', labelEn: 'IP Address & Ports', labelFa: 'آدرس IP و پورت‌های مدیریتی' },
+  { key: 'location', labelEn: 'Location (Rack / Room)', labelFa: 'محل استقرار (ساختمان / طبقه / رک)' },
+  { key: 'status', labelEn: 'Live Status & Ping', labelFa: 'وضعیت لحظه‌ای و پینگ' },
+  { key: 'discovery', labelEn: 'Discovery (CDP / LLDP)', labelFa: 'پروتکل‌های همسایگی (CDP/LLDP)' },
+  { key: 'ports', labelEn: 'Ports & VLANs', labelFa: 'پورت‌ها و ویلن' },
+  { key: 'actions', labelEn: 'Actions', labelFa: 'عملیات' },
+];
 
 interface DeviceListViewProps {
   devices: Device[];
@@ -51,6 +71,7 @@ interface DeviceListViewProps {
   isRefreshing: boolean;
   onEditDevice?: (device: Device) => void;
   onOpenBulkConfig?: (devices: Device[]) => void;
+  isLightMode?: boolean;
 }
 
 export const DeviceListView: React.FC<DeviceListViewProps> = ({
@@ -66,6 +87,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   isRefreshing,
   onEditDevice,
   onOpenBulkConfig,
+  isLightMode = false,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const [search, setSearch] = useState('');
@@ -90,6 +112,161 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     right?: number;
     device: Device;
   } | null>(null);
+
+  // Column Visibility customization (persisted in localStorage, matching RemoteServersView)
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('nettopology_device_visible_columns');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      select: true,
+      name: true,
+      model: true,
+      ip: true,
+      location: true,
+      status: true,
+      discovery: true,
+      ports: true,
+      actions: true,
+    };
+  });
+
+  const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
+  const columnPickerBtnRef = useRef<HTMLButtonElement>(null);
+  const columnDropdownRef = useRef<HTMLDivElement>(null);
+  const [columnPickerCoords, setColumnPickerCoords] = useState<{ top: number; left: number } | null>(null);
+
+  // Bulk Delete State
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const updateColumnPickerPosition = useCallback(() => {
+    if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
+    const rect = columnPickerBtnRef.current.getBoundingClientRect();
+    const dropdownWidth = 264; // ~16.5rem
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let top = rect.bottom + 6;
+    if (top + 320 > viewportHeight && rect.top > 320) {
+      top = Math.max(10, rect.top - 320);
+    }
+
+    let left: number;
+    if (isEn) {
+      const desiredLeft = rect.right - dropdownWidth;
+      if (desiredLeft >= 10 && desiredLeft + dropdownWidth <= viewportWidth - 10) {
+        left = desiredLeft;
+      } else if (rect.left + dropdownWidth <= viewportWidth - 10) {
+        left = Math.max(10, rect.left);
+      } else {
+        left = Math.max(10, viewportWidth - dropdownWidth - 10);
+      }
+    } else {
+      const desiredLeft = rect.left;
+      if (desiredLeft + dropdownWidth <= viewportWidth - 10 && desiredLeft >= 10) {
+        left = desiredLeft;
+      } else if (rect.right - dropdownWidth >= 10) {
+        left = rect.right - dropdownWidth;
+      } else {
+        left = Math.max(10, Math.min(rect.left, viewportWidth - dropdownWidth - 10));
+      }
+    }
+
+    setColumnPickerCoords({ top, left });
+  }, [isEn]);
+
+  const handleToggleColumnPicker = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isColumnPickerOpen) {
+      updateColumnPickerPosition();
+      setIsColumnPickerOpen(true);
+    } else {
+      setIsColumnPickerOpen(false);
+    }
+  };
+
+  const toggleColumn = (key: string) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem('nettopology_device_visible_columns', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const resetColumns = () => {
+    const defaults = {
+      select: true,
+      name: true,
+      model: true,
+      ip: true,
+      location: true,
+      status: true,
+      discovery: true,
+      ports: true,
+      actions: true,
+    };
+    setVisibleColumns(defaults);
+    try {
+      localStorage.setItem('nettopology_device_visible_columns', JSON.stringify(defaults));
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!isColumnPickerOpen) return;
+
+    const handleScrollOrResize = () => {
+      updateColumnPickerPosition();
+    };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        columnPickerBtnRef.current &&
+        columnPickerBtnRef.current.contains(target)
+      ) {
+        return;
+      }
+      if (
+        columnDropdownRef.current &&
+        columnDropdownRef.current.contains(target)
+      ) {
+        return;
+      }
+      setIsColumnPickerOpen(false);
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isColumnPickerOpen, updateColumnPickerPosition]);
+
+  const handleConfirmBulkDelete = async () => {
+    setIsBulkDeleting(true);
+    try {
+      const idsToDelete = Array.from(selectedDeviceIds);
+      for (const id of idsToDelete) {
+        await onDeleteDevice(id);
+      }
+      setSelectedDeviceIds(new Set());
+      setIsBulkDeleteOpen(false);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
 
   // Synchronize and load device-linked sticky notes
   const loadDeviceNotes = useCallback(async () => {
@@ -486,7 +663,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           <select
             value={buildingFilter}
             onChange={(e) => setBuildingFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 cursor-pointer"
+            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-300 text-slate-800'
+                : 'bg-slate-900/70 border-white/15 text-slate-200'
+            }`}
           >
             <option value="all">{isEn ? 'All Buildings' : 'همه ساختمان‌ها'}</option>
             {buildings.map((b) => (
@@ -495,14 +676,114 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               </option>
             ))}
           </select>
+
+          {/* Column Visibility Selector (Persisted in localStorage, matching RemoteServersView) */}
+          <div className="relative">
+            <button
+              ref={columnPickerBtnRef}
+              type="button"
+              onClick={handleToggleColumnPicker}
+              title={isEn ? 'Customize Visible Columns' : 'سفارشی‌سازی ستون‌های جدول'}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                isColumnPickerOpen
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                  : isLightMode
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  : 'bg-slate-900/80 border-white/15 text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <Columns3 className="w-4 h-4 text-cyan-400" />
+              <span className="hidden sm:inline">{isEn ? 'Columns' : 'ستون‌ها'}</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-bold">
+                {Object.values(visibleColumns).filter(Boolean).length}/{DEVICE_COLUMNS.length}
+              </span>
+            </button>
+
+            {isColumnPickerOpen &&
+              columnPickerCoords &&
+              createPortal(
+                <div
+                  ref={columnDropdownRef}
+                  style={{
+                    position: 'fixed',
+                    top: `${columnPickerCoords.top}px`,
+                    left: `${columnPickerCoords.left}px`,
+                    width: '16.5rem',
+                  }}
+                  className={`z-[9999] rounded-2xl shadow-2xl p-3 border font-sans backdrop-blur-2xl animate-in fade-in zoom-in-95 ${
+                    isEn ? 'text-left' : 'text-right'
+                  } ${
+                    isLightMode
+                      ? 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-900/25'
+                      : 'bg-slate-950/95 border-white/15 text-slate-100 shadow-black/80'
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                    <span className="text-xs font-bold flex items-center gap-1.5">
+                      <Columns3 className="w-3.5 h-3.5 text-cyan-400" />
+                      {isEn ? 'Table Columns' : 'ستون‌های جدول'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={resetColumns}
+                      className="text-[11px] text-cyan-400 hover:underline cursor-pointer font-mono"
+                    >
+                      {isEn ? 'Reset Default' : 'پیش‌فرض'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {DEVICE_COLUMNS.map((col) => {
+                      const isVisible = visibleColumns[col.key] !== false;
+                      return (
+                        <label
+                          key={col.key}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs select-none transition ${
+                            col.required
+                              ? 'opacity-70 cursor-not-allowed'
+                              : 'cursor-pointer ' + (isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5')
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              disabled={col.required}
+                              onChange={() => !col.required && toggleColumn(col.key)}
+                              className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer disabled:cursor-not-allowed"
+                            />
+                            <span className="text-xs">{isEn ? col.labelEn : col.labelFa}</span>
+                          </span>
+                          {col.required && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {isEn ? 'Required' : 'الزامی'}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>,
+                document.body
+              )}
+          </div>
         </div>
       </div>
 
       {/* Multi-Device Selection Action Bar */}
       {selectedDeviceIds.size > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 shadow-lg text-xs font-mono animate-in fade-in slide-in-from-top-2">
+        <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border shadow-lg text-xs font-mono animate-in fade-in slide-in-from-top-2 ${
+          isLightMode
+            ? 'bg-cyan-50 border-cyan-300 text-cyan-950'
+            : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
+        }`}>
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold border ${
+              isLightMode
+                ? 'bg-cyan-100 border-cyan-300 text-cyan-900'
+                : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+            }`}>
               <Sliders className="w-3.5 h-3.5" />
               <span>
                 {isEn
@@ -519,7 +800,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   const ciscoIds = devices.filter((d) => d.platform?.includes('cisco')).map((d) => d.id);
                   setSelectedDeviceIds(new Set(ciscoIds));
                 }}
-                className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30 cursor-pointer"
+                className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                  isLightMode
+                    ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200'
+                    : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border-indigo-500/30'
+                }`}
               >
                 {isEn ? 'Only Cisco' : 'فقط سیسکو'}
               </button>
@@ -529,7 +814,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   const mtikIds = devices.filter((d) => d.platform?.includes('mikrotik')).map((d) => d.id);
                   setSelectedDeviceIds(new Set(mtikIds));
                 }}
-                className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 cursor-pointer"
+                className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                  isLightMode
+                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                    : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border-emerald-500/30'
+                }`}
               >
                 {isEn ? 'Only MikroTik' : 'فقط میکروتیک'}
               </button>
@@ -539,7 +828,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   const onlineIds = devices.filter((d) => d.is_online).map((d) => d.id);
                   setSelectedDeviceIds(new Set(onlineIds));
                 }}
-                className="px-2 py-0.5 rounded bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10 cursor-pointer"
+                className={`px-2 py-0.5 rounded border transition cursor-pointer ${
+                  isLightMode
+                    ? 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
+                    : 'bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10'
+                }`}
               >
                 {isEn ? 'Only Online' : 'فقط آنلاین'}
               </button>
@@ -550,9 +843,25 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedDeviceIds(new Set())}
-              className="px-2.5 py-1 text-slate-400 hover:text-white transition cursor-pointer"
+              className={`px-2.5 py-1 transition cursor-pointer ${
+                isLightMode ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+              }`}
             >
               {isEn ? 'Clear Selection' : 'لغو انتخاب‌ها'}
+            </button>
+
+            {/* Bulk Delete Selected */}
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold shadow-md shadow-rose-500/20 cursor-pointer active:scale-95 transition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>
+                {isEn
+                  ? `Delete Selected (${selectedDeviceIds.size})`
+                  : `حذف انتخاب‌شده‌ها (${selectedDeviceIds.size})`}
+              </span>
             </button>
 
             {onOpenBulkConfig && (
@@ -573,62 +882,88 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       )}
 
       {/* Devices List Table */}
-      <div className="spatial-glass border border-white/10 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
+      <div className={`border rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl ${
+        isLightMode
+          ? 'bg-white/95 border-slate-200 shadow-slate-900/10'
+          : 'spatial-glass border-white/10'
+      }`}>
         <div className="overflow-x-auto min-h-[380px]">
           <table className={`w-full ${isRtl ? 'text-right' : 'text-left'} text-xs device-table`}>
             <thead>
-              <tr className="bg-slate-950/80 text-slate-300 border-b-2 border-white/15 text-[11px] font-bold uppercase tracking-wider font-mono">
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15 w-10 text-center`}>
-                  <input
-                    type="checkbox"
-                    checked={filteredDevices.length > 0 && selectedDeviceIds.size === filteredDevices.length}
-                    ref={(el) => {
-                      if (el) {
-                        el.indeterminate =
-                          selectedDeviceIds.size > 0 && selectedDeviceIds.size < filteredDevices.length;
-                      }
-                    }}
-                    onChange={() => {
-                      if (selectedDeviceIds.size === filteredDevices.length && filteredDevices.length > 0) {
-                        setSelectedDeviceIds(new Set());
-                      } else {
-                        setSelectedDeviceIds(new Set(filteredDevices.map((d) => d.id)));
-                      }
-                    }}
-                    className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
-                    title={isEn ? 'Select all filtered devices' : 'انتخاب تمام تجهیزات'}
-                  />
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'Device Name & ID' : 'نام و شناسه تجهیز'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'Role & Model' : 'نوع و مدل'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'IP Address' : 'آدرس IP'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'Location (Rack / Room)' : 'محل استقرار (ساختمان / طبقه / واحد)'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'Live Status' : 'وضعیت لحظه‌ای'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
-                  {isEn ? 'Discovery' : 'پروتکل همسایگی'}
-                </th>
-                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15 text-center`}>
-                  {isEn ? 'Ports & VLAN' : 'پورت‌ها و ویلن'}
-                </th>
-                <th className="p-3.5 text-center">
-                  {isEn ? 'Actions' : 'عملیات'}
-                </th>
+              <tr className={`border-b-2 text-[11px] font-bold uppercase tracking-wider font-mono ${
+                isLightMode
+                  ? 'bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-slate-950/80 text-slate-300 border-white/15'
+              }`}>
+                {visibleColumns.select && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'} w-10 text-center`}>
+                    <input
+                      type="checkbox"
+                      checked={filteredDevices.length > 0 && selectedDeviceIds.size === filteredDevices.length}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate =
+                            selectedDeviceIds.size > 0 && selectedDeviceIds.size < filteredDevices.length;
+                        }
+                      }}
+                      onChange={() => {
+                        if (selectedDeviceIds.size === filteredDevices.length && filteredDevices.length > 0) {
+                          setSelectedDeviceIds(new Set());
+                        } else {
+                          setSelectedDeviceIds(new Set(filteredDevices.map((d) => d.id)));
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                      title={isEn ? 'Select all filtered devices' : 'انتخاب تمام تجهیزات'}
+                    />
+                  </th>
+                )}
+                {visibleColumns.name && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'Device Name & ID' : 'نام و شناسه تجهیز'}
+                  </th>
+                )}
+                {visibleColumns.model && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'Role & Model' : 'نوع و مدل'}
+                  </th>
+                )}
+                {visibleColumns.ip && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'IP Address & Ports' : 'آدرس IP و پورت‌های مدیریتی'}
+                  </th>
+                )}
+                {visibleColumns.location && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'Location (Rack / Room)' : 'محل استقرار (ساختمان / طبقه / واحد)'}
+                  </th>
+                )}
+                {visibleColumns.status && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'Live Status' : 'وضعیت لحظه‌ای'}
+                  </th>
+                )}
+                {visibleColumns.discovery && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}>
+                    {isEn ? 'Discovery' : 'پروتکل همسایگی'}
+                  </th>
+                )}
+                {visibleColumns.ports && (
+                  <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/15'} text-center`}>
+                    {isEn ? 'Ports & VLAN' : 'پورت‌ها و ویلن'}
+                  </th>
+                )}
+                {visibleColumns.actions && (
+                  <th className="p-3.5 text-center">
+                    {isEn ? 'Actions' : 'عملیات'}
+                  </th>
+                )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-white/10'}`}>
               {filteredDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-10 text-center text-slate-400">
+                  <td colSpan={Object.values(visibleColumns).filter(Boolean).length || 9} className={`p-10 text-center ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                     {t('devicelist_no_devices')}
                   </td>
                 </tr>
@@ -637,253 +972,324 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   const isPinging = pingingId === dev.id;
                   const devNote = getNoteForDevice(dev.id);
                   return (
-                    <tr key={dev.id} className="border-b border-white/10 hover:bg-white/5 transition-colors group">
+                    <tr key={dev.id} className={`border-b transition-colors group ${
+                      isLightMode
+                        ? 'border-slate-200 hover:bg-slate-50/80 text-slate-800'
+                        : 'border-white/10 hover:bg-white/5 text-slate-200'
+                    }`}>
                       {/* Selection Checkbox */}
-                      <td className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/10 text-center`}>
-                        <input
-                          type="checkbox"
-                          checked={selectedDeviceIds.has(dev.id)}
-                          onChange={() => {
-                            setSelectedDeviceIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(dev.id)) next.delete(dev.id);
-                              else next.add(dev.id);
-                              return next;
-                            });
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
-                          aria-label={`Select ${dev.name}`}
-                        />
-                      </td>
+                      {visibleColumns.select && (
+                        <td className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} ${isLightMode ? 'border-slate-200' : 'border-white/10'} text-center`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedDeviceIds.has(dev.id)}
+                            onChange={() => {
+                              setSelectedDeviceIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(dev.id)) next.delete(dev.id);
+                                else next.add(dev.id);
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                            aria-label={`Select ${dev.name}`}
+                          />
+                        </td>
+                      )}
+
                       {/* Name & Role */}
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`p-2 rounded-xl ${
-                              dev.type === 'switch'
-                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                                : dev.type === 'router'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                            }`}
-                          >
-                            {dev.type === 'switch' ? (
-                              <Server className="w-4 h-4" />
-                            ) : dev.type === 'router' ? (
-                              <RouterIcon className="w-4 h-4" />
-                            ) : (
-                              <Wifi className="w-4 h-4" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-white font-mono text-xs">{dev.name}</span>
-
-                              {/* Sticky Note Badge / Indicator Button */}
-                              {devNote ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenDeviceNote(dev);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-[10px] font-medium shadow-xs transition active:scale-95 cursor-pointer"
-                                  title={isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" - Click to view or edit` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» - کلیک جهت مشاهده یا ویرایش`}
-                                >
-                                  <StickyNote className="w-2.5 h-2.5 text-amber-400 fill-amber-400/40 shrink-0" />
-                                  <span className="max-w-[110px] truncate">{devNote.title || (isEn ? 'Note' : 'یادداشت')}</span>
-                                </button>
+                      {visibleColumns.name && (
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`p-2 rounded-xl ${
+                                dev.type === 'switch'
+                                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                  : dev.type === 'router'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                              }`}
+                            >
+                              {dev.type === 'switch' ? (
+                                <Server className="w-4 h-4" />
+                              ) : dev.type === 'router' ? (
+                                <RouterIcon className="w-4 h-4" />
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenDeviceNote(dev);
-                                  }}
-                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 text-[10px] transition cursor-pointer"
-                                  title={isEn ? 'Add sticky note for this device' : 'افزودن یادداشت استیکی برای این تجهیز'}
-                                >
-                                  <StickyNote className="w-2.5 h-2.5 shrink-0" />
-                                  <span>{isEn ? '+ Note' : '+ یادداشت'}</span>
-                                </button>
-                              )}
-
-                              {dev.has_unsaved_changes && onWriteMemory && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setConfirmWriteDevice(dev);
-                                  }}
-                                  disabled={writingId === dev.id}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-500/50 font-bold text-[10px] transition shadow-sm cursor-pointer"
-                                  title={isEn ? 'Review changes & write running-config to NVRAM' : 'مشاهده تغییرات و ذخیره دائم در NVRAM'}
-                                >
-                                  <Save className="w-2.5 h-2.5" />
-                                  <span>{writingId === dev.id ? (isEn ? 'Writing...' : 'در حال رایت...') : 'Write Memory'}</span>
-                                </button>
+                                <Wifi className="w-4 h-4" />
                               )}
                             </div>
-                            <div className="text-[10px] text-slate-400">{dev.role}</div>
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`font-bold font-mono text-xs ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{dev.name}</span>
+
+                                {/* Sticky Note Badge / Indicator Button */}
+                                {devNote ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenDeviceNote(dev);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-[10px] font-medium shadow-xs transition active:scale-95 cursor-pointer"
+                                    title={isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" - Click to view or edit` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» - کلیک جهت مشاهده یا ویرایش`}
+                                  >
+                                    <StickyNote className="w-2.5 h-2.5 text-amber-400 fill-amber-400/40 shrink-0" />
+                                    <span className="max-w-[110px] truncate">{devNote.title || (isEn ? 'Note' : 'یادداشت')}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenDeviceNote(dev);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 text-[10px] transition cursor-pointer"
+                                    title={isEn ? 'Add sticky note for this device' : 'افزودن یادداشت استیکی برای این تجهیز'}
+                                  >
+                                    <StickyNote className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{isEn ? '+ Note' : '+ یادداشت'}</span>
+                                  </button>
+                                )}
+
+                                {dev.has_unsaved_changes && onWriteMemory && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setConfirmWriteDevice(dev);
+                                    }}
+                                    disabled={writingId === dev.id}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-500/50 font-bold text-[10px] transition shadow-sm cursor-pointer"
+                                    title={isEn ? 'Review changes & write running-config to NVRAM' : 'مشاهده تغییرات و ذخیره دائم در NVRAM'}
+                                  >
+                                    <Save className="w-2.5 h-2.5" />
+                                    <span>{writingId === dev.id ? (isEn ? 'Writing...' : 'در حال رایت...') : 'Write Memory'}</span>
+                                  </button>
+                                )}
+                              </div>
+                              <div className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>{dev.role}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
+                      )}
 
                       {/* Model */}
-                      <td className="p-3.5">
-                        <div className="font-mono text-slate-200 text-xs">{dev.model}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">MAC: {dev.mac}</div>
-                      </td>
+                      {visibleColumns.model && (
+                        <td className="p-3.5">
+                          <div className={`font-mono text-xs ${isLightMode ? 'text-slate-900 font-semibold' : 'text-slate-200'}`}>{dev.model}</div>
+                          <div className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>MAC: {dev.mac}</div>
+                        </td>
+                      )}
 
                       {/* IP */}
-                      <td className="p-3.5 font-mono font-bold text-indigo-400 text-xs">
-                        <div>{dev.ip}</div>
-                        {dev.ssh_host && dev.ssh_host !== dev.ip && (
-                          <div className="text-[10px] text-slate-400 font-normal mt-0.5" title={isEn ? "SSH Target Host" : "آدرس اتصال SSH"}>
-                            SSH: {dev.ssh_host}:{dev.ssh_port || 22}
-                          </div>
-                        )}
-                        {(dev.platform === 'mikrotik_routeros' || (dev.model && dev.model.toLowerCase().includes('mikrotik')) || dev.winbox_port) && (
-                          <div className="text-[10px] text-sky-400 font-normal mt-0.5 flex items-center gap-1 font-mono" title={isEn ? "WinBox Management Port" : "پورت اتصال و مدیریت وین‌باکس"}>
-                            <span className="text-slate-400">WinBox:</span>
-                            <span className="font-bold text-sky-300">{dev.winbox_port || 8291}</span>
-                          </div>
-                        )}
-                        {Array.isArray(dev.web_configs) && dev.web_configs.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1 font-sans font-normal">
-                            {dev.web_configs.map((wc, wIdx) => {
-                              const fullUrl = wc.url.startsWith('http://') || wc.url.startsWith('https://') ? wc.url : `https://${wc.url}`;
-                              return (
-                                <a
-                                  key={wc.id || wIdx}
-                                  href={fullUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-300 border border-sky-500/40 text-[10px] transition cursor-pointer"
-                                  title={`${wc.title || 'Web Interface'}: ${wc.url}`}
-                                >
-                                  <Globe className="w-2.5 h-2.5 text-sky-400 shrink-0" />
-                                  <span className="max-w-[85px] truncate">{wc.title || 'Web'}</span>
-                                  <ExternalLink className="w-2 h-2 text-sky-400 shrink-0 opacity-70" />
-                                </a>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </td>
+                      {visibleColumns.ip && (
+                        <td className="p-3.5 font-mono font-bold text-indigo-400 text-xs">
+                          <div>{dev.ip}</div>
+                          {dev.ssh_host && dev.ssh_host !== dev.ip && (
+                            <div className={`text-[10px] font-normal mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`} title={isEn ? "SSH Target Host" : "آدرس اتصال SSH"}>
+                              SSH: {dev.ssh_host}:{dev.ssh_port || 22}
+                            </div>
+                          )}
+                          {(dev.platform === 'mikrotik_routeros' || (dev.model && dev.model.toLowerCase().includes('mikrotik')) || dev.winbox_port) && (
+                            <div className="text-[10px] text-sky-400 font-normal mt-0.5 flex items-center gap-1 font-mono" title={isEn ? "WinBox Management Port" : "پورت اتصال و مدیریت وین‌باکس"}>
+                              <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>WinBox:</span>
+                              <span className="font-bold text-sky-400">{dev.winbox_port || 8291}</span>
+                            </div>
+                          )}
+                          {Array.isArray(dev.web_configs) && dev.web_configs.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1 font-sans font-normal">
+                              {dev.web_configs.map((wc, wIdx) => {
+                                const fullUrl = wc.url.startsWith('http://') || wc.url.startsWith('https://') ? wc.url : `https://${wc.url}`;
+                                return (
+                                  <a
+                                    key={wc.id || wIdx}
+                                    href={fullUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-400 border border-sky-500/40 text-[10px] transition cursor-pointer"
+                                    title={`${wc.title || 'Web Interface'}: ${wc.url}`}
+                                  >
+                                    <Globe className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                                    <span className="max-w-[85px] truncate">{wc.title || 'Web'}</span>
+                                    <ExternalLink className="w-2 h-2 text-sky-400 shrink-0 opacity-70" />
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      )}
 
                       {/* Location (Building, Floor, Unit, Rack) */}
-                      <td className="p-3.5">
-                        <div className="text-slate-200 font-medium text-xs">
-                          {dev.building}
-                        </div>
-                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3 h-3 text-indigo-400" />
-                          <span>{dev.floor} • {dev.unit}</span>
-                        </div>
-                        {dev.rack && (
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {isEn ? 'Rack:' : 'رک:'} {dev.rack}
+                      {visibleColumns.location && (
+                        <td className="p-3.5">
+                          <div className={`font-medium text-xs ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>
+                            {dev.building}
                           </div>
-                        )}
-                      </td>
+                          <div className={`text-[10px] flex items-center gap-1 mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            <MapPin className="w-3 h-3 text-indigo-400" />
+                            <span>{dev.floor} • {dev.unit}</span>
+                          </div>
+                          {dev.rack && (
+                            <div className={`text-[10px] font-mono mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'Rack:' : 'رک:'} {dev.rack}
+                            </div>
+                          )}
+                        </td>
+                      )}
 
                       {/* Online/Offline Status */}
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                              dev.is_online
-                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
-                                : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                            }`}
-                          >
+                      {visibleColumns.status && (
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-2">
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                dev.is_online ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-rose-500'
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                                dev.is_online
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                               }`}
-                            ></span>
-                            <span>{dev.is_online ? (isEn ? 'Online' : 'آنلاین') : (isEn ? 'Offline' : 'آفلاین')}</span>
-                          </span>
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  dev.is_online ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-rose-500'
+                                }`}
+                              ></span>
+                              <span>{dev.is_online ? (isEn ? 'Online' : 'آنلاین') : (isEn ? 'Offline' : 'آفلاین')}</span>
+                            </span>
 
-                          <button
-                            onClick={() => handlePing(dev.id)}
-                            disabled={isPinging}
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition border border-white/10 cursor-pointer"
-                            title={isEn ? 'Ping device now' : 'پینگ مجدد لحظه‌ای'}
-                          >
-                            <RefreshCw className={`w-3 h-3 ${isPinging ? 'animate-spin text-indigo-400' : ''}`} />
-                          </button>
-                        </div>
-                        {dev.is_online && dev.latency_ms !== null && (
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {isEn ? 'Latency:' : 'تأخیر:'} {dev.latency_ms} ms
+                            <button
+                              onClick={() => handlePing(dev.id)}
+                              disabled={isPinging}
+                              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                isLightMode
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border-white/10'
+                              }`}
+                              title={isEn ? 'Ping device now' : 'پینگ مجدد لحظه‌ای'}
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isPinging ? 'animate-spin text-indigo-400' : ''}`} />
+                            </button>
                           </div>
-                        )}
-                      </td>
+                          {dev.is_online && dev.latency_ms !== null && (
+                            <div className={`text-[10px] font-mono mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isEn ? 'Latency:' : 'تأخیر:'} {dev.latency_ms} ms
+                            </div>
+                          )}
+                        </td>
+                      )}
 
                       {/* Protocols */}
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                          {dev.cdp_enabled && (
-                            <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
-                              CDP
-                            </span>
-                          )}
-                          {dev.lldp_enabled && (
-                            <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">
-                              LLDP
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                      {visibleColumns.discovery && (
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                            {dev.cdp_enabled && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
+                                CDP
+                              </span>
+                            )}
+                            {dev.lldp_enabled && (
+                              <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">
+                                LLDP
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
 
                       {/* Ports & VLAN Trigger */}
-                      <td className="p-3.5 text-center">
-                        <button
-                          onClick={() => onInspectPorts(dev)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-indigo-600/30 hover:text-white hover:border-indigo-400/50 text-slate-300 border border-white/10 transition text-xs shadow-xs cursor-pointer"
-                        >
-                          <Cable className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>{dev.total_ports || 24} {isEn ? 'Ports' : 'پورت'}</span>
-                        </button>
-                      </td>
-
-                      {/* Actions with Note & 3-Dots Menu */}
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Dedicated Sticky Note direct button */}
+                      {visibleColumns.ports && (
+                        <td className="p-3.5 text-center">
                           <button
-                            onClick={() => handleOpenDeviceNote(dev)}
-                            className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
-                              devNote
-                                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                                : 'bg-white/5 hover:bg-amber-500/15 text-slate-300 hover:text-amber-300 border-white/10 hover:border-amber-500/30'
+                            onClick={() => onInspectPorts(dev)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition text-xs shadow-xs cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 text-slate-700 border-slate-300'
+                                : 'bg-white/5 hover:bg-indigo-600/30 hover:text-white hover:border-indigo-400/50 text-slate-300 border-white/10'
                             }`}
-                            title={
-                              devNote
-                                ? (isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" (Click to view or edit)` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» (جهت مشاهده یا ویرایش کلیک کنید)`)
-                                : (isEn ? 'Add Sticky Note for this device' : 'افزودن یادداشت استیکی برای این تجهیز')
-                            }
                           >
-                            <StickyNote className={`w-4 h-4 ${devNote ? 'text-amber-400 fill-amber-400/40' : ''}`} />
+                            <Cable className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>{dev.total_ports || 24} {isEn ? 'Ports' : 'پورت'}</span>
                           </button>
+                        </td>
+                      )}
 
-                          {/* 3-Dots Menu Trigger */}
-                          <button
-                            onClick={(e) => handleToggleActionMenu(e, dev)}
-                            className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
-                              menuAnchor?.id === dev.id
-                                ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.4)]'
-                                : 'bg-white/5 hover:bg-white/15 text-slate-300 border-white/10 hover:text-white'
-                            }`}
-                            title={isEn ? 'Actions & Options' : 'عملیات و گزینه‌ها'}
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {/* Actions with Direct Edit, Direct Delete, Note & 3-Dots Menu */}
+                      {visibleColumns.actions && (
+                        <td className="p-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {/* Direct Quick Edit Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onEditDevice) {
+                                  onEditDevice(dev);
+                                } else {
+                                  setInternalEditingDevice(dev);
+                                }
+                              }}
+                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
+                                isLightMode
+                                  ? 'border-amber-400/80 bg-amber-50 hover:bg-amber-100 text-amber-700'
+                                  : 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300'
+                              }`}
+                              title={isEn ? 'Edit Device Properties' : 'ویرایش مشخصات تجهیز'}
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+
+                            {/* Direct Quick Delete Button */}
+                            <button
+                              type="button"
+                              onClick={() => setDeviceToDelete(dev)}
+                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
+                                isLightMode
+                                  ? 'border-rose-400/80 bg-rose-50 hover:bg-rose-100 text-rose-700'
+                                  : 'border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/25 text-rose-400'
+                              }`}
+                              title={isEn ? 'Delete Device' : 'حذف تجهیز'}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+
+                            {/* Dedicated Sticky Note direct button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDeviceNote(dev)}
+                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
+                                devNote
+                                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                  : isLightMode
+                                  ? 'bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-700 border-slate-300 hover:border-amber-400'
+                                  : 'bg-white/5 hover:bg-amber-500/15 text-slate-300 hover:text-amber-300 border-white/10 hover:border-amber-500/30'
+                              }`}
+                              title={
+                                devNote
+                                  ? (isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" (Click to view or edit)` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» (جهت مشاهده یا ویرایش کلیک کنید)`)
+                                  : (isEn ? 'Add Sticky Note for this device' : 'افزودن یادداشت استیکی برای این تجهیز')
+                              }
+                            >
+                              <StickyNote className={`w-4 h-4 ${devNote ? 'text-amber-400 fill-amber-400/40' : ''}`} />
+                            </button>
+
+                            {/* 3-Dots Menu Trigger */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleToggleActionMenu(e, dev)}
+                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
+                                menuAnchor?.id === dev.id
+                                  ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.4)]'
+                                  : isLightMode
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300 hover:text-slate-900'
+                                  : 'bg-white/5 hover:bg-white/15 text-slate-300 border-white/10 hover:text-white'
+                              }`}
+                              title={isEn ? 'Actions & Options' : 'عملیات و گزینه‌ها'}
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -1169,6 +1575,161 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           setDeviceToDelete(null);
         }}
       />
+
+      {/* Bulk Delete Confirmation Modal */}
+      {isBulkDeleteOpen &&
+        createPortal(
+          <div
+            className="fixed top-0 left-0 right-0 bottom-8 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isBulkDeleting) setIsBulkDeleteOpen(false);
+            }}
+          >
+            <div
+              className={`relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-scale-up ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-800'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                className={`flex items-center justify-between px-5 py-4 border-b ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl border bg-rose-500/15 border-rose-500/30 text-rose-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold">
+                      {isEn ? 'Confirm Bulk Device Deletion' : 'تأیید حذف گروهی تجهیزات'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isEn
+                        ? `${selectedDeviceIds.size} devices selected for permanent deletion`
+                        : `${selectedDeviceIds.size} تجهیز برای حذف دائمی انتخاب شده‌اند`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isBulkDeleting}
+                  onClick={() => setIsBulkDeleteOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer disabled:opacity-50"
+                  aria-label={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4 text-xs">
+                <div
+                  className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+                    isLightMode
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : 'bg-rose-950/30 border-rose-500/30 text-rose-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-bold">
+                      {isEn ? 'Warning: Irreversible Action!' : 'هشدار: عملیات غیرقابل بازگشت!'}
+                    </span>
+                    <p className="mt-1 text-[11px]">
+                      {isEn
+                        ? 'Deleting these devices will permanently remove them from the inventory, clear their topology links, port mappings, and telemetry history.'
+                        : 'حذف این تجهیزات باعث پاک‌شدن دائمی آنها از لیست موجودی، حذف لینک‌های توپولوژی، نگاشت پورت‌ها و تاریخچه تلمتری خواهد شد.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Selected Devices List Preview */}
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 mb-1.5 block">
+                    {isEn ? 'Selected Devices to be Deleted:' : 'تجهیزات انتخاب‌شده برای حذف:'}
+                  </span>
+                  <div
+                    className={`max-h-44 overflow-y-auto space-y-1 p-2 rounded-xl border custom-scrollbar ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200'
+                        : 'bg-slate-950/60 border-slate-800'
+                    }`}
+                  >
+                    {devices
+                      .filter((d) => selectedDeviceIds.has(d.id))
+                      .map((dev) => (
+                        <div
+                          key={dev.id}
+                          className={`flex items-center justify-between text-[11px] py-1 px-2 rounded-lg font-mono ${
+                            isLightMode ? 'bg-white border border-slate-200' : 'bg-white/5'
+                          }`}
+                        >
+                          <span className={`font-bold truncate max-w-[180px] ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {dev.name}
+                          </span>
+                          <div className="flex items-center gap-2 text-slate-400">
+                            <span>{dev.model}</span>
+                            <span className="text-cyan-400 font-semibold">{dev.ip}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div
+                className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <button
+                  type="button"
+                  disabled={isBulkDeleting}
+                  onClick={() => setIsBulkDeleteOpen(false)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-medium border transition cursor-pointer disabled:opacity-50 ${
+                    isLightMode
+                      ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  {isEn ? 'Cancel' : 'انصراف'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isBulkDeleting}
+                  onClick={handleConfirmBulkDelete}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 shadow-md shadow-rose-600/30 transition cursor-pointer disabled:opacity-50"
+                >
+                  {isBulkDeleting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isEn ? 'Deleting...' : 'در حال حذف...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>
+                        {isEn
+                          ? `Delete ${selectedDeviceIds.size} Devices`
+                          : `حذف ${selectedDeviceIds.size} تجهیز`}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Device Sticky Note Modal */}
       {isNoteModalOpen && selectedNoteDevice && (
