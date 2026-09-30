@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.225.0';
+export const APP_VERSION = '1.226.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.226.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۶ سیستم مدیریت MySQL: مدیریت احراز هویت کلاینت‌ها، دسترسی شبکه و پیکربندی سرور (Client Authentication, Network Host Access & my.cnf Configuration Suite)',
+    title_en: 'Phase 16: MySQL Client Authentication, Network Host Access & my.cnf Configuration Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب تخصصی و جامع مدیریت پیکربندی و احراز هویت کلاینت‌های MySQL (`MysqlConfigManagerTab`) در مودال اصلی مدیریت MySQL با رعایت دقیق استانداردهای ۵گانه مودال‌ها.',
+      'ماتریس دسترسی و احراز هویت هاست‌های کلاینت (Client Host Access Matrix): واکشی بلادرنگ حساب‌های mysql.user، دسته‌بندی دامنه دسترسی (لوکال‌هاست، زیرشبکه و سراسری %)، تشخیص خودکار پلاگین‌های احراز هویت و وضعیت الزام رمزنگاری SSL/TLS.',
+      'موتور تشخیص ریسک‌های امنیتی و آسیب‌پذیری‌ها (Security Risk Assessment): شناسایی خودکار حساب روت با دسترسی راه دور بدون SSL، حساب‌های فعال فاقد رمز عبور، هاست‌های آزاد بدون رمزنگاری و پلاگین‌های منسوخ هش SHA1.',
+      'مودال تعاملی اصلاح دسترسی هاست (Modify Host Access): امکان تغییر ایمن الگوی هاست کاربر (RENAME USER)، فعال/غیرفعال‌سازی الزام رمزنگاری SSL (REQUIRE SSL / NONE) و قفل/بازگشایی حساب (ACCOUNT LOCK).',
+      'ویرایشگر بصری پارامترهای my.cnf (Visual Parameter Editor): دسته‌بندی موضوعی پارامترها در ۵ گروه (شبکه و پورت، امنیت و SSL، کارایی و بافر، لاگ‌برداری و کوئری‌های کند، و عمومی) همراه با فیلتر بلادرنگ و راهنمای ۳بخشی FieldInfoTooltip.',
+      'تنظیم‌کننده زنده متغیرهای سیستمی دیتابیس (Live System Variables Tuner): جستجو و مشاهده مقادیر زنده متغیرهای سرور با امکان ویرایش پویا در حافظه موقت (SET GLOBAL) یا ذخیره پایدار (SET PERSIST).',
+      'ویرایشگر پیشرفته متن خام my.cnf (Raw Editor): ویرایش مستقیم متن فایل پیکربندی سرور همراه با شماره خطوط و تشخیص تغییرات ذخیره‌نشده.',
+      'جریان کار ایمن با پیش‌نمایش تفاوت‌ها (Zero-Lockout Safety Workflow): ایجاد خودکار نسخه پشتیبان با برچسب زمانی قبل از ذخیره، نمایش Unified Diff تغییرات، اعتبارسنجی مقادیر حیاتی، اعمال اتمیک و امکان بارگذاری مجدد خودکار سرویس.',
+      'تاریخچه نسخه‌های پشتیبان و بازیابی یک‌کلیکه (Backup History & Rollback): مشاهده لیست کلیه فایل‌های پشتیبان بر روی سرور و بازیابی سریع با تاییدیه دو مرحله‌ای.',
+      'کلید اختصاصی بازخوانی فوری مجوزها و کش هاست‌ها (Flush Privileges Button): اجرای آنی فرامین FLUSH PRIVILEGES و FLUSH HOSTS با بازخورد بصری موفقیت.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Client Authentication, Network Host Access & my.cnf Configuration tab (`MysqlConfigManagerTab`) inside MySQLManagementModal strictly conforming to the 5 universal modal standards.',
+      'Client Host Access Matrix: live introspection of mysql.user accounts, categorization into access scopes (localhost, subnet-restricted, wildcard %), authentication plugin introspection, and SSL transport verification.',
+      'Automated Security Risk & Vulnerability Engine: real-time detection of root remote wildcard access without SSL, passwordless accounts, wildcard % hosts, and legacy SHA1 mysql_native_password hashes.',
+      'Interactive Host Access Modifier Modal: securely rebind user host patterns (RENAME USER), toggle TLS/SSL encryption mandates (REQUIRE SSL / NONE), and manage account lockouts (ACCOUNT LOCK).',
+      'Visual my.cnf Parameter Editor: categorized directive management across 5 functional areas (Networking, Security, Performance, Logging, and General) with live search and boundary-safe 3-part FieldInfoTooltips.',
+      'Live System Variables Tuner: search and inspect active database engine runtime variables with one-click dynamic mutations supporting both in-memory (SET GLOBAL) and persistent (SET PERSIST) execution.',
+      'Raw my.cnf Text Editor: full configuration file editing with line numbering and unsaved modification tracking.',
+      'Zero-Lockout Safety Workflow: automatic timestamped backup (.bak.YYYYMMDD_HHmmss) prior to file mutation, Unified Diff pre-save preview, directive syntax validation, atomic replacement, and automated service reload.',
+      'Backup History & One-Click Rollback: browse remote timestamped configuration backups and execute safe one-click restores with confirmation guards.',
+      'Dedicated Flush Privileges Control: instant execution of FLUSH PRIVILEGES and FLUSH HOSTS with real-time feedback.'
+    ],
+  },
   {
     version: '1.225.0',
     releaseDate: '2026-09-30',

@@ -114,6 +114,12 @@ import {
   alterMysqlEventStatus,
   dropMysqlEvent,
   generateMysqlDump,
+  getMysqlClientAuthConfig,
+  saveMysqlClientAuthConfig,
+  restoreMysqlCnfBackup,
+  updateMysqlHostRule,
+  updateMysqlDynamicVariable,
+  flushMysqlPrivileges,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5319,6 +5325,130 @@ apiRouter.get('/remote-servers/:id/mysql/variables', async (req: Request, res: R
     return res.json({ success: true, variables });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// Phase 16: MySQL Client Authentication, Network Host Access & my.cnf Configuration Endpoints
+// ==========================================
+
+// GET /api/remote-servers/:id/mysql/client-auth - Discover active my.cnf, client host access matrix, and parameters
+apiRouter.get('/remote-servers/:id/mysql/client-auth', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const sessionPassword = typeof req.query.password === 'string' ? req.query.password : undefined;
+    const data = await getMysqlClientAuthConfig(server, { sessionPassword });
+    return res.json({ success: true, data });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to load MySQL client authentication & configuration',
+      errorFa: 'خطا در بارگذاری پیکربندی و احراز هویت کلاینت‌های MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/client-auth/save - Save and apply my.cnf with backup, unified diff & reload
+apiRouter.post('/remote-servers/:id/mysql/client-auth/save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await saveMysqlClientAuthConfig(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save MySQL configuration',
+      errorFa: 'خطا در ذخیره‌سازی پیکربندی MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/client-auth/restore - Restore from a previous timestamped backup file
+apiRouter.post('/remote-servers/:id/mysql/client-auth/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const { backupFileName, reloadService, sessionPassword } = req.body;
+    if (!backupFileName) {
+      return res.status(400).json({ success: false, error: 'backupFileName is required', errorFa: 'نام فایل پشتیبان الزامی است' });
+    }
+    const result = await restoreMysqlCnfBackup(server, backupFileName, reloadService, { sessionPassword });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restore configuration backup',
+      errorFa: 'خطا در بازیابی نسخه پشتیبان پیکربندی',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/client-auth/update-host - Update user host access binding (rename host, SSL, lock)
+apiRouter.post('/remote-servers/:id/mysql/client-auth/update-host', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await updateMysqlHostRule(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user host access rule',
+      errorFa: 'خطا در به‌روزرسانی قانون دسترسی هاست کاربر',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/client-auth/update-variable - Update a dynamic system variable (SET PERSIST/GLOBAL)
+apiRouter.post('/remote-servers/:id/mysql/client-auth/update-variable', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const result = await updateMysqlDynamicVariable(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update MySQL system variable',
+      errorFa: 'خطا در به‌روزرسانی متغیر سیستمی MySQL',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/client-auth/flush-privileges - Execute FLUSH PRIVILEGES
+apiRouter.post('/remote-servers/:id/mysql/client-auth/flush-privileges', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور موردنظر یافت نشد' });
+    }
+    const sessionPassword = typeof req.body.password === 'string' ? req.body.password : undefined;
+    const result = await flushMysqlPrivileges(server, { sessionPassword });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to flush MySQL privileges',
+      errorFa: 'خطا در بازخوانی مجوزهای MySQL',
+    });
   }
 });
 

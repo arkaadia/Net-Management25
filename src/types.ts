@@ -2361,6 +2361,109 @@ export interface MysqlVariableItem {
   value: string;
 }
 
+// ==========================================
+// Phase 16: MySQL Client Authentication, Network Host Access & my.cnf Configuration Suite
+// ==========================================
+
+export interface MysqlCnfBackupItem {
+  fileName: string;
+  filePath: string;
+  timestamp: string;
+  fileSizeBytes: number;
+}
+
+export interface MysqlCnfFileMetadata {
+  filePath: string;
+  exists: boolean;
+  fileSizeBytes: number;
+  lineCount: number;
+  lastModified: string;
+  readable: boolean;
+  writable: boolean;
+  detectedEngine: 'mysql' | 'mariadb';
+  backups: MysqlCnfBackupItem[];
+}
+
+export interface MysqlCnfParameter {
+  key: string;
+  value: string;
+  section: string;
+  comment?: string;
+  isCommented?: boolean;
+  category: 'networking' | 'security' | 'performance' | 'logging' | 'general';
+  descriptionEn?: string;
+  descriptionFa?: string;
+}
+
+export type MysqlHostAccessScope = 'localhost' | 'subnet' | 'wildcard' | 'named_host';
+export type MysqlRiskLevel = 'safe' | 'warning' | 'critical';
+
+export interface MysqlClientHostAccessRule {
+  user: string;
+  host: string;
+  plugin: string;
+  sslType: string;
+  accountLocked: boolean;
+  passwordExpired: boolean;
+  hasEmptyPassword?: boolean;
+  accessScope: MysqlHostAccessScope;
+  riskLevel: MysqlRiskLevel;
+  riskReasonEn?: string;
+  riskReasonFa?: string;
+}
+
+export interface MysqlClientAuthConfigData {
+  metadata: MysqlCnfFileMetadata;
+  parameters: MysqlCnfParameter[];
+  hostRules: MysqlClientHostAccessRule[];
+  rawContent: string;
+  activeBindAddress: string;
+  activePort: number;
+  activeRequireSecureTransport: boolean;
+  activeSkipNameResolve: boolean;
+  activeMaxConnections: number;
+  activeDefaultAuthPlugin: string;
+  activeSslStatus: string;
+}
+
+export interface MysqlClientAuthSaveRequest {
+  parameters?: MysqlCnfParameter[];
+  rawContent?: string;
+  createBackup?: boolean;
+  reloadService?: boolean;
+  flushPrivileges?: boolean;
+  sessionPassword?: string;
+}
+
+export interface MysqlClientAuthSaveResult {
+  success: boolean;
+  backupCreated: boolean;
+  backupFileName?: string;
+  diffText: string;
+  reloaded: boolean;
+  syntaxValid: boolean;
+  message: string;
+  messageFa: string;
+  error?: string;
+  errorFa?: string;
+}
+
+export interface MysqlHostRuleUpdateRequest {
+  user: string;
+  oldHost: string;
+  newHost: string;
+  requireSsl?: boolean;
+  accountLocked?: boolean;
+  sessionPassword?: string;
+}
+
+export interface MysqlDynamicVariableUpdateRequest {
+  name: string;
+  value: string;
+  persist?: boolean;
+  sessionPassword?: string;
+}
+
 export type MysqlSqlClassificationType =
   | 'read_only'
   | 'write'

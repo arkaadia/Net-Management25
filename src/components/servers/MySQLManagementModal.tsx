@@ -122,6 +122,7 @@ import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
 import { MysqlProcesslistTab } from './MysqlProcesslistTab';
+import { MysqlConfigManagerTab } from './MysqlConfigManagerTab';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface MySQLManagementModalProps {
@@ -135,7 +136,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'config' | 'variables' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -1083,6 +1084,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'users', label: isEn ? 'Users & Accounts' : 'کاربران و اکانت‌ها', icon: Users },
             { id: 'privileges', label: isEn ? 'Privileges & Grants' : 'سطوح دسترسی و مجوزها', icon: Key },
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
+            { id: 'config', label: isEn ? 'Client Auth & my.cnf' : 'احراز هویت و my.cnf', icon: ShieldCheck },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
           ].map((tab) => {
@@ -5897,6 +5899,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
               isLightMode={isLightMode}
               isEn={isEn}
               onRefreshOverview={loadOverview}
+            />
+          )}
+
+          {/* TAB: CLIENT AUTHENTICATION & MY.CNF (Phase 16) */}
+          {activeTab === 'config' && server && (
+            <MysqlConfigManagerTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
             />
           )}
 

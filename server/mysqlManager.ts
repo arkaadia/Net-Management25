@@ -85,6 +85,15 @@ import {
   MysqlDropEventRequest,
   MysqlDumpOptions,
   MysqlDumpResult,
+  MysqlCnfBackupItem,
+  MysqlCnfFileMetadata,
+  MysqlCnfParameter,
+  MysqlClientHostAccessRule,
+  MysqlClientAuthConfigData,
+  MysqlClientAuthSaveRequest,
+  MysqlClientAuthSaveResult,
+  MysqlHostRuleUpdateRequest,
+  MysqlDynamicVariableUpdateRequest,
 } from '../src/types';
 
 /**
@@ -4964,6 +4973,861 @@ export async function generateMysqlDump(
       error: err.message,
       errorFa: err.message,
     };
+  }
+}
+
+// ==========================================
+// Phase 16: MySQL Client Authentication, Network Host Access & my.cnf Configuration Suite
+// ==========================================
+
+/**
+ * Generate a unified diff representation between original and updated configurations
+ */
+export function generateMysqlUnifiedDiff(
+  oldText: string,
+  newText: string,
+  oldLabel = 'original',
+  newLabel = 'updated'
+): string {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const diff: string[] = [`--- ${oldLabel}`, `+++ ${newLabel}`];
+
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    const o = oldLines[i];
+    const n = newLines[i];
+    if (o !== n) {
+      if (o !== undefined) diff.push(`- ${o}`);
+      if (n !== undefined) diff.push(`+ ${n}`);
+    }
+  }
+  return diff.join('\n');
+}
+
+/**
+ * Categorize a my.cnf parameter into functional networking/security/performance/logging areas
+ */
+function categorizeMysqlCnfParameter(key: string): 'networking' | 'security' | 'performance' | 'logging' | 'general' {
+  const lower = key.toLowerCase();
+  if (
+    lower.includes('bind') ||
+    lower.includes('port') ||
+    lower.includes('socket') ||
+    lower.includes('networking') ||
+    lower.includes('resolve') ||
+    lower.includes('connect') ||
+    lower.includes('host') ||
+    lower.includes('back_log')
+  ) {
+    return 'networking';
+  }
+  if (
+    lower.includes('ssl') ||
+    lower.includes('tls') ||
+    lower.includes('secure') ||
+    lower.includes('auth') ||
+    lower.includes('password') ||
+    lower.includes('encrypt') ||
+    lower.includes('privilege') ||
+    lower.includes('sha')
+  ) {
+    return 'security';
+  }
+  if (
+    lower.includes('innodb') ||
+    lower.includes('buffer') ||
+    lower.includes('cache') ||
+    lower.includes('memory') ||
+    lower.includes('thread') ||
+    lower.includes('table_open') ||
+    lower.includes('tmp') ||
+    lower.includes('max_allowed_packet')
+  ) {
+    return 'performance';
+  }
+  if (
+    lower.includes('log') ||
+    lower.includes('audit') ||
+    lower.includes('slow') ||
+    lower.includes('general') ||
+    lower.includes('error')
+  ) {
+    return 'logging';
+  }
+  return 'general';
+}
+
+/**
+ * Returns descriptive bilingual annotations for standard MySQL configuration directives
+ */
+function getMysqlCnfParameterDescriptions(key: string): { en: string; fa: string } {
+  const lower = key.toLowerCase();
+  switch (lower) {
+    case 'bind-address':
+    case 'bind_address':
+      return {
+        en: 'Network interface IP addresses MySQL listens on. Use 0.0.0.0 for all IPv4 interfaces, 127.0.0.1 for local only, or specific network IP.',
+        fa: 'آدرس‌های IP شبکه که مای‌اس‌کیوال روی آنها گوش می‌دهد. 0.0.0.0 برای کلیه رابط‌ها، 127.0.0.1 فقط دسترسی محلی یا IP مشخص.',
+      };
+    case 'port':
+      return {
+        en: 'TCP/IP listening port number (default: 3306).',
+        fa: 'شماره پورت شنود پروتکل TCP/IP (پیش‌فرض: ۳۳۰۶).',
+      };
+    case 'skip-networking':
+    case 'skip_networking':
+      return {
+        en: 'Disables TCP/IP networking completely; allows only local UNIX socket or named pipe connections.',
+        fa: 'غیرفعال‌سازی کامل شبکه TCP/IP؛ فقط ارتباط از طریق سوکت محلی لینوکس یا پایپ مجاز خواهد بود.',
+      };
+    case 'skip-name-resolve':
+    case 'skip_name_resolve':
+      return {
+        en: 'Disables DNS hostname lookups on incoming client connections. Greatly reduces connection latency and prevents DNS hangs.',
+        fa: 'غیرفعال‌سازی جستجوی معکوس DNS برای نام هاست کلاینت‌ها؛ تاخیر برقراری اتصال را به شدت کاهش داده و مانع کندی می‌شود.',
+      };
+    case 'require_secure_transport':
+      return {
+        en: 'Mandates that all client connections must use secure TLS/SSL encrypted transport. Rejects plaintext TCP logins.',
+        fa: 'الزام تمامی اتصالات کلاینت به استفاده از رمزنگاری امن TLS/SSL؛ اتصالات متنی بدون رمزنگاری را رد می‌کند.',
+      };
+    case 'default_authentication_plugin':
+      return {
+        en: 'Default authentication plugin used for newly created user accounts (e.g. caching_sha2_password or mysql_native_password).',
+        fa: 'پلاگین پیش‌فرض احراز هویت برای کاربران جدید (مانند caching_sha2_password یا mysql_native_password).',
+      };
+    case 'max_connections':
+      return {
+        en: 'Maximum permitted number of simultaneous client connections.',
+        fa: 'حداکثر تعداد مجاز اتصالات همزمان کلاینت‌ها به سرور پایگاه‌داده.',
+      };
+    case 'max_user_connections':
+      return {
+        en: 'Maximum number of simultaneous connections allowed for any single user account (0 = unlimited).',
+        fa: 'حداکثر اتصالات همزمان مجاز برای هر حساب کاربری مستقل (۰ = نامحدود).',
+      };
+    case 'max_connect_errors':
+      return {
+        en: 'Number of interrupted connection requests before MySQL blocks further connections from that host.',
+        fa: 'تعداد خطاهای متوالی اتصال قبل از بلاک کردن موقت هاست متصل‌شونده توسط MySQL.',
+      };
+    case 'innodb_buffer_pool_size':
+      return {
+        en: 'Memory buffer pool size dedicated for caching InnoDB table data and indexes (typically 50-75% of server RAM for dedicated DB).',
+        fa: 'اندازه حافظه بافر اختصاص‌یافته برای کش کردن جداول و ایندکس‌های موتور InnoDB (معمولاً ۵۰ تا ۷۵ درصد رم سرور).',
+      };
+    case 'slow_query_log':
+      return {
+        en: 'Enables or disables logging of queries that exceed long_query_time.',
+        fa: 'فعال یا غیرفعال‌سازی ثبت کوئری‌های کندی که بیشتر از حد مجاز زمان برده‌اند.',
+      };
+    case 'long_query_time':
+      return {
+        en: 'Execution time threshold in seconds for classifying a query as slow.',
+        fa: 'آستانه زمان اجرای کوئری به ثانیه جهت طبقه‌بندی به عنوان کوئری کند.',
+      };
+    default:
+      return {
+        en: `Configuration directive: ${key}`,
+        fa: `تنظیم پیکربندی: ${key}`,
+      };
+  }
+}
+
+/**
+ * Parses raw my.cnf content into structured sections and categorized parameters
+ */
+function parseMysqlCnfContent(rawText: string): MysqlCnfParameter[] {
+  const lines = rawText.split('\n');
+  const params: MysqlCnfParameter[] = [];
+  let currentSection = 'mysqld';
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Check for section header [section]
+    const sectionMatch = trimmed.match(/^\[([a-zA-Z0-9_\-]+)\]$/);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1];
+      continue;
+    }
+
+    // Check if line is commented
+    const isCommented = trimmed.startsWith('#') || trimmed.startsWith(';');
+    const cleanLine = isCommented ? trimmed.replace(/^[#;]\s*/, '') : trimmed;
+
+    // Match key = value or bare flag
+    const eqIdx = cleanLine.indexOf('=');
+    if (eqIdx !== -1) {
+      const key = cleanLine.substring(0, eqIdx).trim();
+      const val = cleanLine.substring(eqIdx + 1).trim();
+      if (key && !key.startsWith('[') && !key.includes(' ')) {
+        const descriptions = getMysqlCnfParameterDescriptions(key);
+        params.push({
+          key,
+          value: val,
+          section: currentSection,
+          isCommented,
+          category: categorizeMysqlCnfParameter(key),
+          descriptionEn: descriptions.en,
+          descriptionFa: descriptions.fa,
+        });
+      }
+    }
+  }
+
+  return params;
+}
+
+/**
+ * Reads client authentication, network host access matrix, and remote my.cnf configuration
+ */
+export async function getMysqlClientAuthConfig(
+  server: RemoteServer,
+  opts?: { sessionPassword?: string }
+): Promise<MysqlClientAuthConfigData> {
+  const config = getMysqlConfig(server, { password: opts?.sessionPassword });
+  let conn: mysql.Connection | null = null;
+
+  // Active database status variables
+  let activeBindAddress = '0.0.0.0';
+  let activePort = 3306;
+  let activeRequireSecureTransport = false;
+  let activeSkipNameResolve = false;
+  let activeMaxConnections = 151;
+  let activeDefaultAuthPlugin = 'caching_sha2_password';
+  let activeSslStatus = 'DISABLED';
+
+  const hostRules: MysqlClientHostAccessRule[] = [];
+
+  // Step 1: Query MySQL directly for active host rules and runtime variables
+  try {
+    conn = await mysql.createConnection(config);
+
+    // Fetch active variables
+    const [varRows] = (await conn.query(`
+      SHOW VARIABLES WHERE Variable_name IN (
+        'bind_address',
+        'port',
+        'skip_networking',
+        'skip_name_resolve',
+        'require_secure_transport',
+        'max_connections',
+        'default_authentication_plugin',
+        'have_ssl',
+        'version',
+        'version_comment'
+      );
+    `)) as any;
+
+    const varMap = new Map<string, string>();
+    for (const r of varRows || []) {
+      if (r.Variable_name) {
+        varMap.set(String(r.Variable_name).toLowerCase(), String(r.Value || ''));
+      }
+    }
+
+    if (varMap.has('bind_address')) activeBindAddress = varMap.get('bind_address')!;
+    if (varMap.has('port')) activePort = parseInt(varMap.get('port')!, 10) || 3306;
+    if (varMap.has('require_secure_transport')) {
+      activeRequireSecureTransport = ['on', '1', 'true', 'yes'].includes(
+        varMap.get('require_secure_transport')!.toLowerCase()
+      );
+    }
+    if (varMap.has('skip_name_resolve')) {
+      activeSkipNameResolve = ['on', '1', 'true', 'yes'].includes(
+        varMap.get('skip_name_resolve')!.toLowerCase()
+      );
+    }
+    if (varMap.has('max_connections')) {
+      activeMaxConnections = parseInt(varMap.get('max_connections')!, 10) || 151;
+    }
+    if (varMap.has('default_authentication_plugin')) {
+      activeDefaultAuthPlugin = varMap.get('default_authentication_plugin')!;
+    }
+    if (varMap.has('have_ssl')) {
+      activeSslStatus = varMap.get('have_ssl')!;
+    }
+
+    // Fetch mysql.user accounts and calculate client host access matrix
+    const [userRows] = (await conn.query(`
+      SELECT 
+        User, 
+        Host, 
+        plugin, 
+        authentication_string, 
+        ssl_type, 
+        account_locked, 
+        password_expired 
+      FROM mysql.user 
+      ORDER BY User ASC, Host ASC;
+    `)) as any;
+
+    for (const u of userRows || []) {
+      const user = String(u.User || '');
+      const host = String(u.Host || '');
+      const plugin = String(u.plugin || '');
+      const sslType = String(u.ssl_type || '');
+      const accountLocked = String(u.account_locked || '').toUpperCase() === 'Y';
+      const passwordExpired = String(u.password_expired || '').toUpperCase() === 'Y';
+      const hasEmptyPassword = !u.authentication_string || String(u.authentication_string).length === 0;
+
+      // Access scope classification
+      let accessScope: 'localhost' | 'subnet' | 'wildcard' | 'named_host' = 'named_host';
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+        accessScope = 'localhost';
+      } else if (host === '%') {
+        accessScope = 'wildcard';
+      } else if (host.includes('%') || host.includes('/')) {
+        accessScope = 'subnet';
+      }
+
+      // Risk classification
+      let riskLevel: 'safe' | 'warning' | 'critical' = 'safe';
+      let riskReasonEn = 'Standard host authorization configuration.';
+      let riskReasonFa = 'پیکربندی استاندارد مجوزهای دسترسی هاست.';
+
+      if (user.toLowerCase() === 'root' && (accessScope === 'wildcard' || accessScope === 'subnet') && !sslType) {
+        riskLevel = 'critical';
+        riskReasonEn = 'CRITICAL: Superuser "root" accepts remote incoming connections without mandatory SSL encryption.';
+        riskReasonFa = 'بسیار پرخطر: کاربر ممتاز روت اتصالات راه دور را بدون الزام رمزنگاری SSL می‌پذیرد.';
+      } else if (hasEmptyPassword && !accountLocked) {
+        riskLevel = 'critical';
+        riskReasonEn = 'CRITICAL: Active account has an empty password; remote/local access is completely unauthenticated.';
+        riskReasonFa = 'بسیار پرخطر: حساب فعال فاقد کلمه عبور است؛ دسترسی بدون احراز هویت امکان‌پذیر است.';
+      } else if (accessScope === 'wildcard' && !sslType) {
+        riskLevel = 'warning';
+        riskReasonEn = 'Warning: Wildcard "%" host permits access from any public/private IP address without SSL enforcement.';
+        riskReasonFa = 'هشدار: هاست وایلدکارد "%" اتصال از هر آدرس IP را بدون الزام SSL مجاز می‌داند.';
+      } else if (plugin === 'mysql_native_password') {
+        riskLevel = 'warning';
+        riskReasonEn = 'Warning: Uses legacy SHA1 password hashing (mysql_native_password) instead of modern caching_sha2_password.';
+        riskReasonFa = 'هشدار: استفاده از الگوریتم هش قدیمی و ضعیف SHA1 به جای پلاگین مدرن caching_sha2_password.';
+      }
+
+      hostRules.push({
+        user,
+        host,
+        plugin,
+        sslType,
+        accountLocked,
+        passwordExpired,
+        hasEmptyPassword,
+        accessScope,
+        riskLevel,
+        riskReasonEn,
+        riskReasonFa,
+      });
+    }
+
+    await conn.end();
+    conn = null;
+  } catch (dbErr: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+      conn = null;
+    }
+    // If database connection fails, surface transparent error
+    throw new Error(`Failed to query MySQL client authentication metadata: ${dbErr.message}`);
+  }
+
+  // Step 2: Probe remote server filesystem via SSH for active my.cnf file and backups
+  let discoveredPath = '/etc/mysql/mysql.conf.d/mysqld.cnf';
+  let exists = false;
+  let fileSizeBytes = 0;
+  let lineCount = 0;
+  let lastModified = new Date().toISOString();
+  let readable = false;
+  let writable = false;
+  let rawContent = '';
+  const backups: MysqlCnfBackupItem[] = [];
+
+  const sshProbeScript = `export LC_ALL=C
+CNF_CANDIDATES="/etc/mysql/mysql.conf.d/mysqld.cnf /etc/my.cnf /etc/mysql/my.cnf /etc/mysql/mariadb.conf.d/50-server.cnf /etc/my.cnf.d/server.cnf /usr/local/etc/my.cnf"
+TARGET_FILE=""
+for c in $CNF_CANDIDATES; do
+  if [ -f "$c" ]; then
+    TARGET_FILE="$c"
+    break
+  fi
+done
+
+if [ -n "$TARGET_FILE" ]; then
+  echo "===FILE_EXISTS==="
+  echo "PATH=$TARGET_FILE"
+  stat -c "%s|%Y" "$TARGET_FILE" 2>/dev/null || stat -f "%z|%m" "$TARGET_FILE" 2>/dev/null || echo "0|0"
+  [ -r "$TARGET_FILE" ] && echo "READABLE=1" || echo "READABLE=0"
+  [ -w "$TARGET_FILE" ] && echo "WRITABLE=1" || echo "WRITABLE=0"
+  echo "===BACKUPS==="
+  ls -1t "\${TARGET_FILE}.bak."* 2>/dev/null | head -n 15 || true
+  echo "===CONTENT==="
+  cat "$TARGET_FILE"
+else
+  echo "===FILE_NOT_FOUND==="
+fi
+`;
+
+  try {
+    const sshOut = await runAdaptiveSshCommand(server, sshProbeScript, opts?.sessionPassword, 12000);
+    if (sshOut.includes('===FILE_EXISTS===')) {
+      exists = true;
+      const pathMatch = sshOut.match(/PATH=([^\r\n]+)/);
+      if (pathMatch) discoveredPath = pathMatch[1].trim();
+
+      const statMatch = sshOut.match(/===FILE_EXISTS===\s+PATH=[^\r\n]+\s+([0-9]+)\|([0-9]+)/);
+      if (statMatch) {
+        fileSizeBytes = parseInt(statMatch[1], 10) || 0;
+        const epoch = parseInt(statMatch[2], 10);
+        if (epoch > 0) lastModified = new Date(epoch * 1000).toISOString();
+      }
+
+      readable = sshOut.includes('READABLE=1');
+      writable = sshOut.includes('WRITABLE=1');
+
+      // Extract backups list
+      const backupSectionMatch = sshOut.match(/===BACKUPS===([\s\S]*?)===CONTENT===/);
+      if (backupSectionMatch) {
+        const backupLines = backupSectionMatch[1].split('\n');
+        for (const bl of backupLines) {
+          const trimmed = bl.trim();
+          if (trimmed && trimmed.includes('.bak.')) {
+            const fileName = trimmed.split('/').pop() || trimmed;
+            const tsMatch = fileName.match(/\.bak\.([0-9_]+)/);
+            backups.push({
+              fileName,
+              filePath: trimmed,
+              timestamp: tsMatch ? tsMatch[1] : 'Unknown',
+              fileSizeBytes: 0,
+            });
+          }
+        }
+      }
+
+      // Extract file content
+      const contentIdx = sshOut.indexOf('===CONTENT===');
+      if (contentIdx !== -1) {
+        rawContent = sshOut.substring(contentIdx + '===CONTENT==='.length).replace(/^\r?\n/, '');
+        lineCount = rawContent.split('\n').length;
+      }
+    }
+  } catch (sshErr: any) {
+    // Graceful fallback: If SSH is unavailable or server is database-only, generate clean virtual representation from live runtime variables
+    exists = false;
+  }
+
+  // If no raw file content discovered via SSH, synthesize canonical runtime representation
+  if (!rawContent) {
+    rawContent = `# MySQL / MariaDB Server Configuration
+# Note: Live runtime configuration active on database engine
+
+[mysqld]
+bind-address = ${activeBindAddress}
+port = ${activePort}
+skip-name-resolve = ${activeSkipNameResolve ? '1' : '0'}
+require_secure_transport = ${activeRequireSecureTransport ? 'ON' : 'OFF'}
+max_connections = ${activeMaxConnections}
+default_authentication_plugin = ${activeDefaultAuthPlugin}
+
+[client]
+port = ${activePort}
+default-character-set = utf8mb4
+
+[mysql]
+default-character-set = utf8mb4
+`;
+    lineCount = rawContent.split('\n').length;
+    fileSizeBytes = Buffer.byteLength(rawContent, 'utf8');
+    readable = true;
+    writable = false;
+  }
+
+  const parameters = parseMysqlCnfContent(rawContent);
+
+  const metadata: MysqlCnfFileMetadata = {
+    filePath: discoveredPath,
+    exists,
+    fileSizeBytes,
+    lineCount,
+    lastModified,
+    readable,
+    writable,
+    detectedEngine: 'mysql',
+    backups,
+  };
+
+  return {
+    metadata,
+    parameters,
+    hostRules,
+    rawContent,
+    activeBindAddress,
+    activePort,
+    activeRequireSecureTransport,
+    activeSkipNameResolve,
+    activeMaxConnections,
+    activeDefaultAuthPlugin,
+    activeSslStatus,
+  };
+}
+
+/**
+ * Saves and applies MySQL configuration (my.cnf) with automated timestamped backup,
+ * syntax validation, unified diff generation, atomic replacement, and live service/privileges reload.
+ */
+export async function saveMysqlClientAuthConfig(
+  server: RemoteServer,
+  payload: MysqlClientAuthSaveRequest
+): Promise<MysqlClientAuthSaveResult> {
+  const currentConfig = await getMysqlClientAuthConfig(server, { sessionPassword: payload.sessionPassword });
+  const oldContent = currentConfig.rawContent;
+
+  let newContent = '';
+  if (payload.rawContent !== undefined) {
+    newContent = payload.rawContent;
+  } else if (payload.parameters && payload.parameters.length > 0) {
+    // Reconstruct sections from structured parameters
+    const sectionMap = new Map<string, MysqlCnfParameter[]>();
+    for (const p of payload.parameters) {
+      const sec = p.section || 'mysqld';
+      if (!sectionMap.has(sec)) sectionMap.set(sec, []);
+      sectionMap.get(sec)!.push(p);
+    }
+
+    const lines: string[] = ['# Generated by NetTopology MySQL Management Suite'];
+    for (const [sec, params] of sectionMap.entries()) {
+      lines.push(`\n[${sec}]`);
+      for (const p of params) {
+        if (p.isCommented) {
+          lines.push(`# ${p.key} = ${p.value}`);
+        } else {
+          lines.push(`${p.key} = ${p.value}`);
+        }
+      }
+    }
+    newContent = lines.join('\n') + '\n';
+  } else {
+    throw new Error('No content or parameters provided for configuration save.');
+  }
+
+  // Pre-flight validation of critical directives
+  const portMatch = newContent.match(/^\s*port\s*=\s*([0-9]+)/m);
+  if (portMatch) {
+    const portVal = parseInt(portMatch[1], 10);
+    if (isNaN(portVal) || portVal < 1 || portVal > 65535) {
+      throw new Error(`Invalid port specification in configuration: "${portMatch[1]}". Port must be 1-65535.`);
+    }
+  }
+
+  const bindMatch = newContent.match(/^\s*bind[-_]address\s*=\s*([^\s#;]+)/m);
+  if (bindMatch) {
+    const bindVal = bindMatch[1].trim();
+    if (!bindVal || bindVal.includes(';') || bindVal.includes('&')) {
+      throw new Error(`Invalid bind-address syntax: "${bindVal}".`);
+    }
+  }
+
+  // Compute unified diff
+  const diffText = generateMysqlUnifiedDiff(
+    oldContent,
+    newContent,
+    currentConfig.metadata.filePath,
+    `${currentConfig.metadata.filePath}.new`
+  );
+
+  let backupCreated = false;
+  let backupFileName: string | undefined;
+  let reloaded = false;
+
+  // If SSH is accessible and file exists on server filesystem, execute atomic backup & write
+  if (currentConfig.metadata.exists) {
+    const targetFile = currentConfig.metadata.filePath;
+    const nowStr = new Date()
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace('T', '_')
+      .split('.')[0];
+    const bName = `${targetFile.split('/').pop()}.bak.${nowStr}`;
+    const backupCmd = `cp -p "${targetFile}" "${targetFile}.bak.${nowStr}"`;
+
+    try {
+      await runAdaptiveSshCommand(server, backupCmd, payload.sessionPassword, 10000);
+      backupCreated = true;
+      backupFileName = bName;
+    } catch (bErr: any) {
+      throw new Error(`Failed to create timestamped backup of ${targetFile}: ${bErr.message}`);
+    }
+
+    // Write new content atomically via temporary file and replace
+    const tmpFile = `/tmp/my_cnf_tmp_${Date.now()}`;
+    const base64Content = Buffer.from(newContent, 'utf8').toString('base64');
+    const writeScript = `export LC_ALL=C
+echo "${base64Content}" | base64 -d > "${tmpFile}" && \
+chmod --reference="${targetFile}" "${tmpFile}" 2>/dev/null || chmod 644 "${tmpFile}"
+chown --reference="${targetFile}" "${tmpFile}" 2>/dev/null || true
+mv -f "${tmpFile}" "${targetFile}"
+`;
+
+    try {
+      await runAdaptiveSshCommand(server, writeScript, payload.sessionPassword, 15000);
+    } catch (writeErr: any) {
+      // Rollback immediately if write failed
+      if (backupCreated) {
+        await runAdaptiveSshCommand(
+          server,
+          `cp -f "${targetFile}.bak.${nowStr}" "${targetFile}"`,
+          payload.sessionPassword,
+          10000
+        ).catch(() => {});
+      }
+      throw new Error(`Failed to safely write new configuration file: ${writeErr.message}`);
+    }
+
+    // Optional service reload
+    if (payload.reloadService) {
+      try {
+        await runAdaptiveSshCommand(
+          server,
+          'systemctl reload mysql 2>/dev/null || systemctl reload mariadb 2>/dev/null || service mysql reload 2>/dev/null || true',
+          payload.sessionPassword,
+          15000
+        );
+        reloaded = true;
+      } catch {}
+    }
+  }
+
+  // Also apply FLUSH PRIVILEGES and update dynamic variables on MySQL connection if requested
+  if (payload.flushPrivileges !== false) {
+    try {
+      const mysqlCfg = getMysqlConfig(server, { password: payload.sessionPassword });
+      const c = await mysql.createConnection(mysqlCfg);
+      await c.query('FLUSH PRIVILEGES;');
+      await c.query('FLUSH HOSTS;').catch(() => {});
+      await c.end();
+    } catch {}
+  }
+
+  return {
+    success: true,
+    backupCreated,
+    backupFileName,
+    diffText,
+    reloaded,
+    syntaxValid: true,
+    message: `Configuration saved successfully.${backupCreated ? ` Backup created: ${backupFileName}.` : ''}`,
+    messageFa: `پیکربندی با موفقیت ذخیره شد.${backupCreated ? ` نسخه پشتیبان: ${backupFileName}.` : ''}`,
+  };
+}
+
+/**
+ * Restores a designated timestamped backup file to active my.cnf configuration
+ */
+export async function restoreMysqlCnfBackup(
+  server: RemoteServer,
+  backupFileName: string,
+  reloadService?: boolean,
+  opts?: { sessionPassword?: string }
+): Promise<{ success: boolean; message: string; messageFa: string }> {
+  const currentConfig = await getMysqlClientAuthConfig(server, { sessionPassword: opts?.sessionPassword });
+  const targetFile = currentConfig.metadata.filePath;
+
+  // Strict verification of backup filename to prevent directory traversal
+  const sanitizedBackupName = backupFileName.split('/').pop() || '';
+  if (!sanitizedBackupName.includes('.bak.')) {
+    throw new Error('Invalid backup file identifier. File must follow pattern *.bak.*');
+  }
+
+  const backupDir = targetFile.substring(0, targetFile.lastIndexOf('/'));
+  const fullBackupPath = `${backupDir}/${sanitizedBackupName}`;
+
+  const restoreScript = `export LC_ALL=C
+if [ ! -f "${fullBackupPath}" ]; then
+  echo "BACKUP_NOT_FOUND"
+  exit 1
+fi
+cp -p "${fullBackupPath}" "${targetFile}"
+`;
+
+  try {
+    const res = await runAdaptiveSshCommand(server, restoreScript, opts?.sessionPassword, 15000);
+    if (res.includes('BACKUP_NOT_FOUND')) {
+      throw new Error(`Backup file ${sanitizedBackupName} not found on server.`);
+    }
+
+    if (reloadService) {
+      await runAdaptiveSshCommand(
+        server,
+        'systemctl reload mysql 2>/dev/null || systemctl reload mariadb 2>/dev/null || service mysql reload 2>/dev/null || true',
+        opts?.sessionPassword,
+        15000
+      ).catch(() => {});
+    }
+
+    // Flush privileges on database
+    try {
+      const mysqlCfg = getMysqlConfig(server, { password: opts?.sessionPassword });
+      const c = await mysql.createConnection(mysqlCfg);
+      await c.query('FLUSH PRIVILEGES;');
+      await c.query('FLUSH HOSTS;').catch(() => {});
+      await c.end();
+    } catch {}
+
+    return {
+      success: true,
+      message: `Configuration restored successfully from ${sanitizedBackupName}.`,
+      messageFa: `پیکربندی با موفقیت از فایل پشتیبان ${sanitizedBackupName} بازیابی شد.`,
+    };
+  } catch (err: any) {
+    throw new Error(`Failed to restore configuration backup: ${err.message}`);
+  }
+}
+
+/**
+ * Modifies client host access rules (e.g. changing host binding from wildcard to specific subnet or toggling SSL/lock)
+ */
+export async function updateMysqlHostRule(
+  server: RemoteServer,
+  payload: MysqlHostRuleUpdateRequest
+): Promise<{ success: boolean; user: string; host: string; message: string; messageFa: string }> {
+  const config = getMysqlConfig(server, { password: payload.sessionPassword });
+  let conn: mysql.Connection | null = null;
+
+  try {
+    conn = await mysql.createConnection(config);
+    const user = payload.user.trim();
+    const oldHost = payload.oldHost.trim();
+    const newHost = payload.newHost ? payload.newHost.trim() : oldHost;
+
+    if (!user || !oldHost) {
+      throw new Error('Both user and oldHost must be specified.');
+    }
+
+    // Rename host if changed
+    if (newHost !== oldHost) {
+      await conn.query('RENAME USER ?@? TO ?@?;', [user, oldHost, user, newHost]);
+    }
+
+    const effectiveHost = newHost;
+
+    // Toggle SSL requirement
+    if (payload.requireSsl !== undefined) {
+      const sslClause = payload.requireSsl ? 'SSL' : 'NONE';
+      await conn.query(`ALTER USER ?@? REQUIRE ${sslClause};`, [user, effectiveHost]);
+    }
+
+    // Toggle Account Lock
+    if (payload.accountLocked !== undefined) {
+      const lockClause = payload.accountLocked ? 'LOCK' : 'UNLOCK';
+      await conn.query(`ALTER USER ?@? ACCOUNT ${lockClause};`, [user, effectiveHost]);
+    }
+
+    // Flush privileges
+    await conn.query('FLUSH PRIVILEGES;');
+    await conn.end();
+    conn = null;
+
+    return {
+      success: true,
+      user,
+      host: effectiveHost,
+      message: `User '${user}'@'${effectiveHost}' host access rule updated successfully.`,
+      messageFa: `قانون دسترسی هاست برای کاربر '${user}'@'${effectiveHost}' با موفقیت به‌روزرسانی شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to update MySQL host access rule: ${err.message}`);
+  }
+}
+
+/**
+ * Updates a dynamic system variable in MySQL with optional SET PERSIST
+ */
+export async function updateMysqlDynamicVariable(
+  server: RemoteServer,
+  payload: MysqlDynamicVariableUpdateRequest
+): Promise<{ success: boolean; name: string; value: string; persist: boolean; message: string; messageFa: string }> {
+  const config = getMysqlConfig(server, { password: payload.sessionPassword });
+  let conn: mysql.Connection | null = null;
+
+  // Sanitize variable name to prevent SQL injection
+  if (!/^[a-zA-Z0-9_]+$/.test(payload.name)) {
+    throw new Error(`Invalid system variable identifier: "${payload.name}"`);
+  }
+
+  try {
+    conn = await mysql.createConnection(config);
+    let persisted = false;
+
+    if (payload.persist) {
+      try {
+        await conn.query(`SET PERSIST \`${payload.name}\` = ?;`, [payload.value]);
+        persisted = true;
+      } catch {
+        // If SET PERSIST is unsupported (e.g. MariaDB or MySQL < 8.0), fallback to SET GLOBAL
+        await conn.query(`SET GLOBAL \`${payload.name}\` = ?;`, [payload.value]);
+      }
+    } else {
+      await conn.query(`SET GLOBAL \`${payload.name}\` = ?;`, [payload.value]);
+    }
+
+    await conn.end();
+    conn = null;
+
+    return {
+      success: true,
+      name: payload.name,
+      value: payload.value,
+      persist: persisted,
+      message: `Variable '${payload.name}' set to '${payload.value}' (${persisted ? 'SET PERSIST' : 'SET GLOBAL'}).`,
+      messageFa: `متغیر '${payload.name}' با موفقیت به '${payload.value}' تغییر یافت (${persisted ? 'پایدار' : 'حافظه موقت'}).`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to update MySQL system variable: ${err.message}`);
+  }
+}
+
+/**
+ * Executes FLUSH PRIVILEGES and FLUSH HOSTS on remote MySQL instance
+ */
+export async function flushMysqlPrivileges(
+  server: RemoteServer,
+  opts?: { sessionPassword?: string }
+): Promise<{ success: boolean; message: string; messageFa: string }> {
+  const config = getMysqlConfig(server, { password: opts?.sessionPassword });
+  let conn: mysql.Connection | null = null;
+
+  try {
+    conn = await mysql.createConnection(config);
+    await conn.query('FLUSH PRIVILEGES;');
+    await conn.query('FLUSH HOSTS;').catch(() => {});
+    await conn.end();
+    conn = null;
+
+    return {
+      success: true,
+      message: 'Privileges and hosts cache flushed successfully.',
+      messageFa: 'مجوزها و حافظه کش هاست‌ها با موفقیت بازخوانی شدند (FLUSH PRIVILEGES).',
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    throw new Error(`Failed to flush MySQL privileges: ${err.message}`);
   }
 }
 

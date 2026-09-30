@@ -81,6 +81,15 @@ import {
   MysqlDropEventRequest,
   MysqlDumpOptions,
   MysqlDumpResult,
+  MysqlCnfBackupItem,
+  MysqlCnfFileMetadata,
+  MysqlCnfParameter,
+  MysqlClientHostAccessRule,
+  MysqlClientAuthConfigData,
+  MysqlClientAuthSaveRequest,
+  MysqlClientAuthSaveResult,
+  MysqlHostRuleUpdateRequest,
+  MysqlDynamicVariableUpdateRequest,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1841,6 +1850,81 @@ export async function generateRemoteServerMysqlDump(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
+  });
+  return res.json();
+}
+
+// ==========================================
+// Phase 16: MySQL Client Authentication, Network Host Access & my.cnf Configuration Suite
+// ==========================================
+
+export async function fetchRemoteServerMysqlClientAuthConfig(
+  id: string,
+  options?: { password?: string }
+): Promise<{ success: boolean; data?: MysqlClientAuthConfigData; error?: string; errorFa?: string }> {
+  const query = options?.password ? `?password=${encodeURIComponent(options.password)}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth${query}`);
+  return res.json();
+}
+
+export async function saveRemoteServerMysqlClientAuthConfig(
+  id: string,
+  payload: MysqlClientAuthSaveRequest
+): Promise<MysqlClientAuthSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function restoreRemoteServerMysqlCnfBackup(
+  id: string,
+  backupFileName: string,
+  reloadService?: boolean,
+  sessionPassword?: string
+): Promise<{ success: boolean; message: string; messageFa: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backupFileName, reloadService, sessionPassword }),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerMysqlHostRule(
+  id: string,
+  payload: MysqlHostRuleUpdateRequest
+): Promise<{ success: boolean; user?: string; host?: string; message?: string; messageFa?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth/update-host`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function updateRemoteServerMysqlDynamicVariable(
+  id: string,
+  payload: MysqlDynamicVariableUpdateRequest
+): Promise<{ success: boolean; name?: string; value?: string; persist?: boolean; message?: string; messageFa?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth/update-variable`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function flushRemoteServerMysqlPrivileges(
+  id: string,
+  options?: { password?: string }
+): Promise<{ success: boolean; message?: string; messageFa?: string; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/client-auth/flush-privileges`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: options?.password }),
   });
   return res.json();
 }
