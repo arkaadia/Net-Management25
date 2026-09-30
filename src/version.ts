@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.228.0';
+export const APP_VERSION = '1.229.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.229.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۹ سیستم مدیریت MySQL: سامانه جامع رونویسی، کلاستر و دسترسی‌پذیری بالا (Replication & High Availability Suite)',
+    title_en: 'Phase 19: MySQL Replication & High Availability Management Suite',
+    changes: [
+      'طراحی و پیاده‌سازی تب جامع و پیشرفته رونویسی و دسترسی بالا (MysqlReplicationTab) در مودال مدیریت MySQL با ۵ زیربرگه تخصصی (کانال‌ها، رپلیکاهای متصل، لاگ‌های باینری، کلاستر و راهنمای راه‌اندازی).',
+      'تشخیص هوشمند و تطبیقی نقش سرور (Replication Role Detection): شناسایی خودکار نقش‌های مبدأ (Source / Master)، پیرو (Replica / Slave)، دوگانه (Dual / Chained Source & Replica)، گروه رونویسی (Group Replication / Cluster) و سرور منفرد (Standalone).',
+      'پایش بلادرنگ کانال‌های رونویسی (Multi-Channel Replica Monitoring): بررسی وضعیت تِرد ورودی/خروجی (I/O Thread)، تِرد پردازش SQL، میزان تأخیر رونویسی به ثانیه (Seconds Behind Master)، پوزیشن فایل‌های لاگ، وضعیت SSL و ردیابی کامل مجموعه‌های GTID (Retrieved و Executed).',
+      'کنترل‌های ایمن رونویسی (Safe Replication Actions): اجرای دستورات استاندارد آغاز (START REPLICA / SLAVE)، توقف (STOP REPLICA / SLAVE) و ریست با امکان پاکسازی کامل کانفیگ (RESET REPLICA ALL) همراه با مدال تایید محافظت‌شده.',
+      'مدیریت و پاکسازی فایل‌های ثبت وقایع باینری (Binary Logs & Purge Management): نمایش فهرست تمام لاگ‌های باینری به همراه سایز، تشخیص فایل فعال در حال نوشتن، محاسبه کل فضای اشغال‌شده روی دیسک، و ابزار پاکسازی لاگ‌های قدیمی‌تر (PURGE BINARY LOGS TO / BEFORE) و ریست کامل (RESET MASTER).',
+      'پایش کلاستر و دسترسی‌پذیری پیشرفته (HA & Cluster Detection): ارزیابی وضعیت Group Replication و InnoDB Cluster با پایش اعضا و اجماع پکسوس، به همراه بررسی پلاگین‌های رونویسی نیمه‌همگام (Semi-Synchronous Replication Master/Slave).',
+      'کنترل سریع وضعیت فقط-خواندنی (Read-Only / Super Read-Only Toggle): امکان قفل‌گذاری یا بازگشایی نوشتن با یک کلیک جهت نگهداری و مهاجرت ترافیک.',
+      'راهنمای تعاملی و ویزارد راه‌اندازی (Replication Setup Guide & Wizard): دستورات آماده و استاندارد برای ایجاد کاربر رونویسی، اتصال رپلیکا با GTID (MySQL 8.0.22+) و اتصال سنتی بر مبنای موقعیت فایل لاگ (MySQL 5.7 و MariaDB) با قابلیت کپی مستقیم.',
+      'رعایت کامل استانداردهای پنج‌گانه: تم تیره و روشن، عدم استفاده از داده شبیه‌سازی‌شده، دوزبانگی صددرصد بدون متن فارسی در حالت انگلیسی، و تولتیپ‌های سه‌بخشی Info.'
+    ],
+    changes_en: [
+      'Designed and engineered comprehensive MySQL Replication & High Availability Management suite (MysqlReplicationTab) inside MySQL Management Modal with 5 specialized sub-tabs (Channels, Connected Replicas, Binary Logs, HA & Cluster, and Setup Wizard).',
+      'Adaptive Multi-Generation Role Detection: automatically detects Source (Master), Replica (Slave), Dual (Chained Source & Replica), Group Replication (InnoDB Cluster), and Standalone node topologies across MySQL 5.7, 8.0, 8.4, and MariaDB.',
+      'Real-time Replication Channels & Lag Telemetry: inspects Replica I/O Thread, Replica SQL Thread, replication lag in seconds (Seconds Behind Master/Source), master/relay log coordinates, SSL status, and full GTID sets (Retrieved & Executed GTID sets).',
+      'Safe Replication Controls: executes verified START REPLICA/SLAVE, STOP REPLICA/SLAVE, and RESET REPLICA (with optional ALL modifier) actions backed by safety confirmation modals.',
+      'Binary Logs Explorer & Purge Management: lists all active binary log files with formatted disk sizes, identifies active writing log, tracks total binlog storage footprint, and supports purging older logs (PURGE BINARY LOGS TO / BEFORE) and RESET MASTER.',
+      'High Availability & Cluster Diagnostics: detects MySQL Group Replication and InnoDB Cluster member states and Paxos consensus roles, plus semi-synchronous replication (rpl_semi_sync) source/replica status and sync timeouts.',
+      'Read-Only Quick Control: one-click global READ_ONLY and SUPER_READ_ONLY toggle with safety alerts to protect replicas from split-brain writes.',
+      'Interactive Setup Wizard & Command Snippets: ready-to-use standard SQL commands for replication user creation, GTID Auto-Position (MySQL 8.0.22+), and traditional file/position setup (MySQL 5.7 & MariaDB) with one-click clipboard copying.',
+      'Strict adherence to engineering guidelines: 100% authentic live data (no simulated data), dark/light theme ergonomics, strict bilingual localization without Persian leakage in English mode, and 3-part boundary-safe FieldInfoTooltips.'
+    ]
+  },
   {
     version: '1.228.0',
     releaseDate: '2026-09-30',

@@ -2769,6 +2769,130 @@ export interface MysqlQueryHistoryItem {
   requiresConfirmation?: boolean;
 }
 
+// ==========================================
+// Phase 19: MySQL Replication & High Availability
+// ==========================================
+export type MysqlReplicationRole = 'standalone' | 'source' | 'replica' | 'dual' | 'group_replication';
+
+export interface MysqlReplicationChannelStatus {
+  channelName: string;
+  sourceHost: string;
+  sourcePort: number;
+  sourceUser: string;
+  slaveIoRunning: 'Yes' | 'No' | 'Connecting' | string;
+  slaveSqlRunning: 'Yes' | 'No' | string;
+  lastIoError?: string;
+  lastIoErrno?: number;
+  lastSqlError?: string;
+  lastSqlErrno?: number;
+  secondsBehindMaster: number | null;
+  masterLogFile?: string;
+  readMasterLogPos?: number;
+  relayLogFile?: string;
+  relayLogPos?: number;
+  relaySourceLogFile?: string;
+  execMasterLogPos?: number;
+  autoPosition?: boolean;
+  retrievedGtidSet?: string;
+  executedGtidSet?: string;
+  sqlDelay?: number;
+  sqlRemainingDelay?: number;
+  slaveIoState?: string;
+  masterServerId?: number;
+  masterUuid?: string;
+  usingGtid?: string;
+  masterSslAllowed?: boolean;
+  replicateDoDb?: string;
+  replicateIgnoreDb?: string;
+}
+
+export interface MysqlConnectedReplica {
+  serverId: number;
+  host: string;
+  port: number;
+  user?: string;
+  uuid?: string;
+  threadId?: number;
+  command?: string;
+  timeSeconds?: number;
+  state?: string;
+}
+
+export interface MysqlBinaryLogFile {
+  fileName: string;
+  fileSizeBytes: number;
+  formattedSize: string;
+  isCurrent: boolean;
+}
+
+export interface MysqlGroupReplicationInfo {
+  enabled: boolean;
+  groupName?: string;
+  localAddress?: string;
+  groupSeeds?: string;
+  singlePrimaryMode?: boolean;
+  memberRole?: 'PRIMARY' | 'SECONDARY' | string;
+  memberState?: 'ONLINE' | 'RECOVERING' | 'OFFLINE' | 'ERROR' | string;
+  membersCount?: number;
+}
+
+export interface MysqlSemiSyncInfo {
+  masterEnabled: boolean;
+  masterStatus?: boolean;
+  slaveEnabled: boolean;
+  slaveStatus?: boolean;
+  timeoutMs?: number;
+}
+
+export interface MysqlReplicationOverview {
+  role: MysqlReplicationRole;
+  serverId: number;
+  serverUuid?: string;
+  isReadOnly: boolean;
+  isSuperReadOnly: boolean;
+  binlogEnabled: boolean;
+  binlogFormat?: 'ROW' | 'STATEMENT' | 'MIXED' | string;
+  currentBinlogFile?: string;
+  currentBinlogPos?: number;
+  gtidMode?: string;
+  enforceGtidConsistency?: string;
+  executedGtidSet?: string;
+  channels: MysqlReplicationChannelStatus[];
+  connectedReplicas: MysqlConnectedReplica[];
+  binaryLogs: MysqlBinaryLogFile[];
+  totalBinlogSizeBytes: number;
+  formattedTotalBinlogSize: string;
+  groupReplication: MysqlGroupReplicationInfo;
+  semiSync: MysqlSemiSyncInfo;
+  serverVersion: string;
+  isMariaDb: boolean;
+  collectedAt: number;
+}
+
+export type MysqlReplicationActionType =
+  | 'start_replica'
+  | 'stop_replica'
+  | 'reset_replica'
+  | 'reset_master'
+  | 'purge_binlogs_to'
+  | 'purge_binlogs_before'
+  | 'set_read_only'
+  | 'set_read_write';
+
+export interface MysqlReplicationActionRequest {
+  action: MysqlReplicationActionType;
+  channelName?: string;
+  purgeTarget?: string; // filename or datetime string
+  resetAll?: boolean; // for RESET SLAVE/REPLICA ALL
+}
+
+export interface MysqlReplicationActionResult {
+  success: boolean;
+  message: string;
+  messageFa: string;
+  executedSql?: string;
+}
+
 export interface PostgresConnectionTestResult {
   success: boolean;
   status: PostgresConnectionStatus;

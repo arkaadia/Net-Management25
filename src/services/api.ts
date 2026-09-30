@@ -102,6 +102,9 @@ import {
   MysqlMaintenanceResult,
   MysqlTableBloatMetric,
   MysqlActiveMaintenanceProgress,
+  MysqlReplicationOverview,
+  MysqlReplicationActionRequest,
+  MysqlReplicationActionResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -2065,6 +2068,27 @@ export async function fetchRemoteServerMysqlActiveMaintenance(
   if (options?.password) query.set('password', options.password);
   const qStr = query.toString() ? `?${query.toString()}` : '';
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/maintenance/active${qStr}`);
+  return res.json();
+}
+
+export async function fetchRemoteServerMysqlReplicationOverview(
+  id: string,
+  force?: boolean
+): Promise<{ success: boolean; overview?: MysqlReplicationOverview; error?: string; errorFa?: string }> {
+  const query = force ? '?force=true' : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/replication${query}`);
+  return res.json();
+}
+
+export async function executeRemoteServerMysqlReplicationAction(
+  id: string,
+  request: MysqlReplicationActionRequest
+): Promise<MysqlReplicationActionResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/replication/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
   return res.json();
 }
 

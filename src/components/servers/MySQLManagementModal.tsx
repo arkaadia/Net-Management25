@@ -59,6 +59,7 @@ import {
   Sparkles,
   Plus,
   Power,
+  GitFork,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -126,6 +127,7 @@ import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
 import { MysqlProcesslistTab } from './MysqlProcesslistTab';
 import { MysqlConfigManagerTab } from './MysqlConfigManagerTab';
 import { MysqlBackupRestoreManagerTab } from './MysqlBackupRestoreManagerTab';
+import { MysqlReplicationTab } from './MysqlReplicationTab';
 import { MysqlMaintenanceModal } from './MysqlMaintenanceModal';
 import { MysqlMaintenanceAction } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -141,7 +143,7 @@ export interface MySQLManagementModalProps {
   isEn?: boolean;
 }
 
-type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'backups' | 'config' | 'variables' | 'connection';
+type MysqlTab = 'overview' | 'databases' | 'sql' | 'users' | 'privileges' | 'processlist' | 'backups' | 'replication' | 'config' | 'variables' | 'connection';
 
 export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   isOpen,
@@ -1097,6 +1099,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             { id: 'processlist', label: isEn ? 'Active Threads' : 'پروسس‌ها و اتصالات', icon: Cpu },
             { id: 'backups', label: isEn ? 'Backups & Restore' : 'پشتیبان‌گیری و بازیابی', icon: Archive },
             { id: 'maintenance', label: isEn ? 'Maintenance & Bloat' : 'نگهداری و بهینه‌سازی', icon: Zap },
+            { id: 'replication', label: isEn ? 'Replication & HA' : 'رونویسی و دسترسی بالا (HA)', icon: GitFork },
             { id: 'config', label: isEn ? 'Client Auth & my.cnf' : 'احراز هویت و my.cnf', icon: ShieldCheck },
             { id: 'variables', label: isEn ? 'System Variables' : 'تنظیمات و متغیرها', icon: Sliders },
             { id: 'connection', label: isEn ? 'Connection' : 'تنظیمات اتصال', icon: Settings },
@@ -5958,6 +5961,15 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                 setSqlQuery(sql);
                 setActiveTab('sql');
               }}
+            />
+          )}
+
+          {/* Phase 19: REPLICATION & HIGH AVAILABILITY TAB */}
+          {activeTab === 'replication' && server && (
+            <MysqlReplicationTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
             />
           )}
 

@@ -118,6 +118,15 @@ import {
   MysqlMaintenanceResult,
   MysqlTableBloatMetric,
   MysqlActiveMaintenanceProgress,
+  MysqlReplicationRole,
+  MysqlReplicationChannelStatus,
+  MysqlConnectedReplica,
+  MysqlBinaryLogFile,
+  MysqlGroupReplicationInfo,
+  MysqlSemiSyncInfo,
+  MysqlReplicationOverview,
+  MysqlReplicationActionRequest,
+  MysqlReplicationActionResult,
 } from '../src/types';
 
 /**
@@ -7231,6 +7240,497 @@ export async function getMysqlActiveMaintenance(
   }
 }
 
+// ==========================================
+// Phase 19: MySQL Replication & High Availability
+// ==========================================
 
+/**
+ * Retrieves comprehensive MySQL replication, binary logs, and high availability metrics.
+ * Supports MySQL 5.7, 8.0, 8.4, and MariaDB adaptively without hardcoding version syntax.
+ */
+export async function getMysqlReplicationOverview(
+  server: RemoteServer,
+  _options?: { forceRefresh?: boolean }
+): Promise<MysqlReplicationOverview> {
+  const conn = await mysql.createConnection(getMysqlConfig(server));
+  try {
+    // 1. Gather global system variables
+    const [varRows] = await conn.query(
+      `SHOW VARIABLES WHERE Variable_name IN (
+        'read_only', 'super_read_only', 'server_id', 'server_uuid', 
+        'log_bin', 'binlog_format', 'gtid_mode', 'enforce_gtid_consistency', 
+        'version', 'version_comment', 'rpl_semi_sync_master_enabled',
+        'rpl_semi_sync_source_enabled', 'rpl_semi_sync_slave_enabled',
+        'rpl_semi_sync_replica_enabled', 'rpl_semi_sync_master_timeout',
+        'rpl_semi_sync_source_timeout', 'group_replication_group_name',
+        'group_replication_single_primary_mode', 'group_replication_local_address',
+        'group_replication_group_seeds'
+      )`
+    );
 
+    const vars: Record<string, string> = {};
+    for (const r of (varRows as any[])) {
+      const name = String((r as any).Variable_name || (r as any).variable_name || '').toLowerCase();
+      const val = String((r as any).Value || (r as any).value || '');
+      vars[name] = val;
+    }
 
+    const serverVersion = vars['version'] || '';
+    const isMariaDb = serverVersion.toLowerCase().includes('mariadb') || 
+      (vars['version_comment'] || '').toLowerCase().includes('mariadb');
+    const serverId = Number(vars['server_id']) || 0;
+    const serverUuid = vars['server_uuid'] || undefined;
+    const isReadOnly = vars['read_only'] === 'ON' || vars['read_only'] === '1';
+    const isSuperReadOnly = vars['super_read_only'] === 'ON' || vars['super_read_only'] === '1';
+    const binlogEnabled = vars['log_bin'] === 'ON' || vars['log_bin'] === '1';
+    const binlogFormat = vars['binlog_format'] as any;
+    const gtidMode = vars['gtid_mode'] || undefined;
+    const enforceGtidConsistency = vars['enforce_gtid_consistency'] || undefined;
+
+    // 2. Fetch Master/Source Status
+    let currentBinlogFile: string | undefined;
+    let currentBinlogPos: number | undefined;
+    let executedGtidSet: string | undefined;
+
+    try {
+      // Try SHOW MASTER STATUS (standard across 5.7/8.0/MariaDB) or SHOW BINARY LOG STATUS (8.2+)
+      let masterStatusRows: any[] = [];
+      try {
+        const [res] = await conn.query('SHOW MASTER STATUS');
+        masterStatusRows = res as any[];
+      } catch {
+        try {
+          const [res] = await conn.query('SHOW BINARY LOG STATUS');
+          masterStatusRows = res as any[];
+        } catch {
+          // Ignore
+        }
+      }
+
+      if (masterStatusRows.length > 0) {
+        const row = masterStatusRows[0];
+        currentBinlogFile = row.File || row.file;
+        currentBinlogPos = row.Position !== undefined ? Number(row.Position) : undefined;
+        executedGtidSet = row.Executed_Gtid_Set || row.executed_gtid_set;
+      }
+    } catch (err: any) {
+      console.warn(`[getMysqlReplicationOverview] Master status query error: ${err.message}`);
+    }
+
+    // 3. Fetch Replica/Slave Status
+    const channels: MysqlReplicationChannelStatus[] = [];
+    try {
+      let replicaStatusRows: any[] = [];
+      try {
+        // Modern MySQL 8.0.22+
+        const [res] = await conn.query('SHOW REPLICA STATUS');
+        replicaStatusRows = res as any[];
+      } catch {
+        // Fallback for MySQL 5.7 / MariaDB
+        try {
+          const [res] = await conn.query('SHOW SLAVE STATUS');
+          replicaStatusRows = res as any[];
+        } catch {
+          // No replication configured or insufficient permissions
+        }
+      }
+
+      for (const row of replicaStatusRows) {
+        const channelName = row.Channel_Name || row.Connection_name || 'default';
+        const sourceHost = row.Source_Host || row.Master_Host || '';
+        const sourcePort = Number(row.Source_Port || row.Master_Port) || 3306;
+        const sourceUser = row.Source_User || row.Master_User || '';
+        const slaveIoRunning = row.Replica_IO_Running || row.Slave_IO_Running || 'No';
+        const slaveSqlRunning = row.Replica_SQL_Running || row.Slave_SQL_Running || 'No';
+        const secondsBehind = row.Seconds_Behind_Source !== undefined ? row.Seconds_Behind_Source : row.Seconds_Behind_Master;
+        const secondsBehindMaster = secondsBehind !== null && secondsBehind !== undefined ? Number(secondsBehind) : null;
+
+        channels.push({
+          channelName,
+          sourceHost,
+          sourcePort,
+          sourceUser,
+          slaveIoRunning,
+          slaveSqlRunning,
+          lastIoError: row.Last_IO_Error || row.Last_Error || undefined,
+          lastIoErrno: row.Last_IO_Errno !== undefined ? Number(row.Last_IO_Errno) : undefined,
+          lastSqlError: row.Last_SQL_Error || undefined,
+          lastSqlErrno: row.Last_SQL_Errno !== undefined ? Number(row.Last_SQL_Errno) : undefined,
+          secondsBehindMaster: isNaN(secondsBehindMaster as any) ? null : secondsBehindMaster,
+          masterLogFile: row.Master_Log_File || row.Source_Log_File || undefined,
+          readMasterLogPos: row.Read_Master_Log_Pos !== undefined ? Number(row.Read_Master_Log_Pos) : undefined,
+          relayLogFile: row.Relay_Log_File || undefined,
+          relayLogPos: row.Relay_Log_Pos !== undefined ? Number(row.Relay_Log_Pos) : undefined,
+          relaySourceLogFile: row.Relay_Master_Log_File || row.Relay_Source_Log_File || undefined,
+          execMasterLogPos: row.Exec_Master_Log_Pos !== undefined ? Number(row.Exec_Master_Log_Pos) : undefined,
+          autoPosition: row.Auto_Position === 1 || row.Auto_Position === '1',
+          retrievedGtidSet: row.Retrieved_Gtid_Set || undefined,
+          executedGtidSet: row.Executed_Gtid_Set || executedGtidSet || undefined,
+          sqlDelay: row.SQL_Delay !== undefined ? Number(row.SQL_Delay) : undefined,
+          sqlRemainingDelay: row.SQL_Remaining_Delay !== undefined ? Number(row.SQL_Remaining_Delay) : undefined,
+          slaveIoState: row.Slave_IO_State || row.Replica_IO_State || undefined,
+          masterServerId: row.Master_Server_Id !== undefined ? Number(row.Master_Server_Id) : undefined,
+          masterUuid: row.Master_UUID || undefined,
+          usingGtid: row.Using_Gtid || undefined,
+          masterSslAllowed: row.Master_SSL_Allowed === 'Yes' || row.Source_SSL_Allowed === 'Yes',
+          replicateDoDb: row.Replicate_Do_DB || undefined,
+          replicateIgnoreDb: row.Replicate_Ignore_DB || undefined,
+        });
+      }
+    } catch (err: any) {
+      console.warn(`[getMysqlReplicationOverview] Replica status query error: ${err.message}`);
+    }
+
+    // 4. Fetch Connected Replicas
+    const connectedReplicas: MysqlConnectedReplica[] = [];
+    try {
+      let replicaHostsRows: any[] = [];
+      try {
+        const [res] = await conn.query('SHOW REPLICAS');
+        replicaHostsRows = res as any[];
+      } catch {
+        try {
+          const [res] = await conn.query('SHOW SLAVE HOSTS');
+          replicaHostsRows = res as any[];
+        } catch {
+          // Ignore
+        }
+      }
+
+      for (const r of replicaHostsRows) {
+        connectedReplicas.push({
+          serverId: Number(r.Server_id || r.Server_Id || r.server_id) || 0,
+          host: r.Host || r.host || '',
+          port: Number(r.Port || r.port) || 3306,
+          user: r.User || r.user || undefined,
+          uuid: r.Master_id || r.Slave_UUID || r.Replica_UUID || undefined,
+        });
+      }
+
+      // Also enrich with processlist dump threads
+      try {
+        const [dumpThreads] = await conn.query(
+          `SELECT ID, USER, HOST, COMMAND, TIME, STATE 
+           FROM information_schema.PROCESSLIST 
+           WHERE COMMAND IN ('Binlog Dump', 'Binlog Dump GTID')`
+        );
+        for (const dt of (dumpThreads as any[])) {
+          const hostParts = String(dt.HOST || '').split(':');
+          const dtHost = hostParts[0] || '';
+          const dtPort = Number(hostParts[1]) || 0;
+          // Check if already in connectedReplicas
+          const existing = connectedReplicas.find((cr) => cr.host === dtHost);
+          if (existing) {
+            existing.threadId = Number(dt.ID);
+            existing.command = dt.COMMAND;
+            existing.timeSeconds = Number(dt.TIME);
+            existing.state = dt.STATE;
+          } else {
+            connectedReplicas.push({
+              serverId: 0,
+              host: dtHost || 'replica-thread',
+              port: dtPort || 3306,
+              user: dt.USER,
+              threadId: Number(dt.ID),
+              command: dt.COMMAND,
+              timeSeconds: Number(dt.TIME),
+              state: dt.STATE,
+            });
+          }
+        }
+      } catch {
+        // Ignore processlist errors
+      }
+    } catch (err: any) {
+      console.warn(`[getMysqlReplicationOverview] Connected replicas error: ${err.message}`);
+    }
+
+    // 5. Fetch Binary Logs
+    const binaryLogs: MysqlBinaryLogFile[] = [];
+    let totalBinlogSizeBytes = 0;
+    if (binlogEnabled) {
+      try {
+        let binlogRows: any[] = [];
+        try {
+          const [res] = await conn.query('SHOW BINARY LOGS');
+          binlogRows = res as any[];
+        } catch {
+          try {
+            const [res] = await conn.query('SHOW MASTER LOGS');
+            binlogRows = res as any[];
+          } catch {
+            // Ignore
+          }
+        }
+
+        for (const bl of binlogRows) {
+          const fileName = bl.Log_name || bl.File_name || bl.log_name || '';
+          const size = Number(bl.File_size || bl.file_size) || 0;
+          totalBinlogSizeBytes += size;
+          binaryLogs.push({
+            fileName,
+            fileSizeBytes: size,
+            formattedSize: formatBytes(size),
+            isCurrent: currentBinlogFile ? fileName === currentBinlogFile : false,
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[getMysqlReplicationOverview] Binary logs query error: ${err.message}`);
+      }
+    }
+
+    // 6. Group Replication status
+    const groupRepName = vars['group_replication_group_name'];
+    const groupRepEnabled = Boolean(groupRepName && groupRepName.length > 0);
+    const groupReplication: MysqlGroupReplicationInfo = {
+      enabled: groupRepEnabled,
+      groupName: groupRepName || undefined,
+      localAddress: vars['group_replication_local_address'] || undefined,
+      groupSeeds: vars['group_replication_group_seeds'] || undefined,
+      singlePrimaryMode: vars['group_replication_single_primary_mode'] === 'ON',
+    };
+
+    if (groupRepEnabled) {
+      try {
+        const [grMembers] = await conn.query(
+          `SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE 
+           FROM performance_schema.replication_group_members 
+           WHERE MEMBER_ID = @@server_uuid`
+        );
+        const grRows = grMembers as any[];
+        if (grRows.length > 0) {
+          const me = grRows[0];
+          groupReplication.memberRole = me.MEMBER_ROLE as any;
+          groupReplication.memberState = me.MEMBER_STATE as any;
+        }
+        const [totalCount] = await conn.query(
+          `SELECT COUNT(*) as cnt FROM performance_schema.replication_group_members`
+        );
+        const countRows = totalCount as any[];
+        if (countRows.length > 0) {
+          groupReplication.membersCount = Number(countRows[0].cnt);
+        }
+      } catch {
+        // performance_schema may be disabled
+      }
+    }
+
+    // 7. Semi-sync status
+    const semiSync: MysqlSemiSyncInfo = {
+      masterEnabled: vars['rpl_semi_sync_master_enabled'] === 'ON' || vars['rpl_semi_sync_source_enabled'] === 'ON',
+      masterStatus: false,
+      slaveEnabled: vars['rpl_semi_sync_slave_enabled'] === 'ON' || vars['rpl_semi_sync_replica_enabled'] === 'ON',
+      slaveStatus: false,
+      timeoutMs: Number(vars['rpl_semi_sync_master_timeout'] || vars['rpl_semi_sync_source_timeout']) || undefined,
+    };
+
+    try {
+      const [statusRows] = await conn.query(
+        `SHOW STATUS WHERE Variable_name IN (
+          'Rpl_semi_sync_master_status', 'Rpl_semi_sync_source_status',
+          'Rpl_semi_sync_slave_status', 'Rpl_semi_sync_replica_status'
+        )`
+      );
+      for (const sr of (statusRows as any[])) {
+        const name = String((sr as any).Variable_name || '').toLowerCase();
+        const val = String((sr as any).Value || '');
+        if (name.includes('master_status') || name.includes('source_status')) {
+          semiSync.masterStatus = val === 'ON';
+        }
+        if (name.includes('slave_status') || name.includes('replica_status')) {
+          semiSync.slaveStatus = val === 'ON';
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    // 8. Determine overarching replication role
+    let role: MysqlReplicationRole = 'standalone';
+    const isReplica = channels.length > 0;
+    const isSource = binlogEnabled && (connectedReplicas.length > 0 || currentBinlogFile !== undefined);
+
+    if (groupRepEnabled) {
+      role = 'group_replication';
+    } else if (isReplica && isSource) {
+      role = 'dual';
+    } else if (isReplica) {
+      role = 'replica';
+    } else if (isSource) {
+      role = 'source';
+    }
+
+    return {
+      role,
+      serverId,
+      serverUuid,
+      isReadOnly,
+      isSuperReadOnly,
+      binlogEnabled,
+      binlogFormat,
+      currentBinlogFile,
+      currentBinlogPos,
+      gtidMode,
+      enforceGtidConsistency,
+      executedGtidSet,
+      channels,
+      connectedReplicas,
+      binaryLogs,
+      totalBinlogSizeBytes,
+      formattedTotalBinlogSize: formatBytes(totalBinlogSizeBytes),
+      groupReplication,
+      semiSync,
+      serverVersion,
+      isMariaDb,
+      collectedAt: Date.now(),
+    };
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}
+
+/**
+ * Executes a controlled, verified MySQL replication management action.
+ */
+export async function executeMysqlReplicationAction(
+  server: RemoteServer,
+  request: MysqlReplicationActionRequest
+): Promise<MysqlReplicationActionResult> {
+  const conn = await mysql.createConnection(getMysqlConfig(server));
+  try {
+    const channelClause = request.channelName && request.channelName !== 'default' 
+      ? ` FOR CHANNEL '${request.channelName.replace(/'/g, "''")}'` 
+      : '';
+
+    switch (request.action) {
+      case 'start_replica': {
+        let executedSql = `START REPLICA${channelClause};`;
+        try {
+          await conn.query(`START REPLICA${channelClause}`);
+        } catch {
+          executedSql = `START SLAVE${channelClause};`;
+          await conn.query(`START SLAVE${channelClause}`);
+        }
+        return {
+          success: true,
+          message: `Replication channel ${request.channelName || 'default'} started successfully.`,
+          messageFa: `کانال رونویسی ${request.channelName || 'پیش‌فرض'} با موفقیت آغاز به کار کرد.`,
+          executedSql,
+        };
+      }
+
+      case 'stop_replica': {
+        let executedSql = `STOP REPLICA${channelClause};`;
+        try {
+          await conn.query(`STOP REPLICA${channelClause}`);
+        } catch {
+          executedSql = `STOP SLAVE${channelClause};`;
+          await conn.query(`STOP SLAVE${channelClause}`);
+        }
+        return {
+          success: true,
+          message: `Replication channel ${request.channelName || 'default'} stopped.`,
+          messageFa: `کانال رونویسی ${request.channelName || 'پیش‌فرض'} با موفقیت متوقف شد.`,
+          executedSql,
+        };
+      }
+
+      case 'reset_replica': {
+        const allModifier = request.resetAll ? ' ALL' : '';
+        let executedSql = `RESET REPLICA${allModifier}${channelClause};`;
+        try {
+          await conn.query(`RESET REPLICA${allModifier}${channelClause}`);
+        } catch {
+          executedSql = `RESET SLAVE${allModifier}${channelClause};`;
+          await conn.query(`RESET SLAVE${allModifier}${channelClause}`);
+        }
+        return {
+          success: true,
+          message: `Replica channel ${request.channelName || 'default'} reset completed${request.resetAll ? ' (ALL configuration cleared)' : ''}.`,
+          messageFa: `تنظیمات کانال رپلیکا ${request.channelName || 'پیش‌فرض'} ریست شد${request.resetAll ? ' (تمامی متادیتا و کانفیگ‌ها پاکسازی شد)' : ''}.`,
+          executedSql,
+        };
+      }
+
+      case 'reset_master': {
+        const executedSql = 'RESET MASTER;';
+        await conn.query('RESET MASTER');
+        return {
+          success: true,
+          message: 'Binary logs and master status reset successfully (RESET MASTER).',
+          messageFa: 'تمامی فایل‌های لاگ باینری و شمارنده‌های مستر با موفقیت ریست شدند (RESET MASTER).',
+          executedSql,
+        };
+      }
+
+      case 'purge_binlogs_to': {
+        if (!request.purgeTarget || !/^[a-zA-Z0-9_\-\.]+$/.test(request.purgeTarget)) {
+          throw new Error('Invalid binary log target filename.');
+        }
+        const executedSql = `PURGE BINARY LOGS TO '${request.purgeTarget}';`;
+        await conn.query(executedSql);
+        return {
+          success: true,
+          message: `Binary logs purged up to '${request.purgeTarget}'.`,
+          messageFa: `فایل‌های لاگ باینری تا فایل '${request.purgeTarget}' پاکسازی شدند.`,
+          executedSql,
+        };
+      }
+
+      case 'purge_binlogs_before': {
+        if (!request.purgeTarget || !/^[0-9\-\:\s]+$/.test(request.purgeTarget)) {
+          throw new Error('Invalid date/time format for purging binary logs.');
+        }
+        const executedSql = `PURGE BINARY LOGS BEFORE '${request.purgeTarget}';`;
+        await conn.query(executedSql);
+        return {
+          success: true,
+          message: `Binary logs purged before date '${request.purgeTarget}'.`,
+          messageFa: `فایل‌های لاگ باینری پیش از تاریخ '${request.purgeTarget}' پاکسازی شدند.`,
+          executedSql,
+        };
+      }
+
+      case 'set_read_only': {
+        try {
+          await conn.query('SET GLOBAL super_read_only = ON');
+          await conn.query('SET GLOBAL read_only = ON');
+          return {
+            success: true,
+            message: 'Server set to READ ONLY and SUPER READ ONLY mode.',
+            messageFa: 'سرور با موفقیت در وضعیت فقط-خواندنی (READ ONLY و SUPER READ ONLY) قرار گرفت.',
+            executedSql: 'SET GLOBAL super_read_only = ON; SET GLOBAL read_only = ON;',
+          };
+        } catch {
+          await conn.query('SET GLOBAL read_only = ON');
+          return {
+            success: true,
+            message: 'Server set to READ ONLY mode.',
+            messageFa: 'سرور با موفقیت در وضعیت فقط-خواندنی (READ ONLY) قرار گرفت.',
+            executedSql: 'SET GLOBAL read_only = ON;',
+          };
+        }
+      }
+
+      case 'set_read_write': {
+        try {
+          await conn.query('SET GLOBAL super_read_only = OFF');
+        } catch {
+          // ignore
+        }
+        await conn.query('SET GLOBAL read_only = OFF');
+        return {
+          success: true,
+          message: 'Server set to normal READ WRITE mode.',
+          messageFa: 'سرور از وضعیت فقط-خواندنی خارج شد و در حالت عادی خواندن/نوشتن (READ WRITE) قرار گرفت.',
+          executedSql: 'SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;',
+        };
+      }
+
+      default:
+        throw new Error(`Unsupported replication action: ${(request as any).action}`);
+    }
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}

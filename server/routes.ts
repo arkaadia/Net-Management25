@@ -134,6 +134,8 @@ import {
   getMysqlTableBloatMetrics,
   getMysqlActiveMaintenance,
   evaluateMysqlMaintenanceLockWarning,
+  getMysqlReplicationOverview,
+  executeMysqlReplicationAction,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -5771,6 +5773,73 @@ apiRouter.get('/remote-servers/:id/mysql/maintenance/active', async (req: Reques
       success: false,
       error: err.message || 'Failed to inspect active MySQL maintenance processes.',
       errorFa: 'خطا در پایش فرآیندهای نگهداری فعال در MySQL.',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/mysql/replication - Get replication & HA overview
+apiRouter.get('/remote-servers/:id/mysql/replication', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const forceRefresh = req.query.force === 'true';
+    const overview = await getMysqlReplicationOverview(server, { forceRefresh });
+    return res.json({
+      success: true,
+      overview,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to introspect MySQL replication status.',
+      errorFa: 'خطا در ارزیابی و دریافت وضعیت رونویسی (Replication) پایگاه داده MySQL.',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/replication/action - Execute replication control action
+apiRouter.post('/remote-servers/:id/mysql/replication/action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const { action, channelName, purgeTarget, resetAll } = req.body || {};
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        error: 'Replication action is required.',
+        errorFa: 'عملیات مورد نظر برای رونویسی مشخص نشده است.',
+      });
+    }
+
+    const result = await executeMysqlReplicationAction(server, {
+      action,
+      channelName,
+      purgeTarget,
+      resetAll,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute MySQL replication action.',
+      errorFa: 'خطا در اجرای عملیات رونویسی MySQL.',
     });
   }
 });
