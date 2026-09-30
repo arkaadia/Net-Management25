@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import { Client as SshClient, ConnectConfig } from 'ssh2';
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
@@ -174,7 +175,206 @@ function getMysqlConfig(
 }
 
 /**
- * Tests direct connection to MySQL / MariaDB server.
+ * Creates an SSH tunneled MySQL connection.
+ * Securely forwards traffic from target machine's loopback (127.0.0.1:3306) through SSH.
+ * This bypasses MariaDB/MySQL remote host authorization restrictions (such as "Host '...' is not allowed")
+ * and provides end-to-end transport encryption.
+ */
+async function createTunneledMysqlConnection(
+  server: RemoteServer,
+  config: ReturnType<typeof getMysqlConfig>,
+  timeoutMs: number = 7000
+): Promise<mysql.Connection> {
+  const host = (server.ip || server.hostname || '').trim();
+  const sshPort = server.ssh_port || 22;
+  const username = server.ssh_username || 'root';
+  const rawPassword = server.ssh_password || '';
+  const password = rawPassword ? decryptServerSecret(rawPassword) : '';
+
+  if (!host) {
+    throw new Error('Server target IP or Hostname is not configured.');
+  }
+
+  const runTunnelAttempt = (useLegacyAlgorithms: boolean): Promise<mysql.Connection> => {
+    return new Promise((resolve, reject) => {
+      const sshClient = new SshClient();
+      let settled = false;
+      let timer: NodeJS.Timeout | null = null;
+
+      const cleanup = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        try {
+          sshClient.end();
+        } catch {}
+        if (err) reject(err);
+      };
+
+      timer = setTimeout(() => {
+        cleanup(new Error(`SSH connection to ${host}:${sshPort} for MySQL tunnel timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      sshClient.on('error', (err) => {
+        cleanup(err);
+      });
+
+      sshClient.on('ready', () => {
+        // Forward out to target MySQL on the remote host (127.0.0.1:config.port)
+        sshClient.forwardOut(
+          '127.0.0.1',
+          0,
+          '127.0.0.1',
+          config.port,
+          async (fwdErr, stream) => {
+            if (fwdErr) {
+              return cleanup(fwdErr);
+            }
+
+            try {
+              const conn = await mysql.createConnection({
+                stream: stream as any,
+                user: config.user,
+                password: config.password,
+                database: config.database,
+                connectTimeout: Math.min(timeoutMs, 6000),
+              });
+
+              if (settled) {
+                try { await conn.end(); } catch {}
+                try { sshClient.end(); } catch {}
+                return;
+              }
+
+              settled = true;
+              if (timer) clearTimeout(timer);
+
+              // Wrap conn.end() so sshClient is closed automatically when connection ends
+              const origEnd = conn.end.bind(conn);
+              conn.end = async () => {
+                try {
+                  await origEnd();
+                } finally {
+                  try { sshClient.end(); } catch {}
+                }
+              };
+
+              // Also attach close handlers to prevent hanging connections
+              stream.on('close', () => {
+                try { sshClient.end(); } catch {}
+              });
+
+              resolve(conn);
+            } catch (connErr: any) {
+              cleanup(connErr);
+            }
+          }
+        );
+      });
+
+      const connectConfig: ConnectConfig = {
+        host,
+        port: sshPort,
+        username,
+        readyTimeout: Math.min(timeoutMs, 6000),
+      };
+
+      if (password) {
+        connectConfig.password = password;
+      }
+      if (server.ssh_key) {
+        connectConfig.privateKey = server.ssh_key;
+      }
+
+      if (useLegacyAlgorithms) {
+        connectConfig.algorithms = {
+          kex: [
+            'diffie-hellman-group1-sha1',
+            'diffie-hellman-group14-sha1',
+            'diffie-hellman-group-exchange-sha1',
+            'ecdh-sha2-nistp256',
+            'ecdh-sha2-nistp384',
+            'ecdh-sha2-nistp521',
+          ],
+          cipher: [
+            'aes128-ctr',
+            'aes192-ctr',
+            'aes256-ctr',
+            'aes128-gcm',
+            'aes256-gcm',
+            'aes128-cbc',
+            '3des-cbc',
+            'aes256-cbc',
+          ],
+          serverHostKey: [
+            'ssh-rsa',
+            'ecdsa-sha2-nistp256',
+            'ecdsa-sha2-nistp384',
+            'ecdsa-sha2-nistp521',
+            'ssh-ed25519',
+          ],
+        };
+      }
+
+      try {
+        sshClient.connect(connectConfig);
+      } catch (err: any) {
+        cleanup(err);
+      }
+    });
+  };
+
+  try {
+    return await runTunnelAttempt(false);
+  } catch (initialErr: any) {
+    const errMsg = initialErr?.message || '';
+    if (errMsg.includes('handshake') || errMsg.includes('algorithm') || errMsg.includes('kex') || errMsg.includes('cipher')) {
+      return await runTunnelAttempt(true);
+    }
+    throw initialErr;
+  }
+}
+
+/**
+ * Retrieves a direct or tunneled MySQL connection.
+ * Prioritizes secure SSH local tunnel when server SSH credentials are configured,
+ * seamlessly bypassing "Host '...' is not allowed to connect to this MariaDB server"
+ * while falling back to direct TCP when SSH is not available.
+ */
+export async function getDirectMysqlConnection(
+  server: RemoteServer,
+  options?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<mysql.Connection> {
+  const config = getMysqlConfig(server, options);
+
+  // If server has SSH capability, try SSH tunnel first
+  const hasSsh = Boolean(server.ssh_password || server.ssh_key);
+  if (hasSsh) {
+    try {
+      return await createTunneledMysqlConnection(server, config, 6000);
+    } catch (sshErr: any) {
+      console.warn(`[MySQL SSH Tunnel Notice] Tunnel attempt on ${server.ip} failed (${sshErr.message}), falling back to direct TCP`);
+    }
+  }
+
+  // Fallback to direct TCP connection
+  return await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database || undefined,
+    connectTimeout: 5000,
+  });
+}
+
+/**
+ * Tests direct or tunneled connection to MySQL / MariaDB server.
  */
 export async function testMysqlConnection(
   server: RemoteServer,
@@ -203,16 +403,118 @@ export async function testMysqlConnection(
 
   const startTime = Date.now();
   let conn: mysql.Connection | null = null;
-  try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      connectTimeout: 5000,
-    });
+  let isTunneled = false;
 
+  // 1. If server has SSH credentials, attempt SSH local tunnel first
+  const hasSsh = Boolean(server.ssh_password || server.ssh_key);
+  if (hasSsh) {
+    try {
+      conn = await createTunneledMysqlConnection(server, config, 6000);
+      isTunneled = true;
+    } catch (tunnelErr: any) {
+      // Tunnel failed (e.g. wrong SSH password or SSH port closed); fall through to direct TCP
+    }
+  }
+
+  // 2. If not tunneled, try direct TCP
+  if (!conn) {
+    try {
+      conn = await mysql.createConnection({
+        host: config.host,
+        port: config.port,
+        user: config.user,
+        password: config.password,
+        database: config.database || undefined,
+        connectTimeout: 5000,
+      });
+    } catch (err: any) {
+      if (conn) {
+        try {
+          await conn.end();
+        } catch {}
+      }
+
+      const code = err.code || '';
+      const msg = err.message || '';
+
+      // Check if SSH fallback can check if MySQL is running on host
+      if (hasSsh) {
+        try {
+          const sshOut = await runAdaptiveSshCommand(server, 'mysqladmin ping || systemctl is-active mysql || systemctl is-active mariadb');
+          if (sshOut && (sshOut.includes('alive') || sshOut.includes('active'))) {
+            return {
+              success: true,
+              status: 'connected',
+              message: `MySQL is active on host (Direct TCP port ${config.port} might be bound to 127.0.0.1 or firewalled)`,
+              messageFa: `سرویس MySQL روی سرور فعال است (پورت مستقیم ${config.port} ممکن است روی لوکال‌هاست محدود شده باشد)`,
+              serverAddress: config.host,
+              port: config.port,
+              username: config.user,
+              database: config.database,
+              version: 'Active (via Host)',
+              testedAt,
+            };
+          }
+        } catch {}
+      }
+
+      // Check for MariaDB/MySQL Error 1130: ER_HOST_NOT_PRIVILEGED ("Host '...' is not allowed to connect to this MariaDB/MySQL server")
+      const isHostDenied =
+        code === 'ER_HOST_NOT_PRIVILEGED' ||
+        msg.includes('is not allowed to connect to this') ||
+        msg.includes('Host is not allowed to connect');
+
+      if (isHostDenied) {
+        const hostMatch = msg.match(/Host '([^']*)' is not allowed/i);
+        const rejectedHost = hostMatch ? hostMatch[1] : '';
+        const displayHost = rejectedHost || 'Management Panel Host';
+        const grantCmd = `GRANT ALL PRIVILEGES ON *.* TO '${config.user}'@'${rejectedHost || '%'}' IDENTIFIED BY '***'; FLUSH PRIVILEGES;`;
+
+        return {
+          success: false,
+          status: 'authentication_failed',
+          message: `MariaDB Connection Denied: Host '${displayHost}' is not allowed to connect to MariaDB server at ${config.host}. (By default, root is restricted to localhost). ${hasSsh ? 'Please verify SSH credentials to enable automatic local tunneling.' : 'Enable SSH in server settings for auto-tunneling, or execute on MariaDB: ' + grantCmd}`,
+          messageFa: `عدم مجوز اتصال از طرف سرور MariaDB: هاست '${displayHost}' (سرور پنل مدیریت) مجاز به اتصال مستقیم به این پایگاه‌داده نیست؛ کاربر root به صورت پیش‌فرض فقط از localhost مجاز است. ${hasSsh ? 'لطفاً دسترسی SSH سرور را بررسی نمایید تا اتصال امن از طریق تونل محلی انجام شود.' : 'راهکار: ثبت اطلاعات SSH سرور در پنل یا اجرای دستور GRANT در دیتابیس: ' + grantCmd}`,
+          serverAddress: config.host,
+          port: config.port,
+          username: config.user,
+          database: config.database,
+          testedAt,
+          errorDetail: `${code}: ${msg}`,
+        };
+      }
+
+      let status: MysqlConnectionTestResult['status'] = 'connection_failed';
+      let messageFa = 'خطا در برقراری ارتباط با پورت MySQL';
+
+      if (code === 'ER_ACCESS_DENIED_ERROR' || msg.includes('Access denied')) {
+        status = 'authentication_failed';
+        messageFa = 'احراز هویت ناموفق بود: نام کاربری یا رمز عبور MySQL نامعتبر است یا کاربر مجاز به اتصال از این آدرس نیست.';
+      } else if (code === 'ECONNREFUSED' || msg.includes('ECONNREFUSED')) {
+        status = 'connection_refused';
+        messageFa = `اتصال توسط پورت ${config.port} رد شد. آیا سرویس MySQL فعال است و روی 0.0.0.0 گوش می‌دهد؟`;
+      } else if (code === 'ETIMEDOUT' || msg.includes('ETIMEDOUT')) {
+        status = 'timeout';
+        messageFa = 'اتصال به دلیل پایان مهلت زمانی (Timeout) ناموفق بود. فایروال را بررسی نمایید.';
+      }
+
+      return {
+        success: false,
+        status,
+        message: `MySQL Connection Failed: ${msg}`,
+        messageFa,
+        serverAddress: config.host,
+        port: config.port,
+        username: config.user,
+        database: config.database,
+        testedAt,
+        errorDetail: code,
+      };
+    }
+  }
+
+  // Connection succeeded! Query version and metadata
+  try {
     const latencyMs = Date.now() - startTime;
     const [rows] = await conn.query('SELECT VERSION() AS version, USER() AS user, DATABASE() AS db');
     const firstRow: any = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
@@ -220,11 +522,14 @@ export async function testMysqlConnection(
 
     await conn.end();
 
+    const connectionMode = isTunneled ? ' (via Secure SSH Local Tunnel)' : ' (Direct TCP)';
+    const connectionModeFa = isTunneled ? ' (از طریق تونل امن محلی SSH)' : ' (اتصال مستقیم TCP)';
+
     return {
       success: true,
       status: 'connected',
-      message: `Successfully connected to MySQL ${version} (${latencyMs}ms)`,
-      messageFa: `اتصال مستقیم به موتور پایگاه‌داده MySQL (${version}) با موفقیت برقرار شد (تاخیر: ${latencyMs} میلی‌ثانیه)`,
+      message: `Successfully connected to MySQL/MariaDB ${version}${connectionMode} (${latencyMs}ms)`,
+      messageFa: `اتصال به پایگاه‌داده MySQL/MariaDB (${version})${connectionModeFa} با موفقیت برقرار شد (تاخیر: ${latencyMs} میلی‌ثانیه)`,
       serverAddress: config.host,
       port: config.port,
       username: config.user,
@@ -239,56 +544,16 @@ export async function testMysqlConnection(
         await conn.end();
       } catch {}
     }
-
-    const code = err.code || '';
-    const msg = err.message || '';
-
-    // Check if SSH fallback can check if MySQL is running on host
-    if (server.ssh_password || server.ssh_key) {
-      try {
-        const sshOut = await runAdaptiveSshCommand(server, 'mysqladmin ping || systemctl is-active mysql || systemctl is-active mariadb');
-        if (sshOut && (sshOut.includes('alive') || sshOut.includes('active'))) {
-          return {
-            success: true,
-            status: 'connected',
-            message: `MySQL is active on host (Direct TCP port ${config.port} might be bound to 127.0.0.1 or firewalled)`,
-            messageFa: `سرویس MySQL روی سرور فعال است (پورت مستقیم ${config.port} ممکن است روی لوکال‌هاست محدود شده باشد)`,
-            serverAddress: config.host,
-            port: config.port,
-            username: config.user,
-            database: config.database,
-            version: 'Active (via Host)',
-            testedAt,
-          };
-        }
-      } catch {}
-    }
-
-    let status: MysqlConnectionTestResult['status'] = 'connection_failed';
-    let messageFa = 'خطا در برقراری ارتباط با پورت MySQL';
-
-    if (code === 'ER_ACCESS_DENIED_ERROR' || msg.includes('Access denied')) {
-      status = 'authentication_failed';
-      messageFa = 'احراز هویت ناموفق بود: نام کاربری یا رمز عبور MySQL نامعتبر است یا کاربر مجاز به اتصال از این آدرس نیست.';
-    } else if (code === 'ECONNREFUSED' || msg.includes('ECONNREFUSED')) {
-      status = 'connection_refused';
-      messageFa = `اتصال توسط پورت ${config.port} رد شد. آیا سرویس MySQL فعال است و روی 0.0.0.0 گوش می‌دهد؟`;
-    } else if (code === 'ETIMEDOUT' || msg.includes('ETIMEDOUT')) {
-      status = 'timeout';
-      messageFa = 'اتصال به دلیل پایان مهلت زمانی (Timeout) ناموفق بود. فایروال را بررسی نمایید.';
-    }
-
     return {
       success: false,
-      status,
-      message: `MySQL Connection Failed: ${msg}`,
-      messageFa,
+      status: 'unknown_error',
+      message: `Failed to query MySQL metadata: ${err.message}`,
+      messageFa: `خطا در دریافت اطلاعات نسخه MySQL: ${err.message}`,
       serverAddress: config.host,
       port: config.port,
       username: config.user,
       database: config.database,
       testedAt,
-      errorDetail: code,
     };
   }
 }
@@ -301,14 +566,7 @@ export async function getMysqlOverview(server: RemoteServer): Promise<MysqlOverv
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      connectTimeout: 6000,
-    });
+    conn = await getDirectMysqlConnection(server);
 
     const [statusRows]: any = await conn.query("SHOW GLOBAL STATUS");
     const [varRows]: any = await conn.query("SHOW GLOBAL VARIABLES");
@@ -394,14 +652,7 @@ export async function getMysqlDatabases(server: RemoteServer): Promise<MysqlData
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: 'information_schema',
-      connectTimeout: 7000,
-    });
+    conn = await getDirectMysqlConnection(server, { database: 'information_schema' });
 
     const [rows]: any = await conn.query(`
       SELECT 
@@ -455,14 +706,7 @@ export async function getMysqlDatabaseDetails(
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: 'information_schema',
-      connectTimeout: 8000,
-    });
+    conn = await getDirectMysqlConnection(server, { database: 'information_schema' });
 
     // 1. Fetch Database Metadata
     const [schemaRows]: any = await conn.query(
@@ -803,14 +1047,7 @@ export async function getMysqlUsers(server: RemoteServer): Promise<MysqlUserItem
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: 'mysql',
-      connectTimeout: 7000,
-    });
+    conn = await getDirectMysqlConnection(server, { database: 'mysql' });
 
     let userRows: any[] = [];
     // 1. Try modern MySQL 8.0+ / 8.4 schema
@@ -1390,14 +1627,7 @@ export async function executeMysqlQuery(
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database || undefined,
-      connectTimeout: 8000,
-    });
+    conn = await getDirectMysqlConnection(server, { database: targetDb });
 
     const [results, fields]: any = await conn.query(query);
     const durationMs = Date.now() - startTime;
@@ -1467,13 +1697,7 @@ export async function getMysqlProcesslist(server: RemoteServer): Promise<MysqlPr
   let conn: mysql.Connection | null = null;
 
   try {
-    conn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      connectTimeout: 5000,
-    });
+    conn = await getDirectMysqlConnection(server);
 
     // Determine current connection ID so own thread can be identified
     let currentConnectionId: number | undefined;
@@ -8544,11 +8768,13 @@ export async function executeMysqlHardeningRemediation(
 
     if (request.customSql) {
       const safety = analyzeMysqlSqlSafety(request.customSql);
-      if (safety.riskLevel === 'prohibited') {
+      if (safety.overallRiskLevel === 'critical' || safety.isDestructive) {
+        const reason = safety.destructiveReasons.join('; ') || 'Prohibited risk classification';
+        const reasonFa = safety.destructiveReasonsFa.join('؛ ') || 'سطح ریسک غیرمجاز تشخیص داده شد';
         return {
           success: false,
-          message: `Remediation SQL rejected: ${safety.reason}`,
-          messageFa: `کوئری رفع آسیب‌پذیری به دلیل خطرات امنیتی رد شد: ${safety.reasonFa || safety.reason}`,
+          message: `Remediation SQL rejected: ${reason}`,
+          messageFa: `کوئری رفع آسیب‌پذیری به دلیل خطرات امنیتی رد شد: ${reasonFa}`,
         };
       }
       sqlToExecute = request.customSql;

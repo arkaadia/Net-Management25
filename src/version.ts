@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.230.0';
+export const APP_VERSION = '1.230.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.230.1',
+    releaseDate: '2026-09-30',
+    type: 'patch',
+    title: 'رفع خطای عدم دسترسی هاست در اتصال به MariaDB و پیاده‌سازی تونل امن SSH برای دیتابیس',
+    title_en: 'Fix MariaDB Host Authorization Error & Implement Automatic SSH Local Tunnel for MySQL',
+    changes: [
+      'حل ریشه‌ای خطای MySQL Connection Failed: Host not allowed to connect to this MariaDB server با پیاده‌سازی مکانیزم تونل‌بندی خودکار محلی (SSH Local Forwarding / Tunnel) به پورت ۱۲۷.۰.۰.۱:۳۳۰۶ سرور هدف.',
+      'رفع تناقض نمایش آدرس سرور پنل در پیام خطا: شفاف‌سازی علت نمایش IP خروجی پنل و ارائه راهنمای عیب‌یابی دقیق دوزبانه در مودال مدیریت MySQL همراه با دستورات اصلاحی GRANT ALL PRIVILEGES جهت صدور مجوز در ماریا‌دی‌بی.',
+      'رمزگشایی امن رمزعبورهای SSH در لایه سرور (Zero-Leak Cryptography) و پشتیبانی چندنسلی از الگوریتم‌های استاندارد و Legacy جهت برقراری تونل امن.',
+      'افزودن امکان تست مجدد اتصال و نمایش پروتکل ارتباطی (تونل امن محلی SSH یا ارتباط مستقیم TCP) در تب پارامترهای اتصال دیتابیس.',
+      'رفع خطاهای تایپ‌اسکریپت و کامپایل فاز ۲۰ در توابع اصلاح آسیب‌پذیری‌های امنیتی دیتابیس.'
+    ],
+    changes_en: [
+      'Resolved root cause of MariaDB connection rejection (Host not allowed to connect to this MariaDB server) by introducing automatic, secure SSH loopback tunneling (127.0.0.1:3306) on target Linux servers.',
+      'Eliminated panel IP ambiguity: Clarified outbound management panel IP reporting in connection errors and added actionable bilingual diagnostics in MySQL Management modal with copyable GRANT ALL PRIVILEGES SQL statements.',
+      'Implemented server-side in-flight decryption for stored SSH credentials (Zero-Leak Cryptography) with adaptive multi-generation legacy cipher fallback for secure tunneling.',
+      'Added live connection test status, transport protocol indicator (SSH Local Tunnel vs Direct TCP), and retry controls to the database Connection tab.',
+      'Resolved TypeScript compilation discrepancies in Phase 20 hardening remediation handlers.'
+    ]
+  },
   {
     version: '1.230.0',
     releaseDate: '2026-09-30',

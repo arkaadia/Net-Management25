@@ -1142,7 +1142,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
             <div className="space-y-4">
               {/* Connection Status Banner */}
               <div
-                className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   testResult?.success
                     ? isLightMode
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
@@ -1156,39 +1156,127 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                     : 'bg-slate-900/60 border-white/10'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-start gap-2.5">
                   {testResult?.success ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                   ) : testResult ? (
-                    <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                    <XCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
                   ) : (
-                    <RefreshCw className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
+                    <RefreshCw className="w-5 h-5 text-slate-400 animate-spin shrink-0 mt-0.5" />
                   )}
                   <div>
-                    <div className="font-bold text-xs">
-                      {testResult?.success
-                        ? isEn
-                          ? 'MySQL Instance Reachable & Online'
-                          : 'موتور پایگاه‌داده MySQL فعال و برخط است'
-                        : testResult
-                        ? isEn
-                          ? 'Connection Notice'
-                          : 'خطا در ارتباط با دیتابیس'
-                        : isEn
-                        ? 'Testing MySQL Connection...'
-                        : 'در حال بررسی اتصال به MySQL...'}
+                    <div className="font-bold text-xs flex items-center gap-2">
+                      <span>
+                        {testResult?.success
+                          ? isEn
+                            ? 'MySQL / MariaDB Instance Reachable & Online'
+                            : 'موتور پایگاه‌داده MySQL / MariaDB فعال و برخط است'
+                          : testResult
+                          ? isEn
+                            ? 'Connection Notice'
+                            : 'خطا در ارتباط با دیتابیس'
+                          : isEn
+                          ? 'Testing MySQL Connection...'
+                          : 'در حال بررسی اتصال به MySQL...'}
+                      </span>
                     </div>
-                    <div className="text-[11px] opacity-80 mt-0.5 font-mono">
+                    <div className="text-[11px] opacity-90 mt-1 font-mono leading-relaxed">
                       {isEn ? testResult?.message : testResult?.messageFa || testResult?.message}
                     </div>
                   </div>
                 </div>
-                {testResult?.latencyMs !== undefined && (
-                  <span className="px-2 py-1 rounded text-xs font-mono font-bold bg-black/20 shrink-0">
-                    {testResult.latencyMs} ms
-                  </span>
-                )}
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  {testResult?.latencyMs !== undefined && (
+                    <span className="px-2 py-1 rounded text-xs font-mono font-bold bg-black/20 shrink-0">
+                      {testResult.latencyMs} ms
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={runTestConnection}
+                    disabled={isTesting}
+                    title={isEn ? 'Retry connection test' : 'تست مجدد اتصال'}
+                    className="p-1.5 rounded-lg border border-current/20 hover:bg-black/10 transition cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
+
+              {/* Host Not Allowed Diagnostic & Quick Remediation Card */}
+              {testResult && !testResult.success && (testResult.message?.includes('is not allowed to connect') || testResult.message?.includes('not allowed')) && (
+                <div
+                  className={`p-4 rounded-xl border text-xs space-y-3 ${
+                    isLightMode ? 'bg-amber-50/80 border-amber-200 text-amber-950' : 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold text-amber-400">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span>
+                      {isEn
+                        ? 'Why this host error occurred & How to resolve it:'
+                        : 'علت خطای عدم دسترسی هاست و راهکار حل آن:'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-300">
+                    {isEn
+                      ? `MariaDB/MySQL rejects remote connections by default for user '${server.mysql_user || 'root'}' unless specifically granted. The IP address reported in the error belongs to this management panel server attempting the outbound direct TCP handshake.`
+                      : `ماریا‌دی‌بی/مای‌اس‌کیوال به صورت پیش‌فرض دسترسی مستقیم شبکه به کاربر '${server.mysql_user || 'root'}' را محدود به localhost می‌کند. آدرس IP که در پیام خطا مشاهده می‌فرمایید، آی‌پی سرور این پنل مدیریت است که ماریا‌دی‌بی دسترسی ریموت آن را مسدود کرده است.`}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                    <div className={`p-3 rounded-lg border ${isLightMode ? 'bg-white border-amber-200' : 'bg-slate-900/60 border-white/10'} space-y-1.5`}>
+                      <div className="font-bold text-xs text-emerald-400 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Solution 1 (Recommended): SSH Tunnel' : 'راهکار ۱ (پیشنهادی): تونل امن SSH'}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        {isEn
+                          ? 'Enter SSH credentials for this Linux server in server settings. Net-Management will automatically tunnel the MySQL connection locally via 127.0.0.1 without exposing port 3306 or modifying MariaDB users.'
+                          : 'کافیست اطلاعات SSH سرور لینوکس را در مشخصات سرور وارد کنید. پنل به صورت خودکار از طریق تونل امن محلی (۱۲۷.۰.۰.۱) متصل می‌شود و نیازی به باز کردن پورت ۳۳۰۶ یا تغییر دسترسی‌های ماریا‌دی‌بی نیست.'}
+                      </p>
+                      {onEditServer && (
+                        <button
+                          type="button"
+                          onClick={() => onEditServer(server)}
+                          className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition cursor-pointer"
+                        >
+                          <Settings className="w-3 h-3" />
+                          <span>{isEn ? 'Configure Server SSH' : 'تنظیم مشخصات SSH سرور'}</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className={`p-3 rounded-lg border ${isLightMode ? 'bg-white border-amber-200' : 'bg-slate-900/60 border-white/10'} space-y-1.5`}>
+                      <div className="font-bold text-xs text-amber-400 flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Solution 2: Grant Remote Access in MariaDB' : 'راهکار ۲: صدور مجوز در ماریا‌دی‌بی'}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        {isEn
+                          ? 'Run this command on your MariaDB terminal to permit remote TCP connections:'
+                          : 'در صورت تمایل به اتصال مستقیم TCP، دستور زیر را در ترمینال ماریا‌دی‌بی اجرا نمایید:'}
+                      </p>
+                      <div className="flex items-center justify-between p-1.5 rounded bg-black/40 border border-white/10 font-mono text-[10px]">
+                        <code className="truncate select-all text-amber-300">
+                          {`GRANT ALL PRIVILEGES ON *.* TO '${server.mysql_user || 'root'}'@'%' IDENTIFIED BY '***'; FLUSH PRIVILEGES;`}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sql = `GRANT ALL PRIVILEGES ON *.* TO '${server.mysql_user || 'root'}'@'%' IDENTIFIED BY 'YOUR_PASSWORD'; FLUSH PRIVILEGES;`;
+                            navigator.clipboard.writeText(sql);
+                            setCopiedSnippet('grant-sql');
+                            setTimeout(() => setCopiedSnippet(null), 2500);
+                          }}
+                          className="ml-2 px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                          {copiedSnippet === 'grant-sql' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedSnippet === 'grant-sql' ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 4 Stat Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -6104,7 +6192,45 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                       {server.mysql_password_set ? (isEn ? 'Configured (Encrypted at rest)' : 'تنظیم‌شده (رمزنگاری شده)') : (isEn ? 'None' : 'ثبت‌نشده')}
                     </span>
                   </div>
+                  <div className="flex justify-between py-1 border-b border-white/5">
+                    <span className="text-slate-400">{isEn ? 'Transport Protocol' : 'پروتکل ارتباطی'}:</span>
+                    <span className="font-bold text-cyan-400">
+                      {server.ssh_password || server.ssh_key
+                        ? (isEn ? 'SSH Local Tunnel (127.0.0.1:3306)' : 'تونل امن محلی SSH (۱۲۷.۰.۰.۱:۳۳۰۶)')
+                        : (isEn ? 'Direct Remote TCP' : 'ارتباط مستقیم TCP')}
+                    </span>
+                  </div>
                 </div>
+
+                {testResult && (
+                  <div
+                    className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                      testResult.success
+                        ? isLightMode
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                        : isLightMode
+                        ? 'bg-rose-50 border-rose-300 text-rose-900'
+                        : 'bg-rose-950/30 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {testResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      )}
+                      <span className="font-mono text-[11px] leading-tight">
+                        {isEn ? testResult.message : testResult.messageFa || testResult.message}
+                      </span>
+                    </div>
+                    {testResult.latencyMs !== undefined && (
+                      <span className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-black/20 shrink-0">
+                        {testResult.latencyMs}ms
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="pt-2 flex items-center justify-between">
                   <button

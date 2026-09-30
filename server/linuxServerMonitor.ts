@@ -1,5 +1,6 @@
 import { Client, ConnectConfig } from 'ssh2';
 import { getRemoteServerById, updateRemoteServer } from './db';
+import { decryptServerSecret } from './vaultCrypto';
 import {
   RemoteServer,
   LinuxSystemUser,
@@ -598,7 +599,8 @@ export async function runAdaptiveSshCommand(
   const host = (server.ip || server.hostname || '').trim();
   const port = isWindows ? (server.ssh_port || server.win_port || 22) : (server.ssh_port || 22);
   const username = (isWindows ? (server.win_username || server.ssh_username) : (server.ssh_username || server.win_username)) || (isWindows ? 'Administrator' : 'root');
-  const password = ephemeralPassword || (isWindows ? (server.win_password || server.ssh_password) : (server.ssh_password || server.win_password)) || '';
+  const rawPassword = ephemeralPassword || (isWindows ? (server.win_password || server.ssh_password) : (server.ssh_password || server.win_password)) || '';
+  const password = rawPassword ? decryptServerSecret(rawPassword) : '';
 
   if (!host) {
     throw new Error('Server target IP or Hostname is not configured.');
