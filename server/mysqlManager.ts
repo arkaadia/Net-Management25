@@ -51,6 +51,22 @@ import {
   MysqlKillType,
   MysqlProcesslistResponse,
   MysqlKillProcessResult,
+  MysqlTableColumnDefinition,
+  MysqlCreateTableRequest,
+  MysqlRenameTableRequest,
+  MysqlAlterTableOptionsRequest,
+  MysqlDropTableRequest,
+  MysqlTruncateTableRequest,
+  MysqlAddColumnRequest,
+  MysqlModifyColumnRequest,
+  MysqlRenameColumnRequest,
+  MysqlDropColumnRequest,
+  MysqlCreateIndexRequest,
+  MysqlDropIndexRequest,
+  MysqlAddForeignKeyRequest,
+  MysqlDropForeignKeyRequest,
+  MysqlManagePrimaryKeyRequest,
+  MysqlDdlOperationResult,
 } from '../src/types';
 
 /**
@@ -2930,5 +2946,805 @@ export async function applyMysqlPermissions(
     };
   }
 }
+
+// ==========================================
+// Phase 13: Table, Column, Index & Constraint Management
+// ==========================================
+
+function escapeIdent(ident: string): string {
+  return `\`${(ident || '').replace(/`/g, '``')}\``;
+}
+
+function buildColumnDef(col: MysqlTableColumnDefinition): string {
+  const name = escapeIdent(col.name);
+  let typeStr = (col.dataType || 'VARCHAR').toUpperCase();
+  if (col.length && col.length.trim()) {
+    typeStr += `(${col.length.trim()})`;
+  }
+  const unsignedStr = col.unsigned ? ' UNSIGNED' : '';
+  const nullStr = col.nullable ? ' NULL' : ' NOT NULL';
+
+  let defaultStr = '';
+  if (col.isDefaultNull) {
+    defaultStr = ' DEFAULT NULL';
+  } else if (col.isDefaultCurrentTimestamp) {
+    defaultStr = ' DEFAULT CURRENT_TIMESTAMP';
+  } else if (col.defaultValue !== undefined && col.defaultValue !== null && col.defaultValue !== '') {
+    const trimmed = col.defaultValue.trim();
+    if (['NOW()', 'CURRENT_TIMESTAMP', 'NULL', 'TRUE', 'FALSE'].includes(trimmed.toUpperCase())) {
+      defaultStr = ` DEFAULT ${trimmed}`;
+    } else if (!isNaN(Number(trimmed)) && !['VARCHAR', 'CHAR', 'TEXT'].includes(col.dataType.toUpperCase())) {
+      defaultStr = ` DEFAULT ${trimmed}`;
+    } else {
+      defaultStr = ` DEFAULT '${trimmed.replace(/'/g, "''")}'`;
+    }
+  }
+
+  const autoIncStr = col.autoIncrement ? ' AUTO_INCREMENT' : '';
+  const uniqueStr = col.unique ? ' UNIQUE' : '';
+  const commentStr = col.comment ? ` COMMENT '${col.comment.replace(/'/g, "''")}'` : '';
+
+  return `${name} ${typeStr}${unsignedStr}${nullStr}${defaultStr}${autoIncStr}${uniqueStr}${commentStr}`;
+}
+
+/**
+ * Creates a new MySQL table with columns, keys, and engine options.
+ */
+export async function createMysqlTable(
+  server: RemoteServer,
+  req: MysqlCreateTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  let sql = '';
+
+  try {
+    if (!req.database || !req.tableName) {
+      throw new Error('Database and table name are required.');
+    }
+    if (!req.columns || req.columns.length === 0) {
+      throw new Error('At least one column is required to create a table.');
+    }
+
+    const columnDefs: string[] = [];
+    const pkColumns: string[] = [];
+
+    for (const col of req.columns) {
+      if (!col.name || !col.name.trim()) continue;
+      columnDefs.push(`  ${buildColumnDef(col)}`);
+      if (col.primaryKey) {
+        pkColumns.push(escapeIdent(col.name));
+      }
+    }
+
+    if (pkColumns.length > 0) {
+      columnDefs.push(`  PRIMARY KEY (${pkColumns.join(', ')})`);
+    }
+
+    const engine = req.engine || 'InnoDB';
+    const charset = req.charset || 'utf8mb4';
+    const collation = req.collation || 'utf8mb4_unicode_ci';
+    const comment = req.comment ? ` COMMENT='${req.comment.replace(/'/g, "''")}'` : '';
+
+    sql = `CREATE TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} (\n${columnDefs.join(',\n')}\n) ENGINE=${engine} DEFAULT CHARSET=${charset} COLLATE=${collation}${comment};`;
+
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Table created: ${req.database}.${req.tableName} on server ${server.name} (${server.ip}) in ${duration}ms`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Table '${req.tableName}' created successfully.`,
+      messageFa: `جدول «${req.tableName}» با موفقیت در پایگاه داده ایجاد شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to create table '${req.tableName}'.`,
+      messageFa: `خطا در ایجاد جدول «${req.tableName}».`,
+      error: err.message,
+      errorFa: `خطای ساختار MySQL: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Renames an existing MySQL table.
+ */
+export async function renameMysqlTable(
+  server: RemoteServer,
+  req: MysqlRenameTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `RENAME TABLE ${escapeIdent(req.database)}.${escapeIdent(req.oldTableName)} TO ${escapeIdent(req.database)}.${escapeIdent(req.newTableName)};`;
+
+  try {
+    if (!req.oldTableName || !req.newTableName) {
+      throw new Error('Current and new table names are required.');
+    }
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Table renamed: ${req.database}.${req.oldTableName} -> ${req.newTableName} on ${server.name}`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Table '${req.oldTableName}' renamed to '${req.newTableName}' successfully.`,
+      messageFa: `نام جدول از «${req.oldTableName}» به «${req.newTableName}» تغییر یافت.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to rename table '${req.oldTableName}'.`,
+      messageFa: `خطا در تغییر نام جدول «${req.oldTableName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Alters table options (Engine, Charset, Collation, Auto Increment, Comment).
+ */
+export async function alterMysqlTableOptions(
+  server: RemoteServer,
+  req: MysqlAlterTableOptionsRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const options: string[] = [];
+
+  if (req.engine) options.push(`ENGINE = ${req.engine}`);
+  if (req.charset) options.push(`CONVERT TO CHARACTER SET ${req.charset}`);
+  if (req.collation) options.push(`COLLATE ${req.collation}`);
+  if (req.comment !== undefined) options.push(`COMMENT = '${req.comment.replace(/'/g, "''")}'`);
+  if (req.autoIncrement !== undefined && !isNaN(req.autoIncrement)) {
+    options.push(`AUTO_INCREMENT = ${req.autoIncrement}`);
+  }
+
+  if (options.length === 0) {
+    return {
+      success: true,
+      executedSql: '-- No options modified',
+      executionTimeMs: 0,
+      message: 'No table options to update.',
+      messageFa: 'هیچ گزینه‌ای برای به‌روزرسانی جدول مشخص نشده بود.',
+    };
+  }
+
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} ${options.join(', ')};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Table '${req.tableName}' options updated successfully.`,
+      messageFa: `مشخصات و تنظیمات جدول «${req.tableName}» با موفقیت ویرایش شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to alter table '${req.tableName}' options.`,
+      messageFa: `خطا در ویرایش تنظیمات جدول «${req.tableName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops an existing MySQL table.
+ */
+export async function dropMysqlTable(
+  server: RemoteServer,
+  req: MysqlDropTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const ifExists = req.ifExists !== false ? 'IF EXISTS ' : '';
+  const sql = `DROP TABLE ${ifExists}${escapeIdent(req.database)}.${escapeIdent(req.tableName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Table dropped: ${req.database}.${req.tableName} on ${server.name} (${server.ip}) in ${duration}ms`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Table '${req.tableName}' dropped successfully.`,
+      messageFa: `جدول «${req.tableName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop table '${req.tableName}'.`,
+      messageFa: `خطا در حذف جدول «${req.tableName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Truncates an existing MySQL table.
+ */
+export async function truncateMysqlTable(
+  server: RemoteServer,
+  req: MysqlTruncateTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `TRUNCATE TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Table truncated: ${req.database}.${req.tableName} on ${server.name}`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Table '${req.tableName}' truncated successfully.`,
+      messageFa: `داده‌های جدول «${req.tableName}» به طور کامل پاکسازی (Truncate) شدند.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to truncate table '${req.tableName}'.`,
+      messageFa: `خطا در پاکسازی جدول «${req.tableName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Adds a new column to a MySQL table.
+ */
+export async function addMysqlColumn(
+  server: RemoteServer,
+  req: MysqlAddColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  let pos = '';
+  if (req.column.position === 'FIRST') {
+    pos = ' FIRST';
+  } else if (req.column.position === 'AFTER' && req.column.afterColumn) {
+    pos = ` AFTER ${escapeIdent(req.column.afterColumn)}`;
+  }
+
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} ADD COLUMN ${buildColumnDef(req.column)}${pos};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Column '${req.column.name}' added to table '${req.tableName}' successfully.`,
+      messageFa: `ستون «${req.column.name}» با موفقیت به جدول افزوده شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to add column '${req.column.name}'.`,
+      messageFa: `خطا در افزودن ستون «${req.column.name}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Modifies an existing column definition in a MySQL table.
+ */
+export async function modifyMysqlColumn(
+  server: RemoteServer,
+  req: MysqlModifyColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  let pos = '';
+  if (req.column.position === 'FIRST') {
+    pos = ' FIRST';
+  } else if (req.column.position === 'AFTER' && req.column.afterColumn) {
+    pos = ` AFTER ${escapeIdent(req.column.afterColumn)}`;
+  }
+
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} MODIFY COLUMN ${buildColumnDef(req.column)}${pos};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Column '${req.column.name}' modified successfully.`,
+      messageFa: `مشخصات ستون «${req.column.name}» با موفقیت ویرایش شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to modify column '${req.column.name}'.`,
+      messageFa: `خطا در ویرایش ستون «${req.column.name}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Renames a column in a MySQL table with backward-compatible fallback.
+ */
+export async function renameMysqlColumn(
+  server: RemoteServer,
+  req: MysqlRenameColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} RENAME COLUMN ${escapeIdent(req.oldColumnName)} TO ${escapeIdent(req.newColumnName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    try {
+      await conn.query(sql);
+    } catch (renameErr: any) {
+      // If MySQL 5.7, RENAME COLUMN might not be supported; fallback to CHANGE COLUMN if definition is provided
+      if (req.columnDefinition) {
+        const fallbackDef = { ...req.columnDefinition, name: req.newColumnName };
+        const changeSql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} CHANGE COLUMN ${escapeIdent(req.oldColumnName)} ${buildColumnDef(fallbackDef)};`;
+        await conn.query(changeSql);
+        await conn.end();
+        return {
+          success: true,
+          executedSql: changeSql,
+          executionTimeMs: Date.now() - startTime,
+          message: `Column '${req.oldColumnName}' renamed to '${req.newColumnName}' via CHANGE COLUMN.`,
+          messageFa: `نام ستون از «${req.oldColumnName}» به «${req.newColumnName}» تغییر یافت.`,
+        };
+      }
+      throw renameErr;
+    }
+
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Column '${req.oldColumnName}' renamed to '${req.newColumnName}' successfully.`,
+      messageFa: `نام ستون از «${req.oldColumnName}» به «${req.newColumnName}» تغییر یافت.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to rename column '${req.oldColumnName}'.`,
+      messageFa: `خطا در تغییر نام ستون «${req.oldColumnName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a column from a MySQL table.
+ */
+export async function dropMysqlColumn(
+  server: RemoteServer,
+  req: MysqlDropColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} DROP COLUMN ${escapeIdent(req.columnName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    const duration = Date.now() - startTime;
+    console.log(`[MYSQL AUDIT] Column dropped: ${req.database}.${req.tableName}.${req.columnName} on ${server.name}`);
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: duration,
+      message: `Column '${req.columnName}' dropped from table '${req.tableName}' successfully.`,
+      messageFa: `ستون «${req.columnName}» با موفقیت از جدول حذف شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop column '${req.columnName}'.`,
+      messageFa: `خطا در حذف ستون «${req.columnName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Creates an index on a MySQL table.
+ */
+export async function createMysqlIndex(
+  server: RemoteServer,
+  req: MysqlCreateIndexRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  if (!req.columns || req.columns.length === 0) {
+    return {
+      success: false,
+      executedSql: '',
+      executionTimeMs: 0,
+      message: 'At least one column is required for an index.',
+      messageFa: 'حداقل یک ستون برای ساخت ایندکس الزامی است.',
+    };
+  }
+
+  const colSpecs = req.columns.map((c) => {
+    let spec = escapeIdent(c.name);
+    if (c.length && c.length > 0) spec += `(${c.length})`;
+    if (c.order) spec += ` ${c.order}`;
+    return spec;
+  });
+
+  let indexTypePrefix = '';
+  if (req.indexType === 'UNIQUE') indexTypePrefix = 'UNIQUE ';
+  else if (req.indexType === 'FULLTEXT') indexTypePrefix = 'FULLTEXT ';
+  else if (req.indexType === 'SPATIAL') indexTypePrefix = 'SPATIAL ';
+
+  let usingMethod = '';
+  if (req.indexMethod && ['BTREE', 'HASH'].includes(req.indexMethod.toUpperCase())) {
+    usingMethod = ` USING ${req.indexMethod.toUpperCase()}`;
+  }
+
+  let comment = '';
+  if (req.comment) {
+    comment = ` COMMENT '${req.comment.replace(/'/g, "''")}'`;
+  }
+
+  const sql = `CREATE ${indexTypePrefix}INDEX ${escapeIdent(req.indexName)} ON ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} (${colSpecs.join(', ')})${usingMethod}${comment};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Index '${req.indexName}' created successfully.`,
+      messageFa: `ایندکس «${req.indexName}» با موفقیت بر روی جدول ایجاد شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to create index '${req.indexName}'.`,
+      messageFa: `خطا در ایجاد ایندکس «${req.indexName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops an index from a MySQL table.
+ */
+export async function dropMysqlIndex(
+  server: RemoteServer,
+  req: MysqlDropIndexRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `DROP INDEX ${escapeIdent(req.indexName)} ON ${escapeIdent(req.database)}.${escapeIdent(req.tableName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Index '${req.indexName}' dropped successfully.`,
+      messageFa: `ایندکس «${req.indexName}» با موفقیت از جدول حذف شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop index '${req.indexName}'.`,
+      messageFa: `خطا در حذف ایندکس «${req.indexName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Adds a Foreign Key constraint to a MySQL table.
+ */
+export async function addMysqlForeignKey(
+  server: RemoteServer,
+  req: MysqlAddForeignKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+
+  const targetSchema = req.referencedSchema || req.database;
+  const onUpdate = req.onUpdate || 'RESTRICT';
+  const onDelete = req.onDelete || 'RESTRICT';
+
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} ADD CONSTRAINT ${escapeIdent(req.constraintName)} FOREIGN KEY (${escapeIdent(req.column)}) REFERENCES ${escapeIdent(targetSchema)}.${escapeIdent(req.referencedTable)} (${escapeIdent(req.referencedColumn)}) ON UPDATE ${onUpdate} ON DELETE ${onDelete};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Foreign Key '${req.constraintName}' added successfully.`,
+      messageFa: `کلید خارجی (Foreign Key) «${req.constraintName}» با موفقیت افزوده شد.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to add Foreign Key '${req.constraintName}'.`,
+      messageFa: `خطا در افزودن کلید خارجی «${req.constraintName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Drops a Foreign Key constraint from a MySQL table.
+ */
+export async function dropMysqlForeignKey(
+  server: RemoteServer,
+  req: MysqlDropForeignKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  const sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} DROP FOREIGN KEY ${escapeIdent(req.constraintName)};`;
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Foreign Key '${req.constraintName}' dropped successfully.`,
+      messageFa: `کلید خارجی «${req.constraintName}» با موفقیت حذف گردید.`,
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: `Failed to drop Foreign Key '${req.constraintName}'.`,
+      messageFa: `خطا در حذف کلید خارجی «${req.constraintName}».`,
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
+/**
+ * Adds or drops a Primary Key constraint on a MySQL table.
+ */
+export async function manageMysqlPrimaryKey(
+  server: RemoteServer,
+  req: MysqlManagePrimaryKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  let sql = '';
+
+  if (req.action === 'drop') {
+    sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} DROP PRIMARY KEY;`;
+  } else {
+    if (!req.columns || req.columns.length === 0) {
+      return {
+        success: false,
+        executedSql: '',
+        executionTimeMs: 0,
+        message: 'At least one column is required for Primary Key.',
+        messageFa: 'تعیین حداقل یک ستون برای کلید اصلی الزامی است.',
+      };
+    }
+    const cols = req.columns.map((c) => escapeIdent(c)).join(', ');
+    sql = `ALTER TABLE ${escapeIdent(req.database)}.${escapeIdent(req.tableName)} ADD PRIMARY KEY (${cols});`;
+  }
+
+  try {
+    const config = getMysqlConfig(server, { database: req.database });
+    conn = await mysql.createConnection(config);
+
+    await conn.query(sql);
+    await conn.end();
+
+    return {
+      success: true,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: req.action === 'drop' ? 'Primary key dropped successfully.' : 'Primary key configured successfully.',
+      messageFa: req.action === 'drop' ? 'کلید اصلی جدول حذف شد.' : 'کلید اصلی جدول با موفقیت تنظیم گردید.',
+    };
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.end();
+      } catch {}
+    }
+    return {
+      success: false,
+      executedSql: sql,
+      executionTimeMs: Date.now() - startTime,
+      message: 'Failed to modify primary key.',
+      messageFa: 'خطا در اعمال تغییرات کلید اصلی جدول.',
+      error: err.message,
+      errorFa: err.message,
+    };
+  }
+}
+
 
 

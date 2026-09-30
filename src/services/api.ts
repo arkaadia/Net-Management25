@@ -48,6 +48,22 @@ import {
   MysqlKillType,
   MysqlProcesslistResponse,
   MysqlKillProcessResult,
+  MysqlTableColumnDefinition,
+  MysqlCreateTableRequest,
+  MysqlRenameTableRequest,
+  MysqlAlterTableOptionsRequest,
+  MysqlDropTableRequest,
+  MysqlTruncateTableRequest,
+  MysqlAddColumnRequest,
+  MysqlModifyColumnRequest,
+  MysqlRenameColumnRequest,
+  MysqlDropColumnRequest,
+  MysqlCreateIndexRequest,
+  MysqlDropIndexRequest,
+  MysqlAddForeignKeyRequest,
+  MysqlDropForeignKeyRequest,
+  MysqlManagePrimaryKeyRequest,
+  MysqlDdlOperationResult,
   PostgresDatabaseItem,
   PostgresRoleItem,
   PostgresDatabaseTree,
@@ -1453,6 +1469,178 @@ export async function deleteRemoteServerMysqlTableRow(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+// ==========================================
+// Phase 13: Table, Column, Index & Constraint Management Client APIs
+// ==========================================
+
+export async function createRemoteServerMysqlTable(
+  id: string,
+  req: MysqlCreateTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/tables/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function renameRemoteServerMysqlTable(
+  id: string,
+  req: MysqlRenameTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/tables/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function alterRemoteServerMysqlTableOptions(
+  id: string,
+  req: MysqlAlterTableOptionsRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/tables/alter-options`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlTable(
+  id: string,
+  req: MysqlDropTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/tables/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function truncateRemoteServerMysqlTable(
+  id: string,
+  req: MysqlTruncateTableRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/tables/truncate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function addRemoteServerMysqlColumn(
+  id: string,
+  req: MysqlAddColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/columns/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function modifyRemoteServerMysqlColumn(
+  id: string,
+  req: MysqlModifyColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/columns/modify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function renameRemoteServerMysqlColumn(
+  id: string,
+  req: MysqlRenameColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/columns/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlColumn(
+  id: string,
+  req: MysqlDropColumnRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/columns/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function createRemoteServerMysqlIndex(
+  id: string,
+  req: MysqlCreateIndexRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/indexes/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlIndex(
+  id: string,
+  req: MysqlDropIndexRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/indexes/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function addRemoteServerMysqlForeignKey(
+  id: string,
+  req: MysqlAddForeignKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/foreign-keys/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function dropRemoteServerMysqlForeignKey(
+  id: string,
+  req: MysqlDropForeignKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/foreign-keys/drop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function manageRemoteServerMysqlPrimaryKey(
+  id: string,
+  req: MysqlManagePrimaryKeyRequest
+): Promise<MysqlDdlOperationResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/mysql/primary-key/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   });
   return res.json();
 }

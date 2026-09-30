@@ -103,6 +103,11 @@ import {
   fetchRemoteServerMysqlVariables,
 } from '../../services/api';
 import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
+import {
+  MysqlTableStructureModal,
+  MysqlTableStructureModalMode,
+  MysqlDropTargetType,
+} from './MysqlTableStructureModal';
 import { MysqlSqlEditorTab } from './MysqlSqlEditorTab';
 import { MysqlUsersManagerTab } from './MysqlUsersManagerTab';
 import { MysqlPermissionsManagerTab } from './MysqlPermissionsManagerTab';
@@ -256,6 +261,36 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const [rowMutationModalMode, setRowMutationModalMode] = useState<'insert' | 'edit' | 'delete'>('insert');
   const [selectedRowForMutation, setSelectedRowForMutation] = useState<Record<string, any> | null>(null);
   const [rowMutationNotice, setRowMutationNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Phase 13: Table, Column, Index & Constraint Structural Management States
+  const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
+  const [structureModalMode, setStructureModalMode] = useState<MysqlTableStructureModalMode>('create_table');
+  const [structureTargetColumn, setStructureTargetColumn] = useState<MysqlColumnStructure | null>(null);
+  const [structureTargetIndex, setStructureTargetIndex] = useState<MysqlIndexDetail | null>(null);
+  const [structureTargetForeignKey, setStructureTargetForeignKey] = useState<MysqlForeignKeyConstraint | null>(null);
+  const [structureDropTargetType, setStructureDropTargetType] = useState<MysqlDropTargetType>('table');
+  const [structureTargetTableName, setStructureTargetTableName] = useState<string>('');
+
+  const handleOpenStructureModal = useCallback((
+    mode: MysqlTableStructureModalMode,
+    options?: {
+      tableName?: string;
+      column?: MysqlColumnStructure;
+      index?: MysqlIndexDetail;
+      foreignKey?: MysqlForeignKeyConstraint;
+      dropType?: MysqlDropTargetType;
+    }
+  ) => {
+    setStructureModalMode(mode);
+    setStructureTargetTableName(options?.tableName || selectedTreeNode.tableName || '');
+    setStructureTargetColumn(options?.column || null);
+    setStructureTargetIndex(options?.index || null);
+    setStructureTargetForeignKey(options?.foreignKey || null);
+    setStructureDropTargetType(options?.dropType || 'table');
+    setIsStructureModalOpen(true);
+  }, [selectedTreeNode.tableName]);
+
+
 
   // Run initial test and overview on open
   const runTestConnection = useCallback(async () => {
@@ -465,6 +500,18 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     },
     [server, tableDataPage, tableDataPageSize, tableDataSortColumn, tableDataSortDir, tableDataSearch, tableDataFilters]
   );
+
+  const handleStructureModalSuccess = useCallback(() => {
+    const db = selectedTreeNode.dbName;
+    const tbl = structureTargetTableName || selectedTreeNode.tableName;
+    if (db) {
+      loadDatabaseDetails(db, true);
+      if (tbl) {
+        loadTableStructure(db, tbl, true);
+        loadTableData(db, tbl, 1);
+      }
+    }
+  }, [selectedTreeNode.dbName, selectedTreeNode.tableName, structureTargetTableName, loadDatabaseDetails, loadTableStructure, loadTableData]);
 
   // Auto-load table structure and data on table selection
   useEffect(() => {
@@ -3188,6 +3235,39 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                       )}
                                       <span>{isEn ? 'Copy Name' : 'کپی نام'}</span>
                                     </button>
+                                    {/* Phase 13: Table Structure & Options Modal Trigger */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenStructureModal("alter_table", { tableName })}
+                                      className="px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                                      title={isEn ? "Alter Table Engine, Charset & Options or Rename" : "تنظیمات موتور، نویسه‌ها یا تغییر نام جدول"}
+                                    >
+                                      <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                                      <span>{isEn ? "Table Options" : "تنظیمات جدول"}</span>
+                                    </button>
+
+                                    {/* Phase 13: Truncate Table Action */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenStructureModal("drop_confirm", { tableName, dropType: "truncate_table" })}
+                                      className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1.5 cursor-pointer transition"
+                                      title={isEn ? "Truncate all rows in this table" : "پاکسازی تمام سطرهای جدول"}
+                                    >
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>{isEn ? "Truncate" : "پاکسازی"}</span>
+                                    </button>
+
+                                    {/* Phase 13: Drop Table Action */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenStructureModal("drop_confirm", { tableName, dropType: "table" })}
+                                      className="px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium flex items-center gap-1.5 cursor-pointer transition"
+                                      title={isEn ? "Permanently drop this table" : "حذف کامل این جدول"}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                      <span>{isEn ? "Drop Table" : "حذف جدول"}</span>
+                                    </button>
+
                                     <button
                                       type="button"
                                       onClick={() => handleOpenSqlForDatabase(dbName, tableName)}
@@ -4465,7 +4545,33 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
 
                                 {/* SUB-TAB 4: FOREIGN KEYS */}
                                 {tableActiveSubTab === 'foreignKeys' && (
-                                  <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-bold text-slate-300">
+                                        {isEn ? `Foreign Keys (${struct?.foreignKeys.length || 0})` : `کلیدهای خارجی (${struct?.foreignKeys.length || 0})`}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenStructureModal("manage_primary_key", { tableName })}
+                                          className="px-2.5 py-1 rounded-lg border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+                                          title={isEn ? "Manage primary key columns" : "مدیریت کلید اصلی"}
+                                        >
+                                          <Key className="w-3.5 h-3.5 text-blue-400" />
+                                          <span>{isEn ? "Manage PK" : "کلید اصلی"}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenStructureModal("add_foreign_key", { tableName })}
+                                          className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                                          title={isEn ? "Add foreign key constraint" : "افزودن کلید خارجی"}
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                          <span>{isEn ? "Add FK" : "افزودن FK"}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="rounded-xl border border-white/10 bg-slate-950 overflow-hidden shadow-inner">
                                     {struct && struct.foreignKeys.length === 0 ? (
                                       <div className="p-8 text-center text-slate-500 text-xs">
                                         {isEn ? 'No foreign key constraints defined' : 'هیچ کلید خارجی برای این جدول تعریف نشده است'}
@@ -4480,7 +4586,8 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                               <th className="py-2.5 px-3">{isEn ? 'Referenced Table' : 'جدول مرجع'}</th>
                                               <th className="py-2.5 px-3">{isEn ? 'Referenced Column' : 'ستون مرجع'}</th>
                                               <th className="py-2.5 px-3 text-center">{isEn ? 'On Update' : 'در بروزرسانی'}</th>
-                                              <th className="py-2.5 px-3 text-center">{isEn ? 'On Delete' : 'در حذف'}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? "On Delete" : "در حذف"}</th>
+                                              <th className="py-2.5 px-3 text-center">{isEn ? "Actions" : "عملیات"}</th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-white/5">
@@ -4505,12 +4612,23 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                     {fk.deleteRule}
                                                   </span>
                                                 </td>
+                                                <td className="py-2 px-3 text-center">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleOpenStructureModal("drop_confirm", { tableName, foreignKey: fk, dropType: "foreign_key" })}
+                                                    className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                                    title={isEn ? "Drop foreign key constraint" : "حذف کلید خارجی"}
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                </td>
                                               </tr>
                                             ))}
                                           </tbody>
                                         </table>
                                       </div>
                                     )}
+                                  </div>
                                   </div>
                                 )}
 
@@ -4770,7 +4888,20 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                               </div>
 
                               {/* Search bar inside category */}
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-3">
+                                  {dbActiveObjectTab === "tables" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenStructureModal("create_table")}
+                                      className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                      title={isEn ? "Create new table in this database" : "ساخت جدول جدید در این پایگاه داده"}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>{isEn ? "Create Table" : "جدول جدید"}</span>
+                                    </button>
+                                  )}
+                                </div>
                                 <span className="text-xs text-slate-400 font-bold">
                                   {dbActiveObjectTab === 'tables' && `${isEn ? 'Base Tables' : 'جداول پایه'} (${tablesList.length})`}
                                   {dbActiveObjectTab === 'views' && `${isEn ? 'Database Views' : 'نماهای دیتابیس'} (${viewsList.length})`}
@@ -4807,7 +4938,8 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                         <th className="p-2.5 text-right">{isEn ? 'Data Size' : 'حجم داده'}</th>
                                         <th className="p-2.5 text-right">{isEn ? 'Index Size' : 'حجم ایندکس'}</th>
                                         <th className="p-2.5 text-right">{isEn ? 'Total Size' : 'حجم کل'}</th>
-                                        <th className="p-2.5 text-center">{isEn ? 'Query' : 'کوئری'}</th>
+                                        <th className="p-2.5 text-center">{isEn ? "Query" : "کوئری"}</th>
+                                        <th className="p-2.5 text-center">{isEn ? "Actions" : "عملیات"}</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-white/5 font-mono">
@@ -4857,6 +4989,34 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
                                                 >
                                                   <Play className="w-3 h-3" />
                                                 </button>
+                                              </td>
+                                              <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex items-center justify-center gap-1">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleOpenStructureModal("alter_table", { tableName: t.name })}
+                                                    className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300"
+                                                    title={isEn ? "Table Options & Rename" : "تنظیمات و تغییر نام"}
+                                                  >
+                                                    <Sliders className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleOpenStructureModal("drop_confirm", { tableName: t.name, dropType: "truncate_table" })}
+                                                    className="p-1 rounded hover:bg-amber-500/20 text-slate-400 hover:text-amber-300"
+                                                    title={isEn ? "Truncate table" : "پاکسازی جدول"}
+                                                  >
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleOpenStructureModal("drop_confirm", { tableName: t.name, dropType: "table" })}
+                                                    className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400"
+                                                    title={isEn ? "Drop table" : "حذف جدول"}
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
                                               </td>
                                             </tr>
                                           ))
@@ -5598,6 +5758,30 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Phase 13: MySQL Table, Index & Constraint Structural Management Modal */}
+      <MysqlTableStructureModal
+        isOpen={isStructureModalOpen}
+        onClose={() => setIsStructureModalOpen(false)}
+        onMinimize={() => setIsStructureModalOpen(false)}
+        serverId={server.id}
+        serverName={server.name}
+        databaseName={selectedTreeNode.dbName || ""}
+        tableName={structureTargetTableName || selectedTreeNode.tableName || ""}
+        mode={structureModalMode}
+        existingColumns={tableStructures[structureTargetTableName || selectedTreeNode.tableName || ""]?.columns || []}
+        existingIndexes={tableStructures[structureTargetTableName || selectedTreeNode.tableName || ""]?.indexes || []}
+        existingForeignKeys={tableStructures[structureTargetTableName || selectedTreeNode.tableName || ""]?.foreignKeys || []}
+        existingTables={dbDetailsCache[selectedTreeNode.dbName || ""]?.tables?.map((t) => t.name) || []}
+        tableMetadata={tableStructures[structureTargetTableName || selectedTreeNode.tableName || ""]?.metadata || null}
+        targetColumn={structureTargetColumn}
+        targetIndex={structureTargetIndex}
+        targetForeignKey={structureTargetForeignKey}
+        dropTargetType={structureDropTargetType}
+        onSuccess={handleStructureModalSuccess}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
 
       {/* Phase 7: MySQL Table Row Mutation Modal */}
       <MysqlTableRowEditModal

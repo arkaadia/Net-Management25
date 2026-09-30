@@ -85,6 +85,20 @@ import {
   getMysqlUserGrants,
   getMysqlPermissionsMatrix,
   applyMysqlPermissions,
+  createMysqlTable,
+  renameMysqlTable,
+  alterMysqlTableOptions,
+  dropMysqlTable,
+  truncateMysqlTable,
+  addMysqlColumn,
+  modifyMysqlColumn,
+  renameMysqlColumn,
+  dropMysqlColumn,
+  createMysqlIndex,
+  dropMysqlIndex,
+  addMysqlForeignKey,
+  dropMysqlForeignKey,
+  manageMysqlPrimaryKey,
 } from './mysqlManager';
 import {
   testPostgresConnection,
@@ -4547,6 +4561,220 @@ apiRouter.post('/remote-servers/:id/mysql/table-row/delete', async (req: Request
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, operation: 'delete', affectedRows: 0, error: err.message, errorFa: 'خطای سرور در حذف سطر' });
+  }
+});
+
+// ==========================================
+// Phase 13: Table, Column, Index & Constraint Management Routes
+// ==========================================
+
+// POST /api/remote-servers/:id/mysql/tables/create - Create table with columns and options
+apiRouter.post('/remote-servers/:id/mysql/tables/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlTable(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ساخت جدول' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/tables/rename - Rename an existing table
+apiRouter.post('/remote-servers/:id/mysql/tables/rename', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await renameMysqlTable(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تغییر نام جدول' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/tables/alter-options - Alter table options
+apiRouter.post('/remote-servers/:id/mysql/tables/alter-options', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await alterMysqlTableOptions(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تغییر مشخصات جدول' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/tables/drop - Drop table
+apiRouter.post('/remote-servers/:id/mysql/tables/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlTable(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف جدول' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/tables/truncate - Truncate table
+apiRouter.post('/remote-servers/:id/mysql/tables/truncate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await truncateMysqlTable(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در پاکسازی جدول' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/columns/add - Add column
+apiRouter.post('/remote-servers/:id/mysql/columns/add', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await addMysqlColumn(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در افزودن ستون' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/columns/modify - Modify column
+apiRouter.post('/remote-servers/:id/mysql/columns/modify', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await modifyMysqlColumn(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ویرایش ستون' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/columns/rename - Rename column
+apiRouter.post('/remote-servers/:id/mysql/columns/rename', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await renameMysqlColumn(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در تغییر نام ستون' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/columns/drop - Drop column
+apiRouter.post('/remote-servers/:id/mysql/columns/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlColumn(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف ستون' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/indexes/create - Create index
+apiRouter.post('/remote-servers/:id/mysql/indexes/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await createMysqlIndex(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در ساخت ایندکس' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/indexes/drop - Drop index
+apiRouter.post('/remote-servers/:id/mysql/indexes/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlIndex(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف ایندکس' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/foreign-keys/add - Add foreign key
+apiRouter.post('/remote-servers/:id/mysql/foreign-keys/add', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await addMysqlForeignKey(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در افزودن کلید خارجی' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/foreign-keys/drop - Drop foreign key
+apiRouter.post('/remote-servers/:id/mysql/foreign-keys/drop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await dropMysqlForeignKey(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در حذف کلید خارجی' });
+  }
+});
+
+// POST /api/remote-servers/:id/mysql/primary-key/manage - Manage primary key
+apiRouter.post('/remote-servers/:id/mysql/primary-key/manage', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found', errorFa: 'سرور یافت نشد' });
+    }
+    const result = await manageMysqlPrimaryKey(server, req.body);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, errorFa: 'خطای سرور در مدیریت کلید اصلی' });
   }
 });
 

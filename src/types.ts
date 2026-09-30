@@ -2010,6 +2010,177 @@ export interface MysqlKillProcessResult {
   errorFa?: string;
 }
 
+// ==========================================
+// Phase 13: MySQL Table, Index & Constraint Management
+// ==========================================
+
+export type MysqlColumnDataType =
+  | 'INT'
+  | 'BIGINT'
+  | 'TINYINT'
+  | 'SMALLINT'
+  | 'MEDIUMINT'
+  | 'DECIMAL'
+  | 'FLOAT'
+  | 'DOUBLE'
+  | 'VARCHAR'
+  | 'CHAR'
+  | 'TEXT'
+  | 'MEDIUMTEXT'
+  | 'LONGTEXT'
+  | 'DATE'
+  | 'TIME'
+  | 'DATETIME'
+  | 'TIMESTAMP'
+  | 'YEAR'
+  | 'JSON'
+  | 'BOOLEAN'
+  | 'ENUM'
+  | 'SET'
+  | 'BLOB'
+  | 'LONGBLOB';
+
+export interface MysqlTableColumnDefinition {
+  name: string;
+  dataType: string;
+  length?: string;
+  unsigned?: boolean;
+  nullable: boolean;
+  defaultValue?: string;
+  isDefaultNull?: boolean;
+  isDefaultCurrentTimestamp?: boolean;
+  autoIncrement?: boolean;
+  primaryKey?: boolean;
+  unique?: boolean;
+  comment?: string;
+  charset?: string;
+  collation?: string;
+  position?: 'FIRST' | 'AFTER';
+  afterColumn?: string;
+}
+
+export interface MysqlCreateTableRequest {
+  database: string;
+  tableName: string;
+  engine?: string;
+  charset?: string;
+  collation?: string;
+  comment?: string;
+  columns: MysqlTableColumnDefinition[];
+}
+
+export interface MysqlRenameTableRequest {
+  database: string;
+  oldTableName: string;
+  newTableName: string;
+}
+
+export interface MysqlAlterTableOptionsRequest {
+  database: string;
+  tableName: string;
+  engine?: string;
+  charset?: string;
+  collation?: string;
+  comment?: string;
+  autoIncrement?: number;
+}
+
+export interface MysqlDropTableRequest {
+  database: string;
+  tableName: string;
+  ifExists?: boolean;
+  cascade?: boolean;
+}
+
+export interface MysqlTruncateTableRequest {
+  database: string;
+  tableName: string;
+}
+
+export interface MysqlAddColumnRequest {
+  database: string;
+  tableName: string;
+  column: MysqlTableColumnDefinition;
+}
+
+export interface MysqlModifyColumnRequest {
+  database: string;
+  tableName: string;
+  column: MysqlTableColumnDefinition;
+}
+
+export interface MysqlRenameColumnRequest {
+  database: string;
+  tableName: string;
+  oldColumnName: string;
+  newColumnName: string;
+  columnDefinition?: MysqlTableColumnDefinition;
+}
+
+export interface MysqlDropColumnRequest {
+  database: string;
+  tableName: string;
+  columnName: string;
+}
+
+export interface MysqlIndexColumnSpec {
+  name: string;
+  length?: number;
+  order?: 'ASC' | 'DESC';
+}
+
+export interface MysqlCreateIndexRequest {
+  database: string;
+  tableName: string;
+  indexName: string;
+  indexType: 'INDEX' | 'UNIQUE' | 'FULLTEXT' | 'SPATIAL';
+  indexMethod?: 'BTREE' | 'HASH';
+  columns: MysqlIndexColumnSpec[];
+  comment?: string;
+}
+
+export interface MysqlDropIndexRequest {
+  database: string;
+  tableName: string;
+  indexName: string;
+}
+
+export interface MysqlAddForeignKeyRequest {
+  database: string;
+  tableName: string;
+  constraintName: string;
+  column: string;
+  referencedSchema?: string;
+  referencedTable: string;
+  referencedColumn: string;
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+}
+
+export interface MysqlDropForeignKeyRequest {
+  database: string;
+  tableName: string;
+  constraintName: string;
+}
+
+export interface MysqlManagePrimaryKeyRequest {
+  database: string;
+  tableName: string;
+  action: 'add' | 'drop';
+  columns?: string[];
+}
+
+export interface MysqlDdlOperationResult {
+  success: boolean;
+  executedSql: string;
+  executionTimeMs: number;
+  message: string;
+  messageFa: string;
+  affectedRows?: number;
+  error?: string;
+  errorFa?: string;
+}
+
 export interface MysqlVariableItem {
   name: string;
   value: string;

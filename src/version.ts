@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.222.0';
+export const APP_VERSION = '1.223.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.223.0',
+    releaseDate: '2026-09-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱۳ سیستم مدیریت MySQL: مدیریت بصری و مهندسی ساختار جدول، ستون‌ها، ایندکس‌ها و قیود (Table, Index & Constraint Structural Suite)',
+    title_en: 'Phase 13: Comprehensive MySQL Table, Column, Index & Constraint Structural Management Suite',
+    changes: [
+      'طراحی و پیاده‌سازی مودال بصری و اختصاصی مدیریت ساختار جداول MySQL (`MysqlTableStructureModal`) با رعایت استانداردهای ۵گانه مودال‌ها شامل دکمه‌های کنترل سه‌گانه، حریم امن فوتر، انطباق کامل تم‌های تیره و روشن، پشتیبانی کامل دوزبانه و راهنماهای سه‌بخشی FieldInfoTooltip.',
+      'پشتیبانی از ساخت جدول جدید (Create Table) همراه با فرم پویای تعریف ستون‌ها (نام، نوع داده، طول، مقادیر پیش‌فرض، Auto Increment، کلید اصلی و توضیحات)، انتخاب موتور ذخیره‌سازی (InnoDB, MyISAM, MEMORY)، مجموعه نویسه و Collation.',
+      'پشتیبانی کامل از ویرایش گزینه‌های جدول (Alter Table Options) شامل تغییر نام جدول (Rename Table)، موتور ذخیره‌سازی، مجموعه نویسه‌ها، Collation، توضیحات و مقدار گام بعدی AUTO_INCREMENT.',
+      'مدیریت چرخه حیات ستون‌ها: افزودن ستون جدید (Add Column)، ویرایش مشخصات ستون موجود (Modify Column)، تغییر نام ستون با فالبک سازگار با نسخه‌های قدیمی (Rename Column via CHANGE COLUMN)، و حذف ستون (Drop Column) همراه با تعیین موقعیت ستون (FIRST یا AFTER).',
+      'مدیریت ایندکس‌ها و نمایه‌ها: ایجاد ایندکس جدید (INDEX, UNIQUE, FULLTEXT, SPATIAL) با الگوریتم‌های BTREE و HASH به صورت چندستونه با قابلیت تعیین طول پیشوند و ترتیب صعودی/نزولی، و حذف ایمن ایندکس‌ها.',
+      'مدیریت قیود و کلیدهای خارجی: تعریف کلید خارجی (ADD FOREIGN KEY) با تعیین رفتار ON UPDATE و ON DELETE (شامل RESTRICT, CASCADE, SET NULL, NO ACTION)، حذف قید کلید خارجی، و تنظیم یا حذف کلید اصلی (Primary Key).',
+      'طراحی سیستم پیش‌نمایش زنده دستورات SQL (Live DDL Preview) با قابلیت کپی مستقیم پیش از ارسال به سرور جهت بازبینی دقیق دستورات.',
+      'پیاده‌سازی سیستم تایید دو مرحله‌ای عملیات حساس و تخریبی (Drop Table, Truncate Table, Drop Column, Drop Index, Drop Foreign Key) با الزام ورود کلمه CONFIRM یا تایید.',
+      'ثبت کلیه عملیات ساختاری در لاگ ممیزی امنیتی سرور (Server Audit Logging) بدون افشای اطلاعات محرمانه.',
+      'یکپارچه‌سازی کامل دکمه‌ها و دسترسی‌های سریع در نماهای دیتابیس، کارت‌های جداول و سربرگ‌های ستون‌ها، ایندکس‌ها و کلیدهای خارجی در مودال مدیریت MySQL.'
+    ],
+    changes_en: [
+      'Engineered dedicated visual structural management modal (`MysqlTableStructureModal`) adhering strictly to the 5 universal modal standards: header control triad, strict footer clearance, light/dark mode ergonomics, strict bilingual i18n, and boundary-safe 3-part FieldInfoTooltip.',
+      'Implemented interactive Table Creation suite (Create Table) with dynamic column rows builder (name, data type, length, default values, Auto Increment, Primary Key, comment), storage engine selection (InnoDB, MyISAM, MEMORY), charset and collation.',
+      'Added Table Options & Structural Alteration suite supporting Table Rename, Storage Engine conversion, Charset & Collation alteration, comments, and next AUTO_INCREMENT value specification.',
+      'Architected full column lifecycle management: Add Column, Modify Column definition, backwards-compatible Rename Column (with CHANGE COLUMN fallback), Drop Column, and precise column positioning (FIRST or AFTER column).',
+      'Engineered comprehensive Index Management: visual multi-column index creation supporting INDEX, UNIQUE, FULLTEXT, and SPATIAL types, BTREE/HASH index methods, prefix lengths, ASC/DESC sorting, and index dropping.',
+      'Built Foreign Key & Constraint Suite: Add Foreign Key with selectable ON UPDATE and ON DELETE rules (RESTRICT, CASCADE, SET NULL, NO ACTION), constraint dropping, and interactive Primary Key configuration.',
+      'Integrated interactive Live DDL Preview panel with one-click clipboard copy to inspect the exact SQL dialect before execution.',
+      'Implemented guarded 2-step confirmation workflow for all destructive DDL actions (Drop Table, Truncate Table, Drop Column, Drop Index, Drop FK) requiring explicit keyword confirmation ("CONFIRM").',
+      'Added server-side security audit logging for all structural table and schema modifications with duration and operator metadata.',
+      'Seamlessly integrated contextual action buttons across database tables grids, table headers, columns inspector, indexes, and foreign keys subtabs.'
+    ],
+  },
   {
     version: '1.222.0',
     releaseDate: '2026-09-30',
