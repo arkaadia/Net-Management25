@@ -2446,19 +2446,28 @@ export async function getAccessPolicies(): Promise<any[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM access_policies ORDER BY priority ASC, created_at ASC');
-      return res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        priority: r.priority,
-        isBuiltin: r.is_builtin,
-        policyData: typeof r.policy_data === 'string' ? JSON.parse(r.policy_data) : r.policy_data,
-      }));
+      return res.rows.map((r) => {
+        const pData = typeof r.policy_data === 'string' ? JSON.parse(r.policy_data) : (r.policy_data || {});
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          priority: r.priority,
+          isBuiltin: r.is_builtin,
+          ...pData,
+        };
+      });
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in getAccessPolicies]', e);
     }
   }
-  return loadFallbackStore().access_policies;
+  const fallback = loadFallbackStore().access_policies || [];
+  return fallback.map((p: any) => {
+    if (p.policy_data && typeof p.policy_data === 'object') {
+      return { ...p, ...p.policy_data };
+    }
+    return p;
+  });
 }
 
 export async function saveAccessPolicies(policies: any[]): Promise<void> {
@@ -2472,16 +2481,17 @@ export async function saveAccessPolicies(policies: any[]): Promise<void> {
       await client.query('BEGIN');
       await client.query('DELETE FROM access_policies');
       for (const p of policies) {
+        const { id, name, description, priority, isBuiltin, is_builtin, ...rest } = p;
         await client.query(
           `INSERT INTO access_policies (id, name, description, priority, is_builtin, policy_data)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [p.id, p.name, p.description, p.priority || 100, p.isBuiltin || false, JSON.stringify(p.policyData || p.policy_data || {})]
+          [id, name, description, priority || 100, isBuiltin ?? is_builtin ?? false, JSON.stringify(rest)]
         );
       }
       await client.query('COMMIT');
       client.release();
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in saveAccessPolicies]', e);
     }
   }
 }

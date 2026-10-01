@@ -593,6 +593,8 @@ export interface AccessPolicy {
   canViewScanner: boolean;
   canViewTemplates: boolean;
   canViewSettings: boolean;
+  canViewServers?: boolean;
+  canViewLogs?: boolean;
 
   // 1. Cisco IOS / IOS-XE Granular Capabilities
   terminalAccess: 'none' | 'view_only' | 'full';

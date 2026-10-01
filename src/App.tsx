@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Navbar, ThemeType } from './components/Navbar';
 import { Sidebar, ActiveTab } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -59,10 +59,20 @@ import { useLanguage } from './i18n';
 import { useAuth } from './context/AuthContext';
 import { LoginPage } from './components/login/LoginPage';
 import { NetworkSocketLoader } from './components/common/NetworkSocketLoader';
+import {
+  getEffectiveUserPolicy,
+  isTabAllowed,
+  syncAccessPoliciesFromDatabase,
+  syncLocalGroupsFromDatabase,
+  loadAccessPolicies,
+  loadLocalGroups,
+  loadSimulatedRoleId,
+} from './services/settingsStorage';
+import { AccessPolicy, LocalGroup } from './types';
 
 export default function App() {
   const { t, isRtl, isEn } = useLanguage();
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, user } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [devices, setDevices] = useState<Device[]>([]);
   const [topology, setTopology] = useState<TopologyData | null>(null);
@@ -70,6 +80,69 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // RBAC Access Control States
+  const [policies, setPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
+  const [localGroups, setLocalGroups] = useState<LocalGroup[]>(() => loadLocalGroups());
+  const [simulatedRoleId, setSimulatedRoleId] = useState<string>(() => loadSimulatedRoleId());
+
+  // Synchronize policies & groups from database
+  useEffect(() => {
+    if (isAuthenticated) {
+      syncAccessPoliciesFromDatabase().then((p) => {
+        if (Array.isArray(p) && p.length > 0) setPolicies(p);
+      }).catch(() => {});
+      syncLocalGroupsFromDatabase().then((g) => {
+        if (Array.isArray(g) && g.length > 0) setLocalGroups(g);
+      }).catch(() => {});
+    }
+  }, [isAuthenticated]);
+
+  // Listen for real-time RBAC policy and simulated role events
+  useEffect(() => {
+    const handlePoliciesChanged = (e: any) => {
+      if (e.detail?.policies) {
+        setPolicies(e.detail.policies);
+      } else {
+        setPolicies(loadAccessPolicies());
+      }
+    };
+    const handleSimRoleChanged = (e: any) => {
+      setSimulatedRoleId(loadSimulatedRoleId());
+    };
+    window.addEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
+    window.addEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
+    return () => {
+      window.removeEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
+      window.removeEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
+    };
+  }, []);
+
+  // Compute live effective policy for logged-in user
+  const effectivePolicy = useMemo(() => {
+    return getEffectiveUserPolicy(user, policies, localGroups, simulatedRoleId);
+  }, [user, policies, localGroups, simulatedRoleId]);
+
+  // Enforce access control: Automatically route user to an accessible tab if current tab is denied
+  useEffect(() => {
+    if (effectivePolicy && !isTabAllowed(activeTab, effectivePolicy)) {
+      const candidateTabs: ActiveTab[] = [
+        'dashboard',
+        'schematic',
+        'devices',
+        'remote-servers',
+        'ports',
+        'scanner',
+        'templates',
+        'logs',
+        'settings-groups',
+      ];
+      const firstAllowed = candidateTabs.find((t) => isTabAllowed(t, effectivePolicy)) || 'dashboard';
+      if (firstAllowed !== activeTab) {
+        setActiveTab(firstAllowed);
+      }
+    }
+  }, [effectivePolicy, activeTab]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -656,6 +729,7 @@ export default function App() {
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={toggleSidebarCollapse}
             onOpenReleaseNotes={handleOpenReleaseNotes}
+            effectivePolicy={effectivePolicy}
           />
         )}
 

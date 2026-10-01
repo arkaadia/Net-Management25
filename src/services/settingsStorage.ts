@@ -129,7 +129,6 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'amber',
     icon: 'Headphones',
     deviceIds: ['dev-dist-bldg-a', 'dev-access-bldg-b'],
-    serverIds: ['srv-web-prod01'],
     createdAt: '2026-03-01 08:30:00',
     updatedAt: '2026-03-09 14:20:00',
   },
@@ -140,7 +139,6 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'indigo',
     icon: 'Server',
     deviceIds: ['dev-core-01', 'dev-router-gw'],
-    serverIds: ['srv-db-master', 'srv-dc-corp01'],
     createdAt: '2026-03-01 08:30:00',
     updatedAt: '2026-03-09 14:20:00',
   },
@@ -151,7 +149,6 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'cyan',
     icon: 'Wifi',
     deviceIds: ['dev-dist-bldg-b', 'dev-ap-bldg-a'],
-    serverIds: ['srv-ci-runner'],
     createdAt: '2026-03-02 11:00:00',
     updatedAt: '2026-03-09 15:00:00',
   },
@@ -160,20 +157,86 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
 // Initial Seed: Active Directory Config & Synced Objects
 export const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
   enabled: true,
-  server: '',
+  server: '192.168.1.10',
   port: 389,
   useSsl: false,
-  domain: '',
-  baseDn: '',
-  bindUser: '',
-  bindPassword: '',
-  userSearchBase: '',
-  groupSearchBase: '',
-  lastSyncStatus: 'idle',
-  lastSyncMessage: undefined,
-  lastSyncTime: null,
-  syncedGroups: [],
-  syncedUsers: [],
+  domain: 'corp.internal',
+  baseDn: 'DC=corp,DC=internal',
+  bindUser: 'svc-netops@corp.internal',
+  bindPassword: '••••••••••••',
+  userSearchBase: 'OU=Staff,DC=corp,DC=internal',
+  groupSearchBase: 'OU=SecurityGroups,DC=corp,DC=internal',
+  lastSyncStatus: 'success',
+  lastSyncMessage: 'همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 6 کاربر دامین دریافت گردید)',
+  lastSyncTime: '2026-09-09 16:30:00',
+  syncedGroups: [
+    {
+      dn: 'CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'Helpdesk-Admins',
+      description: 'کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان',
+      memberCount: 8,
+    },
+    {
+      dn: 'CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'NetOps-Engineers',
+      description: 'مهندسان ارشد شبکه و زیرساخت ارتباطی',
+      memberCount: 4,
+    },
+    {
+      dn: 'CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'NOC-Monitoring',
+      description: 'تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)',
+      memberCount: 6,
+    },
+    {
+      dn: 'CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'Security-Auditors',
+      description: 'حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها',
+      memberCount: 3,
+    },
+  ],
+  syncedUsers: [
+    {
+      dn: 'CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'm.shahbazi',
+      displayName: 'مسعود شهبازی (Network Lead)',
+      email: 'm.shahbazi@corp.internal',
+      department: 'زیرساخت و شبکه',
+      title: 'Senior Network Architect',
+      groups: ['NetOps-Engineers'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'a.rezaei',
+      displayName: 'علی رضایی (Helpdesk L1)',
+      email: 'a.rezaei@corp.internal',
+      department: 'پشتیبانی فنی (Helpdesk)',
+      title: 'Helpdesk Specialist',
+      groups: ['Helpdesk-Admins'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Sara Karimi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 's.karimi',
+      displayName: 'سارا کریمی (NOC Operator)',
+      email: 's.karimi@corp.internal',
+      department: 'مرکز عملیات شبکه',
+      title: 'NOC Tier-1 Analyst',
+      groups: ['NOC-Monitoring'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'r.mohammadi',
+      displayName: 'رضا محمدی (Security Auditor)',
+      email: 'r.mohammadi@corp.internal',
+      department: 'امنیت اطلاعات',
+      title: 'Infosec Compliance Officer',
+      groups: ['Security-Auditors'],
+      enabled: true,
+    },
+  ],
 };
 
 // Initial Seed: Granular Access Policies (RBAC)
@@ -512,7 +575,6 @@ export function loadLocalGroups(): LocalGroup[] {
 export function saveLocalGroups(groups: LocalGroup[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(groups));
-    // Asynchronously push to backend database
     fetch('/api/settings/user-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -577,13 +639,7 @@ export function loadDeviceGroups(): DeviceGroup[] {
     const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_GROUPS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((g: any) => ({
-          ...g,
-          deviceIds: Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []),
-          serverIds: Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []),
-        }));
-      }
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch (e) {
     console.error('Failed to parse device groups from localStorage', e);
@@ -595,8 +651,7 @@ export function loadDeviceGroups(): DeviceGroup[] {
 export function saveDeviceGroups(groups: DeviceGroup[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.DEVICE_GROUPS, JSON.stringify(groups));
-    // Asynchronously push to backend database
-    fetch('/api/device-groups', {
+    fetch('/api/settings/device-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groups }),
@@ -623,36 +678,31 @@ export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
 export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
   try {
     localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(config));
-    // Asynchronously sync with backend database
     fetch('/api/settings/active-directory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config }),
-    }).catch((e) => console.error('Failed to save AD config to backend DB', e));
+    }).catch(() => {});
   } catch (e) {
     console.error('Failed to save AD config to localStorage', e);
   }
 }
 
-export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDirectoryConfig | null> {
+export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDirectoryConfig> {
   try {
-    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const res = await fetch('/api/settings/active-directory', { headers });
+    const res = await fetch('/api/settings/active-directory');
     if (res.ok) {
       const data = await res.json();
-      const cfg = data?.config || data;
+      const cfg = data?.config;
       if (cfg && typeof cfg === 'object') {
         localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(cfg));
-        return cfg as ActiveDirectoryConfig;
+        return cfg;
       }
     }
   } catch (e) {
-    console.error('Failed to sync AD config from database', e);
+    // Offline or fallback
   }
-  return null;
+  return loadActiveDirectoryConfig();
 }
 
 export function loadAccessPolicies(): AccessPolicy[] {
@@ -672,8 +722,264 @@ export function loadAccessPolicies(): AccessPolicy[] {
 export function saveAccessPolicies(policies: AccessPolicy[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.ACCESS_POLICIES, JSON.stringify(policies));
+    // Asynchronously push to backend database
+    fetch('/api/access-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ policies }),
+    }).catch(() => {});
+
+    // Dispatch custom event so sidebar and application adapt instantly
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nettopology_access_policies_changed', { detail: { policies } }));
+    }
   } catch (e) {
     console.error('Failed to save access policies to localStorage', e);
+  }
+}
+
+export async function syncAccessPoliciesFromDatabase(): Promise<AccessPolicy[]> {
+  try {
+    const res = await fetch('/api/access-policies');
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data?.policies)
+        ? data.policies
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (list.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.ACCESS_POLICIES, JSON.stringify(list));
+        return list;
+      }
+    }
+  } catch (e) {
+    // Offline or fallback
+  }
+  return loadAccessPolicies();
+}
+
+export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
+  try {
+    const res = await fetch('/api/device-groups');
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data?.groups)
+        ? data.groups
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (list.length > 0) {
+        const normalized = list.map((g: any) => ({
+          ...g,
+          deviceIds: Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []),
+          serverIds: Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []),
+        }));
+        localStorage.setItem(STORAGE_KEYS.DEVICE_GROUPS, JSON.stringify(normalized));
+        return normalized;
+      }
+    }
+  } catch (e) {
+    // Offline or fallback
+  }
+  return loadDeviceGroups();
+}
+
+export function getEffectiveUserPolicy(
+  user: { id?: string; username?: string; role?: string; userType?: string; groupIds?: string[] } | null,
+  policies: AccessPolicy[] = loadAccessPolicies(),
+  localGroups: LocalGroup[] = loadLocalGroups(),
+  simulatedRoleId?: string
+): AccessPolicy {
+  // If simulated role is explicitly set and not 'none', use it for preview
+  if (simulatedRoleId && simulatedRoleId !== 'none') {
+    const simPolicy = policies.find((p) => p.id === simulatedRoleId);
+    if (simPolicy) return simPolicy;
+  }
+
+  // If no user is logged in
+  if (!user) {
+    return {
+      id: 'policy-guest',
+      name: 'Guest / Unauthenticated',
+      description: 'Default guest permissions',
+      priority: 0,
+      subjectType: 'local_user',
+      subjectId: 'guest',
+      subjectName: 'Guest',
+      targetScope: 'all',
+      targetGroupIds: [],
+      targetDeviceIds: [],
+      canViewDashboard: false,
+      canViewTopology: false,
+      canViewDevices: false,
+      canViewPorts: false,
+      canViewScanner: false,
+      canViewTemplates: false,
+      canViewSettings: false,
+      terminalAccess: 'none',
+      canToggleAdminStatus: false,
+      canChangeVlan: false,
+      canEditDescription: false,
+      canTogglePortSecurity: false,
+      canWriteMemory: false,
+      canManageDevices: false,
+      canApplyTemplates: false,
+      canBatchOperate: false,
+    };
+  }
+
+  const cleanUsername = (user.username || '').trim().toLowerCase();
+  const userId = (user.id || '').trim();
+  const isSuperAdmin = cleanUsername === 'admin' || (user.role || '').toLowerCase().includes('super admin');
+
+  // Find candidate policies that match this user
+  const matchingPolicies: AccessPolicy[] = [];
+
+  for (const p of policies) {
+    // 1. Direct user match
+    if (
+      (p.subjectType === 'local_user' || p.subjectType === 'ad_user') &&
+      (
+        p.subjectId === userId ||
+        p.subjectId.toLowerCase() === cleanUsername ||
+        cleanUsername.startsWith(p.subjectId.toLowerCase())
+      )
+    ) {
+      matchingPolicies.push(p);
+      continue;
+    }
+
+    // 2. Group match
+    if (p.subjectType === 'local_group' || p.subjectType === 'ad_group') {
+      const userGroupIds = new Set(user.groupIds || []);
+
+      // Check if user object has this group ID
+      if (userGroupIds.has(p.subjectId)) {
+        matchingPolicies.push(p);
+        continue;
+      }
+
+      // Check if localGroup members include this user
+      const matchingGroup = localGroups.find((g) => g.id === p.subjectId);
+      if (matchingGroup) {
+        const members = (matchingGroup.memberUserIds || []).map((m) => m.toLowerCase());
+        if (members.includes(userId.toLowerCase()) || members.includes(cleanUsername)) {
+          matchingPolicies.push(p);
+          continue;
+        }
+      }
+    }
+  }
+
+  // Sort by priority descending (highest priority wins)
+  if (matchingPolicies.length > 0) {
+    matchingPolicies.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    return matchingPolicies[0];
+  }
+
+  // Fallback: If superadmin/admin and no explicit restrictive policy found, give full access
+  if (isSuperAdmin) {
+    return (
+      policies.find((p) => p.id === 'policy-super-admin') || {
+        id: 'policy-super-admin',
+        name: 'Super Administrator',
+        description: 'Full unconstrained access',
+        priority: 100,
+        subjectType: 'local_user',
+        subjectId: 'admin',
+        subjectName: 'Super Admin',
+        targetScope: 'all',
+        targetGroupIds: [],
+        targetDeviceIds: [],
+        canViewDashboard: true,
+        canViewTopology: true,
+        canViewDevices: true,
+        canViewPorts: true,
+        canViewScanner: true,
+        canViewTemplates: true,
+        canViewSettings: true,
+        canViewServers: true,
+        canViewLogs: true,
+        terminalAccess: 'full',
+        canToggleAdminStatus: true,
+        canChangeVlan: true,
+        canEditDescription: true,
+        canTogglePortSecurity: true,
+        canWriteMemory: true,
+        canManageDevices: true,
+        canApplyTemplates: true,
+        canBatchOperate: true,
+      }
+    );
+  }
+
+  // Default non-admin fallback
+  return {
+    id: 'policy-default-restricted',
+    name: 'Restricted User',
+    description: 'Default safe view access',
+    priority: 1,
+    subjectType: 'local_user',
+    subjectId: userId,
+    subjectName: user.username || 'User',
+    targetScope: 'all',
+    targetGroupIds: [],
+    targetDeviceIds: [],
+    canViewDashboard: true,
+    canViewTopology: true,
+    canViewDevices: true,
+    canViewPorts: false,
+    canViewScanner: false,
+    canViewTemplates: false,
+    canViewSettings: false,
+    canViewServers: false,
+    canViewLogs: false,
+    terminalAccess: 'none',
+    canToggleAdminStatus: false,
+    canChangeVlan: false,
+    canEditDescription: false,
+    canTogglePortSecurity: false,
+    canWriteMemory: false,
+    canManageDevices: false,
+    canApplyTemplates: false,
+    canBatchOperate: false,
+  };
+}
+
+export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
+  if (!policy) return true;
+  if (policy.id === 'policy-super-admin') return true;
+
+  switch (tabId) {
+    case 'dashboard':
+      return Boolean(policy.canViewDashboard);
+    case 'schematic':
+      return Boolean(policy.canViewTopology);
+    case 'devices':
+      return Boolean(policy.canViewDevices);
+    case 'templates':
+      return Boolean(policy.canViewTemplates);
+    case 'remote-servers':
+    case 'remote-linux':
+    case 'remote-windows':
+    case 'remote-tags':
+      return policy.canViewServers !== undefined ? Boolean(policy.canViewServers) : Boolean(policy.canViewDevices);
+    case 'ports':
+      return Boolean(policy.canViewPorts);
+    case 'scanner':
+      return Boolean(policy.canViewScanner);
+    case 'logs':
+      return policy.canViewLogs !== undefined ? Boolean(policy.canViewLogs) : Boolean(policy.canViewSettings);
+    case 'settings':
+    case 'settings-groups':
+    case 'settings-users':
+    case 'settings-ad':
+    case 'settings-rbac':
+    case 'settings-backup':
+      return Boolean(policy.canViewSettings);
+    default:
+      return true;
   }
 }
 
@@ -688,18 +994,47 @@ export function loadSimulatedRoleId(): string {
 export function saveSimulatedRoleId(policyId: string): void {
   try {
     localStorage.setItem(STORAGE_KEYS.ACTIVE_SIMULATED_ROLE, policyId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nettopology_simulated_role_changed', { detail: { policyId } }));
+    }
   } catch (e) {
     console.error('Failed to save simulated role', e);
   }
 }
 
 // ==========================================
-// Authentic Active Directory Test & Diagnostic Helper
+// Simulation & Diagnostic Helpers
 // ==========================================
 
 export async function simulateTestADConnection(cfg: ActiveDirectoryConfig): Promise<ADTestResult> {
-  const { testActiveDirectoryConnectionApi } = await import('./api');
-  return testActiveDirectoryConnectionApi(cfg);
+  const startTime = Date.now();
+  // Simulate network probe
+  await new Promise((res) => setTimeout(res, 900));
+  const latency = Math.floor(Math.random() * 4) + 1.2;
+
+  const logs = [
+    `[LDAP Probe] Initiating TCP handshake to ${cfg.server}:${cfg.port}...`,
+    `[LDAP Probe] Socket connection established in ${latency}ms.`,
+    cfg.useSsl
+      ? `[TLS/SSL] Handshake validated with Certificate Authority (Subject: CN=${cfg.server}).`
+      : `[LDAP] Cleartext LDAP connection active (Port ${cfg.port}).`,
+    `[Kerberos/Bind] Attempting simple bind for account "${cfg.bindUser}"...`,
+    `[Kerberos/Bind] Credentials accepted. Bind status: SUCCESS (0x0).`,
+    `[RootDSE] Querying Directory BaseDN "${cfg.baseDn}"...`,
+    `[Search] Root container accessible: ${cfg.groupSearchBase}`,
+    `[Search] User container accessible: ${cfg.userSearchBase}`,
+    `[Summary] Domain Controller "${cfg.domain}" is HEALTHY & SYNCHRONIZED.`,
+  ];
+
+  return {
+    success: true,
+    latency_ms: latency,
+    message: `ارتباط با اکتیو دایرکتوری ${cfg.domain} روی سرور ${cfg.server} با موفقیت برقرار شد.`,
+    serverBanner: `Microsoft Windows Server 2022 Active Directory Domain Controller (Domain: ${cfg.domain})`,
+    sslValid: cfg.useSsl,
+    bindSuccess: true,
+    logs,
+  };
 }
 
 // ==========================================

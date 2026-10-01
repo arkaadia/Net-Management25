@@ -34,7 +34,9 @@ import {
   saveLocalGroups,
   syncLocalGroupsFromDatabase,
   syncLocalUsersFromDatabase,
-  syncActiveDirectoryConfigFromDatabase
+  syncActiveDirectoryConfigFromDatabase,
+  syncDeviceGroupsFromDatabase,
+  syncAccessPoliciesFromDatabase
 } from '../../services/settingsStorage';
 import { DeviceGroupingTab } from './DeviceGroupingTab';
 import { ActiveDirectoryTab } from './ActiveDirectoryTab';
@@ -103,6 +105,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     syncActiveDirectoryConfigFromDatabase().then((dbAd) => {
       if (dbAd && typeof dbAd === 'object') {
         setAdConfig(dbAd);
+      }
+    }).catch(() => {});
+
+    syncDeviceGroupsFromDatabase().then((dbDevGroups) => {
+      if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) {
+        setDeviceGroups(dbDevGroups);
+      }
+    }).catch(() => {});
+
+    syncAccessPoliciesFromDatabase().then((dbPolicies) => {
+      if (Array.isArray(dbPolicies) && dbPolicies.length > 0) {
+        setPolicies(dbPolicies);
       }
     }).catch(() => {});
   }, []);

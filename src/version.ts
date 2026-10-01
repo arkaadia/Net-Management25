@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.236.0';
+export const APP_VERSION = '1.237.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.237.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز اول کنترل دسترسی مبتنی بر نقش (RBAC): بارگذاری زنده هویت‌ها و گروه‌های تجهیزات از دیتابیس و فیلتر خودکار ماژول‌های سایدبار برای کاربر لاگین‌شده',
+    title_en: 'Granular Multi-Vendor Access Control (RBAC) Phase 1: Database-Driven Subjects & Device Scope with Dynamic Role-Based Sidebar Module Filtering',
+    changes: [
+      'بارگذاری زنده و بلادرنگ انواع هویت‌ها (کاربران محلی، گروه‌های کاربری محلی، کاربران اکتیو دایرکتوری و گروه‌های امنیتی AD) مستقیماً از پایگاه‌داده در زمان ایجاد و ویرایش پالیسی دسترسی در صفحه Granular RBAC.',
+      'بارگذاری زنده تمامی گروه‌های تجهیزات ایجادشده در شبکه (Device Target Scope) از پایگاه‌داده و پیوند دقیق اختیارات به گروه‌های منتخب و دیوایس‌های زیرمجموعه.',
+      'تجهیز بخش «۳. دسترسی به صفحات (Page Access)» به ماتریس کامل کنترل ماژول‌های سایدبار شامل داشبورد، نقشه توپولوژی، لیست تجهیزات، سرورهای ریموت، پورت‌ها، اسکنر، الگوها، لاگ‌ها و تنظیمات به همراه کلیدهای انتخاب و لغو یکپارچه.',
+      'پیاده‌سازی مکانیزم بلادرنگ فیلتر ماژول‌ها و آکاردئون‌های والد در سایدبار (Sidebar) بر اساس پالیسی دسترسی مؤثر کاربر لاگین‌شده (Effective Policy) و ارزیابی خودکار بر اساس هویت یا عضویت در گروه‌ها.',
+      'افزودن هدایت خودکار کاربر به اولین ماژول مجاز در صورت تلاش برای ورود به صفحات غیرمجاز و همگام‌سازی لحظه‌ای سایدبار با رویدادهای ذخیره‌سازی پالیسی در دیتابیس.',
+      'پشتیبانی کامل از حالت شبیه‌ساز نقش (Role Simulator) برای آزمودن فوری و بلادرنگ سایدبار با پالیسی‌های مختلف بدون نیاز به خروج از حساب کاربری.'
+    ],
+    changes_en: [
+      'Implemented authentic database-driven subject resolution in the Granular Multi-Vendor RBAC policy modal, dynamically loading local users, local groups, AD users, and AD security groups directly from the database.',
+      'Integrated live database device target scope loading, allowing policies to precisely target custom device groups created across the infrastructure with live device and server counts.',
+      'Enhanced Section 3 (Page Access) with a comprehensive module matrix controlling visibility of Dashboard, Topology Map, Devices Inventory, Remote Servers Fleet, Ports & VLANs, Discovery Scanner, Config Templates, Audit Logs, and Settings with Select All and Deselect All shortcuts.',
+      'Engineered dynamic real-time Sidebar module and parent accordion filtering based on the authenticated user\'s effective RBAC policy, resolving direct user assignments or inherited group memberships.',
+      'Added automated route guard enforcement redirecting users to their highest-priority authorized module if an unpermitted module is requested, paired with instant event propagation upon database policy persistence.',
+      'Provided seamless live role simulation support allowing network administrators to preview exact sidebar visibility and permissions across different roles on the fly.'
+    ],
+  },
   {
     version: '1.236.0',
     releaseDate: '2026-10-01',

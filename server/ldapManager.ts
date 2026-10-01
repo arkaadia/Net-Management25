@@ -214,7 +214,7 @@ export async function testLdapConnection(rawCfg: any): Promise<ADTestResult> {
         let defaultNamingContext = '';
 
         res.on('searchEntry', (entry) => {
-          const raw = entry.object as Record<string, any>;
+          const raw = ((entry as any).object || {}) as Record<string, any>;
           dnsHostName = raw.dnsHostName || raw.dnshostname || '';
           defaultNamingContext = raw.defaultNamingContext || raw.defaultnamingcontext || '';
         });
@@ -331,7 +331,7 @@ export async function syncLdapDirectory(
               if (err) return resRoot('');
               let dnc = '';
               res.on('searchEntry', (entry) => {
-                const raw = entry.object as Record<string, any>;
+                const raw = ((entry as any).object || {}) as Record<string, any>;
                 dnc = String(raw.defaultNamingContext || raw.defaultnamingcontext || '');
               });
               res.on('error', () => resRoot(''));
@@ -379,7 +379,7 @@ export async function syncLdapDirectory(
             }
 
             res.on('searchEntry', (entry) => {
-              const raw = entry.object as Record<string, any>;
+              const raw = ((entry as any).object || {}) as Record<string, any>;
               const dn = String(entry.dn || raw.dn || '');
               const cn = String(raw.cn || raw.name || dn.split(',')[0].replace(/^CN=/i, ''));
               const description = String(raw.description || '');
@@ -438,7 +438,7 @@ export async function syncLdapDirectory(
             }
 
             res.on('searchEntry', (entry) => {
-              const raw = entry.object as Record<string, any>;
+              const raw = ((entry as any).object || {}) as Record<string, any>;
               const dn = String(entry.dn || raw.dn || '');
               const samAccountName = String(raw.sAMAccountName || raw.samaccountname || '');
               if (!samAccountName || samAccountName.endsWith('$')) {

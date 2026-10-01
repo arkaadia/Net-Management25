@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard,
   Network,
@@ -23,6 +23,8 @@ import {
   Tags
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import { AccessPolicy } from '../types';
+import { isTabAllowed } from '../services/settingsStorage';
 
 export type ActiveTab =
   | 'dashboard'
@@ -51,6 +53,7 @@ interface SidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   onOpenReleaseNotes?: () => void;
+  effectivePolicy?: AccessPolicy;
 }
 
 interface NavItem {
@@ -77,10 +80,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   onOpenReleaseNotes,
+  effectivePolicy,
 }) => {
   const { t, isRtl } = useLanguage();
 
-  const navGroups: NavParentGroup[] = [
+  const navGroups: NavParentGroup[] = useMemo(() => [
     {
       id: 'infra',
       titleKey: 'parent_infra_title',
@@ -213,20 +217,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
       ],
     },
-  ];
+  ], [devicesCount]);
 
-  // Which parent accordion is currently expanded (Default state is open: 'infra')
+  // Filter modules and parent accordions based on user's effective RBAC policy
+  const visibleNavGroups = useMemo(() => {
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => isTabAllowed(item.id, effectivePolicy)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [navGroups, effectivePolicy]);
+
+  // Which parent accordion is currently expanded (Default state is open: first available or 'infra')
   const [expandedParentId, setExpandedParentId] = useState<string>('infra');
 
   // Keep expanded parent synced with activeTab so active item is always visible
   useEffect(() => {
-    const parentForActive = navGroups.find((g) =>
+    const parentForActive = visibleNavGroups.find((g) =>
       g.items.some((i) => i.id === activeTab || (activeTab === 'settings' && g.id === 'system'))
     );
-    if (parentForActive && parentForActive.id !== expandedParentId) {
-      setExpandedParentId(parentForActive.id);
+    if (parentForActive) {
+      if (parentForActive.id !== expandedParentId) {
+        setExpandedParentId(parentForActive.id);
+      }
+    } else if (visibleNavGroups.length > 0 && !visibleNavGroups.some((g) => g.id === expandedParentId)) {
+      setExpandedParentId(visibleNavGroups[0].id);
     }
-  }, [activeTab]);
+  }, [activeTab, visibleNavGroups]);
 
   // Accordion toggle: Clicking a parent opens it, and closes all other parents
   const handleParentClick = (groupId: string) => {
@@ -343,7 +361,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Scrollable Navigation Area with Interactive Accordion Parents */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 py-1 custom-scrollbar">
-        {navGroups.map((group) => {
+        {visibleNavGroups.map((group) => {
           const isExpanded = expandedParentId === group.id;
           const GroupIcon = group.icon;
           const hasActiveChild = group.items.some((i) => i.id === activeTab);

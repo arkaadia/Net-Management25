@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   ShieldCheck,
@@ -34,7 +34,10 @@ import {
   HardDrive,
   Archive,
   DownloadCloud,
-  UploadCloud
+  UploadCloud,
+  LayoutDashboard,
+  Network,
+  RefreshCw
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -48,7 +51,11 @@ import {
   loadLocalUsers,
   loadLocalGroups,
   loadSimulatedRoleId,
-  saveSimulatedRoleId
+  saveSimulatedRoleId,
+  syncLocalUsersFromDatabase,
+  syncLocalGroupsFromDatabase,
+  syncDeviceGroupsFromDatabase,
+  syncActiveDirectoryConfigFromDatabase,
 } from '../../services/settingsStorage';
 import { logPortalEvent } from '../../services/auditLogger';
 import { useLanguage } from '../../i18n';
@@ -81,57 +88,94 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic'>('all');
 
-  // Initial template for new policy
-  const getBlankPolicy = (): AccessPolicy => ({
-    id: `policy-${Date.now().toString(36)}`,
-    name: isEn ? 'New Custom Access Policy' : 'پالیسی جدید سطح دسترسی',
-    description: isEn ? 'Custom multi-vendor access control rule' : 'قانون دسترسی سفارشی برای تجهیزات چند وندوری شبکه',
-    priority: 50,
-    subjectType: 'local_group',
-    subjectId: localGroups[0]?.id || 'group-helpdesk-ops',
-    subjectName: localGroups[0]?.name || 'تیم هلپ‌دسک و پشتیبانی',
-    targetScope: 'groups',
-    targetGroupIds: [groups[0]?.id || 'group-helpdesk'],
-    targetDeviceIds: [],
-    // Page modules
-    canViewDashboard: true,
-    canViewTopology: true,
-    canViewDevices: true,
-    canViewPorts: true,
-    canViewScanner: false,
-    canViewTemplates: false,
-    canViewSettings: false,
-    // Cisco capabilities
-    terminalAccess: 'none',
-    canToggleAdminStatus: false,
-    canChangeVlan: true,
-    canEditDescription: true,
-    canTogglePortSecurity: true,
-    canWriteMemory: false,
-    // MikroTik capabilities
-    mikrotikTerminalAccess: 'none',
-    canMikrotikToggleInterface: false,
-    canMikrotikBridgeVlan: true,
-    canMikrotikComment: true,
-    canMikrotikIpPool: false,
-    canMikrotikFirewall: false,
-    canMikrotikBackup: false,
-    canMikrotikSafeMode: true,
-    // Generic / Linux capabilities
-    genericTerminalAccess: 'none',
-    canGenericToggleLink: false,
-    canGenericDiagnostics: true,
-    canGenericConfigBackup: false,
-    // Global capabilities
-    canManageDevices: false,
-    canApplyTemplates: false,
-    canBatchOperate: false,
-    // Backup & Disaster Recovery
-    canExportBackup: false,
-    canImportBackup: false,
-  });
+  // Live database-backed states for subjects and scopes
+  const [liveLocalUsers, setLiveLocalUsers] = useState<LocalUser[]>(localUsers);
+  const [liveLocalGroups, setLiveLocalGroups] = useState<LocalGroup[]>(localGroups);
+  const [liveDeviceGroups, setLiveDeviceGroups] = useState<DeviceGroup[]>(groups);
+  const [liveAdConfig, setLiveAdConfig] = useState<ActiveDirectoryConfig>(adConfig);
+  const [isSyncingDb, setIsSyncingDb] = useState<boolean>(false);
 
-  const handleStartCreate = () => {
+  // Synchronize authentic database entities
+  const refreshDatabaseData = useCallback(async () => {
+    setIsSyncingDb(true);
+    try {
+      const [dbUsers, dbGroups, dbDevGroups, dbAd] = await Promise.all([
+        syncLocalUsersFromDatabase().catch(() => localUsers),
+        syncLocalGroupsFromDatabase().catch(() => localGroups),
+        syncDeviceGroupsFromDatabase().catch(() => groups),
+        syncActiveDirectoryConfigFromDatabase().catch(() => adConfig),
+      ]);
+      if (Array.isArray(dbUsers) && dbUsers.length > 0) setLiveLocalUsers(dbUsers);
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) setLiveLocalGroups(dbGroups);
+      if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) setLiveDeviceGroups(dbDevGroups);
+      if (dbAd && typeof dbAd === 'object') setLiveAdConfig(dbAd);
+    } finally {
+      setIsSyncingDb(false);
+    }
+  }, [localUsers, localGroups, groups, adConfig]);
+
+  useEffect(() => {
+    refreshDatabaseData();
+  }, [refreshDatabaseData]);
+
+  // Initial template for new policy
+  const getBlankPolicy = (): AccessPolicy => {
+    const firstGroup = liveLocalGroups[0];
+    const firstDevGroup = liveDeviceGroups[0];
+    return {
+      id: `policy-${Date.now().toString(36)}`,
+      name: isEn ? 'New Custom Access Policy' : 'پالیسی جدید سطح دسترسی',
+      description: isEn ? 'Custom multi-vendor access control rule' : 'قانون دسترسی سفارشی برای تجهیزات چند وندوری شبکه',
+      priority: 50,
+      subjectType: 'local_group',
+      subjectId: firstGroup?.id || 'group-helpdesk-ops',
+      subjectName: firstGroup?.name || (isEn ? 'Helpdesk Operators' : 'تیم هلپ‌دسک و پشتیبانی'),
+      targetScope: 'groups',
+      targetGroupIds: firstDevGroup ? [firstDevGroup.id] : [],
+      targetDeviceIds: [],
+      // Page modules
+      canViewDashboard: true,
+      canViewTopology: true,
+      canViewDevices: true,
+      canViewServers: true,
+      canViewPorts: true,
+      canViewScanner: false,
+      canViewTemplates: false,
+      canViewLogs: false,
+      canViewSettings: false,
+      // Cisco capabilities
+      terminalAccess: 'none',
+      canToggleAdminStatus: false,
+      canChangeVlan: true,
+      canEditDescription: true,
+      canTogglePortSecurity: true,
+      canWriteMemory: false,
+      // MikroTik capabilities
+      mikrotikTerminalAccess: 'none',
+      canMikrotikToggleInterface: false,
+      canMikrotikBridgeVlan: true,
+      canMikrotikComment: true,
+      canMikrotikIpPool: false,
+      canMikrotikFirewall: false,
+      canMikrotikBackup: false,
+      canMikrotikSafeMode: true,
+      // Generic / Linux capabilities
+      genericTerminalAccess: 'none',
+      canGenericToggleLink: false,
+      canGenericDiagnostics: true,
+      canGenericConfigBackup: false,
+      // Global capabilities
+      canManageDevices: false,
+      canApplyTemplates: false,
+      canBatchOperate: false,
+      // Backup & Disaster Recovery
+      canExportBackup: false,
+      canImportBackup: false,
+    };
+  };
+
+  const handleStartCreate = async () => {
+    await refreshDatabaseData();
     setEditingPolicy(getBlankPolicy());
     setIsCreating(true);
     setVendorFilter('all');
@@ -280,8 +324,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       </div>
 
       {/* Policies List Header & New Policy Button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-bold text-sm text-white flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-cyan-400" />
             <span>{isEn ? 'Configured Access Policies' : 'پالیسی‌های دسترسی تعریف‌شده'}</span>
@@ -289,15 +333,36 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-white/10 text-slate-300 font-mono">
             {policies.length}
           </span>
+          <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>
+              {isEn
+                ? `DB: ${liveLocalUsers.length} Users • ${liveLocalGroups.length} Groups • ${liveDeviceGroups.length} Device Groups`
+                : `دیتابیس: ${liveLocalUsers.length} کاربر • ${liveLocalGroups.length} گروه • ${liveDeviceGroups.length} گروه تجهیزات`}
+            </span>
+          </span>
         </div>
 
-        <button
-          onClick={handleStartCreate}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{isEn ? 'Create Access Policy' : 'تعریف پالیسی جدید'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={refreshDatabaseData}
+            disabled={isSyncingDb}
+            title={isEn ? 'Reload live users, groups, and device scopes from database' : 'بارگذاری مجدد کاربران، گروه‌ها و تجهیزات از دیتابیس'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-white/10 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncingDb ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isEn ? 'Sync DB' : 'همگام‌سازی دیتابیس'}</span>
+          </button>
+
+          <button
+            onClick={handleStartCreate}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Create Access Policy' : 'تعریف پالیسی جدید'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Grid of Policies */}
@@ -517,10 +582,15 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
             {/* Section 1: Subject (Who) */}
             <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
-              <h4 className="font-bold text-xs text-cyan-300 flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                <span>{isEn ? '1. Subject: Who does this policy apply to?' : '۱. هویت و کاربر: این پالیسی به چه کسی یا گروهی اعمال شود؟'}</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs text-cyan-300 flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  <span>{isEn ? '1. Subject: Who does this policy apply to?' : '۱. هویت و کاربر: این پالیسی به چه کسی یا گروهی اعمال شود؟'}</span>
+                </h4>
+                <span className="text-[10px] font-mono text-cyan-400/80 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20">
+                  {isEn ? 'Live Database Loaded' : 'بارگذاری‌شده از پایگاه داده'}
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
@@ -532,17 +602,23 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       let defaultId = '';
                       let defaultName = '';
                       if (type === 'ad_group') {
-                        defaultId = adConfig.syncedGroups[0]?.dn || 'Helpdesk-Admins';
-                        defaultName = adConfig.syncedGroups[0]?.cn || 'Helpdesk-Admins';
+                        defaultId = liveAdConfig.syncedGroups[0]?.dn || '';
+                        defaultName = liveAdConfig.syncedGroups[0]?.cn
+                          ? `${liveAdConfig.syncedGroups[0].cn} (${isEn ? 'Active Directory' : 'اکتیو دایرکتوری'})`
+                          : '';
                       } else if (type === 'ad_user') {
-                        defaultId = adConfig.syncedUsers[0]?.samAccountName || 'a.rezaei';
-                        defaultName = adConfig.syncedUsers[0]?.displayName || 'Ali Rezaei';
+                        defaultId = liveAdConfig.syncedUsers[0]?.samAccountName || '';
+                        defaultName = liveAdConfig.syncedUsers[0]?.displayName || liveAdConfig.syncedUsers[0]?.samAccountName || '';
                       } else if (type === 'local_group') {
-                        defaultId = localGroups[0]?.id || 'group-helpdesk-ops';
-                        defaultName = localGroups[0]?.name || 'Helpdesk Operators';
+                        defaultId = liveLocalGroups[0]?.id || '';
+                        defaultName = liveLocalGroups[0]?.name
+                          ? `${liveLocalGroups[0].name} (${isEn ? 'Local Group' : 'گروه محلی'})`
+                          : '';
                       } else {
-                        defaultId = localUsers[0]?.id || 'admin';
-                        defaultName = localUsers[0]?.fullName || 'Admin';
+                        defaultId = liveLocalUsers[0]?.id || '';
+                        defaultName = liveLocalUsers[0]?.fullName
+                          ? `${liveLocalUsers[0].fullName} (${isEn ? 'Local User' : 'کاربر محلی'})`
+                          : (liveLocalUsers[0]?.username || '');
                       }
                       setEditingPolicy({
                         ...editingPolicy,
@@ -553,33 +629,39 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     }}
                     className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="ad_group">{isEn ? 'Active Directory Group (AD)' : 'گروه امنیتی اکتیو دایرکتوری (AD Group)'}</option>
-                    <option value="ad_user">{isEn ? 'Active Directory User (AD)' : 'کاربر خاص اکتیو دایرکتوری (AD User)'}</option>
-                    <option value="local_group">{isEn ? 'Local User Group' : 'گروه کاربری محلی سیستم (Local Group)'}</option>
-                    <option value="local_user">{isEn ? 'Local User Account' : 'کاربر محلی سیستم (Local User)'}</option>
+                    <option value="local_user">{isEn ? 'Local User Account (Database)' : 'کاربر محلی سیستم (دیتابیس)'}</option>
+                    <option value="local_group">{isEn ? 'Local User Group (Database)' : 'گروه کاربری محلی سیستم (دیتابیس)'}</option>
+                    <option value="ad_user">{isEn ? 'Active Directory User (AD Sync)' : 'کاربر خاص اکتیو دایرکتوری (AD)'}</option>
+                    <option value="ad_group">{isEn ? 'Active Directory Group (AD Sync)' : 'گروه امنیتی اکتیو دایرکتوری (AD)'}</option>
                   </select>
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] text-slate-400 mb-1">{isEn ? 'Target Identity' : 'انتخاب هویت دقیق'}</label>
+                  <label className="block text-[11px] text-slate-400 mb-1">{isEn ? 'Target Identity (From Database)' : 'انتخاب هویت دقیق (بارگذاری از دیتابیس)'}</label>
                   {editingPolicy.subjectType === 'ad_group' && (
                     <select
                       value={editingPolicy.subjectId}
                       onChange={(e) => {
-                        const grp = adConfig.syncedGroups.find((g) => g.dn === e.target.value);
+                        const grp = liveAdConfig.syncedGroups.find((g) => g.dn === e.target.value);
                         setEditingPolicy({
                           ...editingPolicy,
                           subjectId: e.target.value,
-                          subjectName: grp ? `${grp.cn} (اکتیو دایرکتوری)` : e.target.value,
+                          subjectName: grp ? `${grp.cn} (${isEn ? 'Active Directory' : 'اکتیو دایرکتوری'})` : e.target.value,
                         });
                       }}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
                     >
-                      {adConfig.syncedGroups.map((g) => (
-                        <option key={g.dn} value={g.dn}>
-                          {g.cn} — {g.description} ({g.memberCount} عضو)
+                      {liveAdConfig.syncedGroups.length === 0 ? (
+                        <option value="" disabled>
+                          {isEn ? 'No AD groups synced from database' : 'هیچ گروهی از اکتیو دایرکتوری در پایگاه‌داده یافت نشد'}
                         </option>
-                      ))}
+                      ) : (
+                        liveAdConfig.syncedGroups.map((g) => (
+                          <option key={g.dn} value={g.dn}>
+                            {g.cn} — {g.description || (isEn ? 'AD Security Group' : 'گروه امنیتی AD')} ({g.memberCount || 0} {isEn ? 'members' : 'عضو'})
+                          </option>
+                        ))
+                      )}
                     </select>
                   )}
 
@@ -587,7 +669,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     <select
                       value={editingPolicy.subjectId}
                       onChange={(e) => {
-                        const usr = adConfig.syncedUsers.find((u) => u.samAccountName === e.target.value);
+                        const usr = liveAdConfig.syncedUsers.find((u) => u.samAccountName === e.target.value);
                         setEditingPolicy({
                           ...editingPolicy,
                           subjectId: e.target.value,
@@ -596,11 +678,17 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       }}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
                     >
-                      {adConfig.syncedUsers.map((u) => (
-                        <option key={u.samAccountName} value={u.samAccountName}>
-                          {u.displayName} ({u.samAccountName}) - {u.department}
+                      {liveAdConfig.syncedUsers.length === 0 ? (
+                        <option value="" disabled>
+                          {isEn ? 'No AD users synced from database' : 'هیچ کاربری از اکتیو دایرکتوری در پایگاه‌داده یافت نشد'}
                         </option>
-                      ))}
+                      ) : (
+                        liveAdConfig.syncedUsers.map((u) => (
+                          <option key={u.samAccountName} value={u.samAccountName}>
+                            {u.displayName} ({u.samAccountName}) {u.department ? `- ${u.department}` : ''}
+                          </option>
+                        ))
+                      )}
                     </select>
                   )}
 
@@ -608,20 +696,26 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     <select
                       value={editingPolicy.subjectId}
                       onChange={(e) => {
-                        const grp = localGroups.find((g) => g.id === e.target.value);
+                        const grp = liveLocalGroups.find((g) => g.id === e.target.value);
                         setEditingPolicy({
                           ...editingPolicy,
                           subjectId: e.target.value,
-                          subjectName: grp ? `${grp.name} (گروه محلی)` : e.target.value,
+                          subjectName: grp ? `${grp.name} (${isEn ? 'Local Group' : 'گروه محلی'})` : e.target.value,
                         });
                       }}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
                     >
-                      {localGroups.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name} — ({g.memberUserIds?.length || 0} عضو محلی)
+                      {liveLocalGroups.length === 0 ? (
+                        <option value="" disabled>
+                          {isEn ? 'No local user groups found in database' : 'هیچ گروه کاربری در پایگاه‌داده یافت نشد'}
                         </option>
-                      ))}
+                      ) : (
+                        liveLocalGroups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name} — ({g.memberUserIds?.length || 0} {isEn ? 'members' : 'عضو محلی'})
+                          </option>
+                        ))
+                      )}
                     </select>
                   )}
 
@@ -629,20 +723,26 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     <select
                       value={editingPolicy.subjectId}
                       onChange={(e) => {
-                        const loc = localUsers.find((l) => l.id === e.target.value);
+                        const loc = liveLocalUsers.find((l) => l.id === e.target.value || l.username === e.target.value);
                         setEditingPolicy({
                           ...editingPolicy,
-                          subjectId: e.target.value,
-                          subjectName: loc ? `${loc.fullName} (کاربر محلی)` : e.target.value,
+                          subjectId: loc?.id || e.target.value,
+                          subjectName: loc ? `${loc.fullName} (${isEn ? 'Local User' : 'کاربر محلی'})` : e.target.value,
                         });
                       }}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
                     >
-                      {localUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.fullName} (@{u.username}) - {u.role || 'User'}
+                      {liveLocalUsers.length === 0 ? (
+                        <option value="" disabled>
+                          {isEn ? 'No local users found in database' : 'هیچ کاربر محلی در پایگاه‌داده یافت نشد'}
                         </option>
-                      ))}
+                      ) : (
+                        liveLocalUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName} (@{u.username}) — {u.role || 'User'}
+                          </option>
+                        ))
+                      )}
                     </select>
                   )}
                 </div>
@@ -651,10 +751,15 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
             {/* Section 2: Target Scope (Which Devices) */}
             <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
-              <h4 className="font-bold text-xs text-amber-300 flex items-center gap-2">
-                <FolderTree className="w-4 h-4" />
-                <span>{isEn ? '2. Device Target Scope: Which devices can they manage?' : '۲. محدوده تجهیزات: این کاربر/گروه به چه دیوایس‌هایی دسترسی دارند؟'}</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs text-amber-300 flex items-center gap-2">
+                  <FolderTree className="w-4 h-4" />
+                  <span>{isEn ? '2. Device Target Scope: Which devices can they manage?' : '۲. محدوده تجهیزات: این کاربر/گروه به چه دیوایس‌هایی دسترسی دارند؟'}</span>
+                </h4>
+                <span className="text-[10px] font-mono text-amber-400/80 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                  {isEn ? `${liveDeviceGroups.length} Groups in Database` : `${liveDeviceGroups.length} گروه در پایگاه داده`}
+                </span>
+              </div>
 
               <div className="flex items-center gap-4 text-xs">
                 <label className="flex items-center gap-2 cursor-pointer text-slate-200">
@@ -676,7 +781,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     onChange={() => setEditingPolicy({ ...editingPolicy, targetScope: 'groups' })}
                     className="accent-amber-400"
                   />
-                  <span>{isEn ? 'Specific Device Groups' : 'گروه‌های تجهیزات خاص (مانند گروه هلپ‌دسک)'}</span>
+                  <span>{isEn ? 'Specific Device Groups (From Database)' : 'گروه‌های تجهیزات ساخته‌شده در دیتابیس'}</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer text-slate-200">
@@ -687,37 +792,50 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     onChange={() => setEditingPolicy({ ...editingPolicy, targetScope: 'specific' })}
                     className="accent-amber-400"
                   />
-                  <span>{isEn ? 'Specific Devices' : 'دیوایس‌های تک به تک'}</span>
+                  <span>{isEn ? 'Specific Individual Devices' : 'دیوایس‌های تک به تک'}</span>
                 </label>
               </div>
 
-              {/* Group Checkboxes */}
+              {/* Group Checkboxes Loaded from Database */}
               {editingPolicy.targetScope === 'groups' && (
-                <div className="pt-2 flex flex-wrap gap-2">
-                  {groups.map((grp) => {
-                    const checked = editingPolicy.targetGroupIds.includes(grp.id);
-                    return (
-                      <button
-                        key={grp.id}
-                        type="button"
-                        onClick={() => {
-                          const newIds = checked
-                            ? editingPolicy.targetGroupIds.filter((id) => id !== grp.id)
-                            : [...editingPolicy.targetGroupIds, grp.id];
-                          setEditingPolicy({ ...editingPolicy, targetGroupIds: newIds });
-                        }}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition ${
-                          checked
-                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
-                            : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {checked ? <CheckSquare className="w-3.5 h-3.5 text-amber-400" /> : <Square className="w-3.5 h-3.5" />}
-                        <span>{grp.name}</span>
-                        <span className="text-[10px] font-mono opacity-80">({grp.deviceIds.length} دیوایس)</span>
-                      </button>
-                    );
-                  })}
+                <div className="pt-2">
+                  {liveDeviceGroups.length === 0 ? (
+                    <div className="text-xs text-amber-400/90 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 w-full">
+                      {isEn
+                        ? 'No device groups found in database. Please create device groups first.'
+                        : 'هیچ گروه تجهیزاتی در پایگاه داده یافت نشد. لطفاً ابتدا در بخش گروه‌های تجهیزات اقدام به ساخت گروه نمایید.'}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {liveDeviceGroups.map((grp) => {
+                        const checked = editingPolicy.targetGroupIds.includes(grp.id);
+                        return (
+                          <button
+                            key={grp.id}
+                            type="button"
+                            onClick={() => {
+                              const newIds = checked
+                                ? editingPolicy.targetGroupIds.filter((id) => id !== grp.id)
+                                : [...editingPolicy.targetGroupIds, grp.id];
+                              setEditingPolicy({ ...editingPolicy, targetGroupIds: newIds });
+                            }}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                              checked
+                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-200 shadow-xs'
+                                : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {checked ? <CheckSquare className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <Square className="w-3.5 h-3.5 shrink-0" />}
+                            <span>{grp.name}</span>
+                            <span className="text-[10px] font-mono opacity-80">
+                              ({grp.deviceIds?.length || 0} {isEn ? 'devices' : 'دیوایس'}
+                              {grp.serverIds && grp.serverIds.length > 0 ? ` • ${grp.serverIds.length} ${isEn ? 'servers' : 'سرور'}` : ''})
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -754,33 +872,87 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
               )}
             </div>
 
-            {/* Section 3: Allowed Pages / Views */}
+            {/* Section 3: Allowed Pages / Views (Sidebar Modules Control) */}
             <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
-              <h4 className="font-bold text-xs text-indigo-300 flex items-center gap-2">
-                <Layers className="w-4 h-4" />
-                <span>{isEn ? '3. Page Access: Which modules can they view in the sidebar?' : '۳. دسترسی به صفحات: این کاربر چه بخش‌هایی از نرم‌افزار را ببیند؟'}</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs text-indigo-300 flex items-center gap-2">
+                  <Layers className="w-4 h-4" />
+                  <span>{isEn ? '3. Page Access: Which modules can they view in the sidebar?' : '۳. دسترسی به صفحات: این کاربر چه بخش‌هایی از سایدبار را ببیند؟'}</span>
+                </h4>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPolicy({
+                        ...editingPolicy,
+                        canViewDashboard: true,
+                        canViewTopology: true,
+                        canViewDevices: true,
+                        canViewServers: true,
+                        canViewPorts: true,
+                        canViewScanner: true,
+                        canViewTemplates: true,
+                        canViewLogs: true,
+                        canViewSettings: true,
+                      });
+                    }}
+                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 cursor-pointer"
+                  >
+                    {isEn ? 'Select All' : 'انتخاب همه'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPolicy({
+                        ...editingPolicy,
+                        canViewDashboard: false,
+                        canViewTopology: false,
+                        canViewDevices: false,
+                        canViewServers: false,
+                        canViewPorts: false,
+                        canViewScanner: false,
+                        canViewTemplates: false,
+                        canViewLogs: false,
+                        canViewSettings: false,
+                      });
+                    }}
+                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
+                  >
+                    {isEn ? 'Deselect All' : 'لغو همه'}
+                  </button>
+                </div>
+              </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
                 {[
-                  { key: 'canViewDashboard', label: isEn ? 'Dashboard' : 'داشبورد شبکه' },
-                  { key: 'canViewTopology', label: isEn ? 'Topology Map' : 'نقشه توپولوژی' },
-                  { key: 'canViewDevices', label: isEn ? 'Devices Inventory' : 'لیست تجهیزات' },
-                  { key: 'canViewPorts', label: isEn ? 'Ports & VLANs' : 'پورت‌ها و ویلن‌ها' },
-                  { key: 'canViewScanner', label: isEn ? 'Discovery Scanner' : 'اسکنر همسایگی' },
-                  { key: 'canViewTemplates', label: isEn ? 'Templates' : 'الگوهای کانفیگ' },
-                  { key: 'canViewSettings', label: isEn ? 'Settings & Security' : 'تنظیمات و دسترسی' },
-                ].map(({ key, label }) => {
-                  const checked = (editingPolicy as any)[key];
+                  { key: 'canViewDashboard', label: isEn ? 'Dashboard' : 'داشبورد شبکه', icon: LayoutDashboard },
+                  { key: 'canViewTopology', label: isEn ? 'Topology Map' : 'نقشه توپولوژی', icon: Globe },
+                  { key: 'canViewDevices', label: isEn ? 'Devices Inventory' : 'لیست تجهیزات', icon: Network },
+                  { key: 'canViewServers', label: isEn ? 'Remote Servers' : 'سرورهای ریموت', icon: Server },
+                  { key: 'canViewPorts', label: isEn ? 'Ports & VLANs' : 'پورت‌ها و ویلن‌ها', icon: Activity },
+                  { key: 'canViewScanner', label: isEn ? 'Discovery Scanner' : 'اسکنر همسایگی', icon: Radio },
+                  { key: 'canViewTemplates', label: isEn ? 'Templates' : 'الگوهای کانفیگ', icon: FileText },
+                  { key: 'canViewLogs', label: isEn ? 'Audit & System Logs' : 'لاگ‌ها و رویدادها', icon: FileText },
+                  { key: 'canViewSettings', label: isEn ? 'Settings & Security' : 'تنظیمات و دسترسی', icon: Lock },
+                ].map(({ key, label, icon: ModuleIcon }) => {
+                  const checked = Boolean((editingPolicy as any)[key]);
                   return (
-                    <label key={key} className="flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 border border-white/10 cursor-pointer">
+                    <label
+                      key={key}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                        checked
+                          ? 'bg-indigo-500/15 border-indigo-500/40 text-white shadow-xs'
+                          : 'bg-slate-800/60 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={(e) => setEditingPolicy({ ...editingPolicy, [key]: e.target.checked })}
-                        className="w-4 h-4 accent-indigo-500 rounded"
+                        className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
                       />
-                      <span className="text-slate-200 text-[11px] font-semibold">{label}</span>
+                      <ModuleIcon className={`w-3.5 h-3.5 shrink-0 ${checked ? 'text-indigo-400' : 'text-slate-500'}`} />
+                      <span className="text-[11px] font-semibold truncate">{label}</span>
                     </label>
                   );
                 })}
