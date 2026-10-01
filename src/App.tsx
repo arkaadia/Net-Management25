@@ -64,11 +64,13 @@ import {
   isTabAllowed,
   syncAccessPoliciesFromDatabase,
   syncLocalGroupsFromDatabase,
+  syncDeviceGroupsFromDatabase,
   loadAccessPolicies,
   loadLocalGroups,
+  loadDeviceGroups,
   loadSimulatedRoleId,
 } from './services/settingsStorage';
-import { AccessPolicy, LocalGroup } from './types';
+import { AccessPolicy, LocalGroup, DeviceGroup } from './types';
 
 export default function App() {
   const { t, isRtl, isEn } = useLanguage();
@@ -84,6 +86,7 @@ export default function App() {
   // RBAC Access Control States (Synchronized directly with PostgreSQL database via Bearer Token)
   const [policies, setPolicies] = useState<AccessPolicy[]>([]);
   const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
+  const [deviceGroups, setDeviceGroups] = useState<DeviceGroup[]>([]);
   const [simulatedRoleId, setSimulatedRoleId] = useState<string>('actual-user');
 
   // Synchronize policies & groups from database
@@ -94,6 +97,9 @@ export default function App() {
       }).catch(() => {});
       syncLocalGroupsFromDatabase().then((g) => {
         if (Array.isArray(g) && g.length > 0) setLocalGroups(g);
+      }).catch(() => {});
+      syncDeviceGroupsFromDatabase().then((dg) => {
+        if (Array.isArray(dg) && dg.length > 0) setDeviceGroups(dg);
       }).catch(() => {});
     }
   }, [isAuthenticated]);
@@ -110,11 +116,20 @@ export default function App() {
     const handleSimRoleChanged = (e: any) => {
       setSimulatedRoleId(loadSimulatedRoleId());
     };
+    const handleDeviceGroupsChanged = (e: any) => {
+      if (e.detail?.groups) {
+        setDeviceGroups(e.detail.groups);
+      } else {
+        setDeviceGroups(loadDeviceGroups());
+      }
+    };
     window.addEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
     window.addEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
+    window.addEventListener('nettopology_device_groups_changed', handleDeviceGroupsChanged);
     return () => {
       window.removeEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
       window.removeEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
+      window.removeEventListener('nettopology_device_groups_changed', handleDeviceGroupsChanged);
     };
   }, []);
 
@@ -138,6 +153,70 @@ export default function App() {
     // In-memory calculation if server policy is pending
     return getEffectiveUserPolicy(user, policies, localGroups, simulatedRoleId);
   }, [authEffectivePolicy, user, policies, localGroups, simulatedRoleId]);
+
+  // Database-authoritative authorized devices for current user session
+  const authorizedDevices = useMemo(() => {
+    if (!effectivePolicy || effectivePolicy.targetScope === 'all') {
+      return devices;
+    }
+
+    // 1. Authoritative IDs calculated by PostgreSQL backend in effectivePolicy
+    if (Array.isArray(effectivePolicy.allowedDeviceIds)) {
+      const allowedSet = new Set(effectivePolicy.allowedDeviceIds);
+      return devices.filter((d) => allowedSet.has(d.id));
+    }
+
+    // 2. Client-side evaluation fallback based on database-loaded groups
+    if (effectivePolicy.targetScope === 'groups') {
+      const targetGroupSet = new Set(
+        (effectivePolicy.targetGroupIds || []).map((id) => (id || '').trim().toLowerCase())
+      );
+      const allowedDevIds = new Set<string>();
+      for (const g of deviceGroups) {
+        const gid = (g.id || '').trim().toLowerCase();
+        const gname = (g.name || '').trim().toLowerCase();
+        if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+          const ids = g.deviceIds || (g as any).device_ids || [];
+          ids.forEach((id: string) => allowedDevIds.add(id));
+        }
+      }
+      return devices.filter((d) => allowedDevIds.has(d.id));
+    }
+
+    if (effectivePolicy.targetScope === 'specific') {
+      const targetDevIds = new Set(effectivePolicy.targetDeviceIds || []);
+      return devices.filter((d) => targetDevIds.has(d.id));
+    }
+
+    return devices;
+  }, [devices, effectivePolicy, deviceGroups]);
+
+  // Database-authoritative authorized topology graph
+  const authorizedTopology = useMemo(() => {
+    if (!topology) return null;
+    if (!effectivePolicy || effectivePolicy.targetScope === 'all') {
+      return topology;
+    }
+    const allowedSet = new Set(authorizedDevices.map((d) => d.id));
+    const filteredNodes = (topology.nodes || []).filter((n) => allowedSet.has(n.id));
+    const filteredLinks = (topology.links || []).filter(
+      (l) => allowedSet.has(l.source) && allowedSet.has(l.target)
+    );
+    return {
+      ...topology,
+      nodes: filteredNodes,
+      links: filteredLinks,
+      summary: {
+        ...topology.summary,
+        total_nodes: filteredNodes.length,
+        total_links: filteredLinks.length,
+        core_switches: filteredNodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Core')).length,
+        access_switches: filteredNodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Access')).length,
+        routers: filteredNodes.filter((d: any) => d.type === 'router').length,
+        access_points: filteredNodes.filter((d: any) => d.type === 'access_point').length,
+      },
+    };
+  }, [topology, authorizedDevices, effectivePolicy]);
 
   // Enforce access control: Automatically route user to an accessible tab if current tab is denied
   useEffect(() => {
@@ -740,8 +819,8 @@ export default function App() {
               setIsTopologyFullscreen(false);
               setActiveTab(tab);
             }}
-            devicesCount={devices.length}
-            offlineCount={offlineCount}
+            devicesCount={authorizedDevices.length}
+            offlineCount={authorizedDevices.filter((d) => !d.is_online).length}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={toggleSidebarCollapse}
             onOpenReleaseNotes={handleOpenReleaseNotes}
@@ -753,8 +832,8 @@ export default function App() {
         <main className={`flex-1 min-h-0 min-w-0 ${isTopologyFullscreen ? 'overflow-hidden h-full w-full p-0 m-0' : 'overflow-y-auto'}`}>
           {activeTab === 'dashboard' && (
             <DashboardView
-              devices={devices}
-              topology={topology}
+              devices={authorizedDevices}
+              topology={authorizedTopology || topology}
               onNavigate={(tab) => setActiveTab(tab)}
               onOpenAddModal={handleOpenAddModal}
               onScanCdpLldp={handleRunScan}
@@ -767,7 +846,7 @@ export default function App() {
 
           {activeTab === 'devices' && (
             <DeviceListView
-              devices={devices}
+              devices={authorizedDevices}
               onOpenAddModal={handleOpenAddModal}
               onPingDevice={handlePingDevice}
               onDeleteDevice={handleDeleteDevice}
@@ -788,7 +867,7 @@ export default function App() {
 
           {activeTab === 'templates' && (
             <TemplateManagementView
-              devices={devices}
+              devices={authorizedDevices}
               onDeviceUpdated={loadData}
               onOpenTerminal={openTerminal}
             />
@@ -796,8 +875,8 @@ export default function App() {
 
           {activeTab === 'schematic' && (
             <SchematicTopologyView
-              topology={topology}
-              inventoryDevices={devices}
+              topology={authorizedTopology || topology}
+              inventoryDevices={authorizedDevices}
               loading={loading}
               onRefresh={loadData}
               onScanCdpLldp={handleRunScan}
@@ -812,7 +891,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'ports' && <PortManagementView devices={devices} />}
+          {activeTab === 'ports' && <PortManagementView devices={authorizedDevices} />}
 
           {activeTab === 'scanner' && (
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
@@ -1104,7 +1183,7 @@ export default function App() {
             category: 'config',
           })
         }
-        devices={topology?.devices || devices}
+        devices={topology?.devices || authorizedDevices}
         onApplyToMap={() => {
           loadData();
         }}

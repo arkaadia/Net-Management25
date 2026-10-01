@@ -126,7 +126,7 @@
       "subjectName": "Helpdesk-Admins (اکتیو دایرکتوری)",
       "targetScope": "groups",
       "targetGroupIds": [
-        "group-helpdesk"
+        "devgroup-access"
       ],
       "targetDeviceIds": [],
       "canViewDashboard": true,
@@ -245,6 +245,41 @@
       "canBatchOperate": true,
       "canExportBackup": true,
       "canImportBackup": true
+    },
+    {
+      "id": "policy_branch_test",
+      "name": "Branch Only Policy",
+      "description": "Access restricted to Branch Office group only",
+      "targetScope": "groups",
+      "targetGroupIds": [
+        "grp_branch"
+      ],
+      "targetDeviceIds": [],
+      "subjectType": "user",
+      "subjectIds": [
+        "u_branch_operator"
+      ],
+      "permissions": {
+        "canViewDashboard": true,
+        "canViewDevices": true,
+        "canViewTopology": true,
+        "canViewPorts": false,
+        "canViewTerminal": true,
+        "canViewBackups": false,
+        "canViewLogs": true,
+        "canViewSettings": false,
+        "canManageDevices": false,
+        "canManageBackups": false,
+        "canManageSettings": false,
+        "canExecuteCommands": true,
+        "canPowerControl": false,
+        "canFactoryReset": false,
+        "canExportData": false
+      },
+      "priority": 80,
+      "isActive": true,
+      "createdAt": "2026-10-01T14:18:58.082Z",
+      "updatedAt": "2026-10-01T14:18:58.082Z"
     }
   ],
   "device_groups": [
@@ -256,11 +291,17 @@
       "icon": "Layers",
       "deviceIds": [
         "dev-core-01",
+        "dev-dist-bldg-a",
+        "dev-dist-bldg-b",
+        "dev-mikrotik-ccr2004",
         "dev-dist-01",
         "dev-core-02"
       ],
       "device_ids": [
         "dev-core-01",
+        "dev-dist-bldg-a",
+        "dev-dist-bldg-b",
+        "dev-mikrotik-ccr2004",
         "dev-dist-01",
         "dev-core-02"
       ],
@@ -288,11 +329,21 @@
       "color": "emerald",
       "icon": "Server",
       "deviceIds": [
+        "dev-acc-bldg-a-f3",
+        "dev-acc-bldg-b-f2",
+        "dev-ap-bldg-a-f1",
+        "dev-ap-bldg-a-f3",
+        "dev-ap-bldg-b-f1",
         "dev-acc-01",
         "dev-acc-02",
         "dev-acc-03"
       ],
       "device_ids": [
+        "dev-acc-bldg-a-f3",
+        "dev-acc-bldg-b-f2",
+        "dev-ap-bldg-a-f1",
+        "dev-ap-bldg-a-f3",
+        "dev-ap-bldg-b-f1",
         "dev-acc-01",
         "dev-acc-02",
         "dev-acc-03"
@@ -320,10 +371,12 @@
       "icon": "Radio",
       "deviceIds": [
         "dev-router-gw",
+        "dev-mikrotik-ccr2004",
         "dev-wan-gw"
       ],
       "device_ids": [
         "dev-router-gw",
+        "dev-mikrotik-ccr2004",
         "dev-wan-gw"
       ],
       "serverIds": [

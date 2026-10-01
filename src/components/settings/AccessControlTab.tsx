@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Shield,
   ShieldCheck,
@@ -10,6 +10,7 @@ import {
   Trash2,
   Edit,
   Check,
+  CheckCircle,
   X,
   Lock,
   Unlock,
@@ -186,6 +187,32 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     setIsCreating(false);
     setVendorFilter('all');
   };
+
+  // Real-time calculation of permitted devices based on current targetScope selection
+  const permittedScopeDevices = useMemo(() => {
+    if (!editingPolicy) return [];
+    if (editingPolicy.targetScope === 'all') return devices;
+    if (editingPolicy.targetScope === 'groups') {
+      const selectedGroupSet = new Set(
+        (editingPolicy.targetGroupIds || []).map((id) => (id || '').trim().toLowerCase())
+      );
+      const devIdSet = new Set<string>();
+      for (const g of liveDeviceGroups) {
+        const gid = (g.id || '').trim().toLowerCase();
+        const gname = (g.name || '').trim().toLowerCase();
+        if (selectedGroupSet.has(gid) || selectedGroupSet.has(gname)) {
+          const ids = g.deviceIds || (g as any).device_ids || [];
+          ids.forEach((id: string) => devIdSet.add(id));
+        }
+      }
+      return devices.filter((d) => devIdSet.has(d.id));
+    }
+    if (editingPolicy.targetScope === 'specific') {
+      const specificSet = new Set(editingPolicy.targetDeviceIds || []);
+      return devices.filter((d) => specificSet.has(d.id));
+    }
+    return [];
+  }, [editingPolicy, liveDeviceGroups, devices]);
 
   const handleDeletePolicy = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -801,7 +828,39 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
               {/* Group Checkboxes Loaded from Database */}
               {editingPolicy.targetScope === 'groups' && (
-                <div className="pt-2">
+                <div className="pt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-300">
+                      {isEn ? 'Select Authorized Device Groups:' : 'انتخاب گروه‌های تجهیزات مجاز:'}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingPolicy({
+                            ...editingPolicy,
+                            targetGroupIds: liveDeviceGroups.map((g) => g.id),
+                          })
+                        }
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer"
+                      >
+                        {isEn ? 'Select All Groups' : 'انتخاب همه گروه‌ها'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingPolicy({
+                            ...editingPolicy,
+                            targetGroupIds: [],
+                          })
+                        }
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
+                      >
+                        {isEn ? 'Deselect All' : 'لغو انتخاب'}
+                      </button>
+                    </div>
+                  </div>
+
                   {liveDeviceGroups.length === 0 ? (
                     <div className="text-xs text-amber-400/90 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 w-full">
                       {isEn
@@ -844,35 +903,110 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
               {/* Specific Devices Checkboxes */}
               {editingPolicy.targetScope === 'specific' && (
-                <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-                  {devices.map((dev) => {
-                    const checked = editingPolicy.targetDeviceIds.includes(dev.id);
-                    return (
+                <div className="pt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-300">
+                      {isEn ? 'Select Individual Devices:' : 'انتخاب تجهیزات تک به تک:'}
+                    </span>
+                    <div className="flex items-center gap-1.5">
                       <button
-                        key={dev.id}
                         type="button"
-                        onClick={() => {
-                          const newIds = checked
-                            ? editingPolicy.targetDeviceIds.filter((id) => id !== dev.id)
-                            : [...editingPolicy.targetDeviceIds, dev.id];
-                          setEditingPolicy({ ...editingPolicy, targetDeviceIds: newIds });
-                        }}
-                        className={`flex items-center justify-between p-2 rounded-xl border text-xs font-mono cursor-pointer text-left rtl:text-right ${
-                          checked
-                            ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-200'
-                            : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
-                        }`}
+                        onClick={() =>
+                          setEditingPolicy({
+                            ...editingPolicy,
+                            targetDeviceIds: devices.map((d) => d.id),
+                          })
+                        }
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 cursor-pointer"
                       >
-                        <div className="flex items-center gap-2 truncate">
-                          {checked ? <CheckSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" /> : <Square className="w-3.5 h-3.5 shrink-0" />}
-                          <span className="truncate">{dev.name}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-500">{dev.ip}</span>
+                        {isEn ? 'Select All Devices' : 'انتخاب همه دیوایس‌ها'}
                       </button>
-                    );
-                  })}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingPolicy({
+                            ...editingPolicy,
+                            targetDeviceIds: [],
+                          })
+                        }
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
+                      >
+                        {isEn ? 'Deselect All' : 'لغو انتخاب'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                    {devices.map((dev) => {
+                      const checked = editingPolicy.targetDeviceIds.includes(dev.id);
+                      return (
+                        <button
+                          key={dev.id}
+                          type="button"
+                          onClick={() => {
+                            const newIds = checked
+                              ? editingPolicy.targetDeviceIds.filter((id) => id !== dev.id)
+                              : [...editingPolicy.targetDeviceIds, dev.id];
+                            setEditingPolicy({ ...editingPolicy, targetDeviceIds: newIds });
+                          }}
+                          className={`flex items-center justify-between p-2 rounded-xl border text-xs font-mono cursor-pointer text-left rtl:text-right ${
+                            checked
+                              ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-200'
+                              : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            {checked ? <CheckSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" /> : <Square className="w-3.5 h-3.5 shrink-0" />}
+                            <span className="truncate">{dev.name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500">{dev.ip}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
+
+              {/* Real-time Database Authorization Scope Summary Card */}
+              <div className="mt-3 p-3 rounded-xl bg-slate-950/80 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="text-xs font-bold text-emerald-300">
+                      {isEn ? 'PostgreSQL Authoritative Scope Summary' : 'خلاصه دسترسی تجهیزات (تثبیت‌شده در پایگاه‌داده پستگرس)'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                    {editingPolicy.targetScope === 'all'
+                      ? (isEn ? `All ${devices.length} Devices Permitted` : `دسترسی به تمامی ${devices.length} تجهیز`)
+                      : (isEn ? `${permittedScopeDevices.length} Authorized Devices` : `${permittedScopeDevices.length} تجهیز مجاز به مشاهده`)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {isEn
+                    ? 'Security Guarantee: This policy is persisted directly in PostgreSQL on the panel server. When an assigned user logs in, backend API endpoints (/api/devices, /api/topology) automatically restrict device visibility exclusively to this authorized scope.'
+                    : 'تضمین امنیتی: این سطح دسترسی مستقیماً در پایگاه‌داده PostgreSQL سرور پنل ذخیره می‌شود. به محض لاگین کاربر یا گروه منتسب، تمامی اندپوینت‌ها و نقشه‌های پنل به گونه‌ای فیلتر می‌شوند که کاربر فقط و فقط این تجهیزات مجاز را مشاهده و مدیریت کند.'}
+                </p>
+                {editingPolicy.targetScope !== 'all' && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {permittedScopeDevices.length === 0 ? (
+                      <span className="text-[11px] text-rose-400 italic">
+                        {isEn ? 'No devices in current group scope. User will see 0 devices upon login.' : 'هیچ دیوایسی در محدوده انتخابی قرار ندارد. کاربر پس از لاگین هیچ تجهیزاتی را مشاهده نخواهد کرد.'}
+                      </span>
+                    ) : (
+                      permittedScopeDevices.map((d) => (
+                        <span
+                          key={d.id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-200"
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${d.is_online ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                          {d.name} ({d.ip})
+                        </span>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Section 3: Allowed Pages / Views (Sidebar Modules Control) */}

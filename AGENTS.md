@@ -229,3 +229,21 @@
 > 1. **Encrypted at Rest**: All credentials must be stored encrypted using robust, industry-standard cryptography (e.g., AES-256-GCM with secure key derivation).
 > 2. **Server-Side Decryption Only**: Decryption of device credentials must occur exclusively on the backend server at the exact instant of establishing the connection, and immediately scrubbed from working memory once the session is established.
 > 3. **Zero Frontend/Client Leakage**: Plain-text credentials and passwords must **NEVER** be transmitted to the frontend/browser client or exposed in API response payloads, audit log parameters, or error traces.
+
+---
+
+## 15. Mandatory PostgreSQL-Authoritative RBAC & Access Control (No Security in LocalStorage)
+
+> [!CRITICAL]
+> **قانون قطعی و اجباری کنترل دسترسی و ذخیره‌سازی صددرصدی در پایگاه داده پستگرس (MANDATORY POSTGRESQL-AUTHORITATIVE RBAC & ACCESS CONTROL RULE)**
+> **تمامی تنظیمات امنیتی، سطوح دسترسی (RBAC)، پالیسی‌های دسترسی، هویت‌ها، گروه‌ها، محدوده‌های دسترسی به تجهیزات (Device Target Scope & Device Grouping) و توکن‌های احراز هویت باید منحصراً و بدون استثنا در پایگاه داده PostgreSQL سرور ذخیره، مدیریت و ارزیابی شوند.**
+> 
+> All access control policies, permissions, subject assignments, device scopes, device grouping associations, roles, and session validations MUST be stored in and authoritatively calculated by the PostgreSQL database on the server.
+> 
+> 1. **ممنوعیت مطلق ذخیره یا ارزیابی مسائل امنیتی در لوکال استوریج (Zero Security in LocalStorage)**:
+>    - ذخیره‌سازی پالیسی‌های دسترسی، لیست کاربران، گروه‌های کاربری، گروه‌های تجهیزات و تصمیم‌گیری‌های کنترلی در `localStorage` مرورگر اکیداً و بدون قید و شرط ممنوع است. تمام ارزیابی‌های امنیتی باید در سمت سرور و مستقیماً متکی به دیتابیس PostgreSQL باشد.
+> 2. **فیلترسازی مبتنی بر دیتابیس در زمان لاگین کاربر (Database-Authoritative Device Scope on User Login)**:
+>    - هنگامی که هر کاربری وارد سامانه می‌شود، سرور بر اساس پالیسی مؤثر (Effective Policy) ثبت‌شده در دیتابیس، محدوده تجهیزات مجاز (`targetScope`, `targetGroupIds`, `targetDeviceIds`) را استخراج کرده و اندپوینت‌های دریافت تجهیزات (`/api/devices`) و توپولوژی (`/api/topology`) را به گونه‌ای فیلتر می‌کند که کاربر **فقط و فقط** تجهیزات متعلق به گروه‌ها یا دامنه‌های مجاز خود را دریافت کند.
+> 3. **ممانعت سمت سرور از دسترسی مستقیم (Server-Side Endpoint Enforcement)**:
+>    - هرگونه درخواست برای مشاهده یا اجرای دستور روی دیوایسی که خارج از محدوده گروه انتخابی در پالیسی دیتابیس باشد، باید بلافاصله با خطای `403 Forbidden` در بک‌اند متوقف گردد.
+

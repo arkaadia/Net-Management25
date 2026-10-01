@@ -176,14 +176,37 @@ import {
 
 const API_BASE = '/api';
 
+function getAuthToken(): string | null {
+  try {
+    return (
+      sessionStorage.getItem('nettopology_auth_token_v1') ||
+      localStorage.getItem('nettopology_auth_token_v1') ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resilient fetch wrapper with automatic backoff for 503 (backend starting up) and network blips
+ * Automatically injects PostgreSQL Bearer token and active role simulation headers
  */
 async function fetchWithRetry(url: string, options?: RequestInit, maxRetries = 3): Promise<Response> {
+  const token = getAuthToken();
+  const reqHeaders = new Headers(options?.headers || {});
+  if (token && !reqHeaders.has('Authorization')) {
+    reqHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  const updatedOptions: RequestInit = {
+    ...options,
+    headers: reqHeaders,
+  };
+
   let lastError: any = null;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, updatedOptions);
       if (res.status === 503 && attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, attempt * 500));
         continue;

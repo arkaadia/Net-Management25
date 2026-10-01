@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.238.0';
+export const APP_VERSION = '1.239.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.239.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز دوم کنترل دسترسی (RBAC): محدودسازی قطعی و دیتابیس‌محور دسترسی به تجهیزات بر اساس Device Grouping و حذف کامل LocalStorage در گروه‌های تجهیزات',
+    title_en: 'Granular RBAC Phase 2: PostgreSQL-Authoritative Device Group Scope Filtering, Zero LocalStorage Security & Database-Enforced Device Visibility',
+    changes: [
+      'پیاده‌سازی قانون شماره ۱۵ در مستندات AGENTS.md و GEMINI.md مبنی بر الزام قطعی ذخیره‌سازی، ارزیابی و استخراج تمام قوانین امنیتی و محدوده‌های دسترسی در پایگاه‌داده PostgreSQL سرور و ممنوعیت کامل ذخیره مسائل امنیتی در LocalStorage.',
+      'پیاده‌سازی فیلترینگ سخت‌گیرانه سمت سرور در اندپوینت‌های /api/devices و /api/topology: سرور در هنگام لاگین کاربر یا دریافت توکن Bearer، بر اساس محدوده گروه تجهیزات (Device Target Scope) تعریف‌شده در پالیسی پایگاه‌داده، فقط و فقط تجهیزات مجاز همان گروه را بازمی‌گرداند.',
+      'محافظت از اندپوینت‌های مستقیم تجهیزات (/api/devices/:id) و اعمال خطای 403 Forbidden در صورتی که کاربری تلاش کند به تجهیزاتی خارج از گروه‌های مجاز خود در دیتابیس دسترسی یابد.',
+      'حذف کامل ذخیره‌سازی و خواندن گروه‌های تجهیزات (Device Groups) از LocalStorage مرورگر و انتقال صددرصدی به پایگاه‌داده PostgreSQL با توابع همگام‌سازی امن و احراز هویت توکن‌محور.',
+      'ارتقای فرم ایجاد و ویرایش پالیسی دسترسی در صفحه Granular RBAC: افزودن کلیدهای انتخاب و لغو یکپارچه گروه‌های تجهیزات و کارت خلاصه وضعیت زنده به همراه پیش‌نمایش بلادرنگ تجهیزات مجاز در پایگاه‌داده.',
+      'همگام‌سازی بلادرنگ تمامی نماهای عملیاتی سامانه (داشبورد، لیست تجهیزات، نقشه شماتیک توپولوژی، پورت‌ها و ورک‌اسپیس ترمینال) با تجهیزات مجاز کاربر لاگین‌شده بر اساس پالیسی دیتابیس.'
+    ],
+    changes_en: [
+      'Enacted Mandatory Rule 15 in AGENTS.md and GEMINI.md requiring 100% server-side PostgreSQL persistence and evaluation of all RBAC policies, device scopes, and access tokens, strictly prohibiting browser localStorage for security data.',
+      'Engineered server-side authoritative filtering across /api/devices and /api/topology endpoints: upon user authentication via Bearer token, backend evaluates the user effective policy in PostgreSQL and filters device inventory and topology exclusively to authorized device groups.',
+      'Hardened device API routes (/api/devices/:id) with 403 Forbidden rejection if any user attempts to view or execute commands on equipment outside their authorized PostgreSQL group scope.',
+      'Completely eliminated localStorage persistence for Device Groups, transitioning device group management directly to PostgreSQL with token-authenticated backend synchronization.',
+      'Enhanced Create and Edit Access Policy interface in the Granular RBAC view with Select All/Deselect All group shortcuts, live database authorization status, and real-time visual preview of permitted devices.',
+      'Synchronized all operational application views (Dashboard, Device Inventory, Schematic Topology Canvas, Port Manager, and Multi-Terminal Workspace) to strictly render only the devices permitted by the active user database policy.'
+    ],
+  },
   {
     version: '1.238.0',
     releaseDate: '2026-10-01',

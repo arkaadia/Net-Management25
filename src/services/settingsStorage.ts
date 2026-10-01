@@ -626,30 +626,24 @@ export async function syncLocalGroupsFromDatabase(): Promise<LocalGroup[]> {
   return loadLocalGroups();
 }
 
+let inMemoryDeviceGroups: DeviceGroup[] = [];
+
 export function loadDeviceGroups(): DeviceGroup[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_GROUPS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch (e) {
-    console.error('Failed to parse device groups from localStorage', e);
-  }
-  saveDeviceGroups(DEFAULT_DEVICE_GROUPS);
+  if (inMemoryDeviceGroups.length > 0) return inMemoryDeviceGroups;
   return DEFAULT_DEVICE_GROUPS;
 }
 
 export function saveDeviceGroups(groups: DeviceGroup[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.DEVICE_GROUPS, JSON.stringify(groups));
-    fetch('/api/settings/device-groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups }),
-    }).catch(() => {});
-  } catch (e) {
-    console.error('Failed to save device groups to localStorage', e);
+  inMemoryDeviceGroups = groups;
+  localStorage.removeItem(STORAGE_KEYS.DEVICE_GROUPS);
+  fetch('/api/settings/device-groups', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ groups }),
+  }).catch(() => {});
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nettopology_device_groups_changed', { detail: { groups } }));
   }
 }
 
@@ -765,7 +759,9 @@ export async function syncAccessPoliciesFromDatabase(): Promise<AccessPolicy[]> 
 
 export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
   try {
-    const res = await fetch('/api/device-groups');
+    const res = await fetch('/api/device-groups', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       const data = await res.json();
       const list = Array.isArray(data?.groups)
@@ -779,7 +775,11 @@ export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
           deviceIds: Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []),
           serverIds: Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []),
         }));
-        localStorage.setItem(STORAGE_KEYS.DEVICE_GROUPS, JSON.stringify(normalized));
+        inMemoryDeviceGroups = normalized;
+        localStorage.removeItem(STORAGE_KEYS.DEVICE_GROUPS);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('nettopology_device_groups_changed', { detail: { groups: normalized } }));
+        }
         return normalized;
       }
     }
@@ -789,6 +789,36 @@ export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
   return loadDeviceGroups();
 }
 
+function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
+  if (!pol) return pol;
+  if (pol.allowedDeviceIds !== undefined) return pol;
+
+  if (pol.id === 'policy-super-admin' || pol.targetScope === 'all') {
+    return { ...pol, allowedDeviceIds: null, allowedServerIds: null };
+  }
+  if (pol.targetScope === 'groups') {
+    const grps = loadDeviceGroups();
+    const targetGroupSet = new Set((pol.targetGroupIds || []).map((id) => (id || '').trim().toLowerCase()));
+    const devSet = new Set<string>();
+    const srvSet = new Set<string>();
+    for (const g of grps) {
+      const gid = (g.id || '').trim().toLowerCase();
+      const gname = (g.name || '').trim().toLowerCase();
+      if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+        const dIds: string[] = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray((g as any).device_ids) ? (g as any).device_ids : []);
+        const sIds: string[] = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray((g as any).server_ids) ? (g as any).server_ids : []);
+        dIds.forEach((d) => devSet.add(d));
+        sIds.forEach((s) => srvSet.add(s));
+      }
+    }
+    return { ...pol, allowedDeviceIds: Array.from(devSet), allowedServerIds: Array.from(srvSet) };
+  }
+  if (pol.targetScope === 'specific') {
+    return { ...pol, allowedDeviceIds: Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [], allowedServerIds: null };
+  }
+  return { ...pol, allowedDeviceIds: [], allowedServerIds: [] };
+}
+
 export function getEffectiveUserPolicy(
   user: { id?: string; username?: string; role?: string; userType?: string; groupIds?: string[] } | null,
   policies: AccessPolicy[] = loadAccessPolicies(),
@@ -796,14 +826,14 @@ export function getEffectiveUserPolicy(
   simulatedRoleId?: string
 ): AccessPolicy {
   // If simulated role is explicitly set and not 'none', use it for preview
-  if (simulatedRoleId && simulatedRoleId !== 'none') {
+  if (simulatedRoleId && simulatedRoleId !== 'none' && simulatedRoleId !== 'actual-user') {
     const simPolicy = policies.find((p) => p.id === simulatedRoleId);
-    if (simPolicy) return simPolicy;
+    if (simPolicy) return enrichClientPolicyScope(simPolicy);
   }
 
   // If no user is logged in
   if (!user) {
-    return {
+    return enrichClientPolicyScope({
       id: 'policy-guest',
       name: 'Guest / Unauthenticated',
       description: 'Default guest permissions',
@@ -821,6 +851,8 @@ export function getEffectiveUserPolicy(
       canViewScanner: false,
       canViewTemplates: false,
       canViewSettings: false,
+      canViewServers: false,
+      canViewLogs: false,
       terminalAccess: 'none',
       canToggleAdminStatus: false,
       canChangeVlan: false,
@@ -830,7 +862,7 @@ export function getEffectiveUserPolicy(
       canManageDevices: false,
       canApplyTemplates: false,
       canBatchOperate: false,
-    };
+    });
   }
 
   const cleanUsername = (user.username || '').trim().toLowerCase();
@@ -879,12 +911,12 @@ export function getEffectiveUserPolicy(
   // Sort by priority descending (highest priority wins)
   if (matchingPolicies.length > 0) {
     matchingPolicies.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    return matchingPolicies[0];
+    return enrichClientPolicyScope(matchingPolicies[0]);
   }
 
   // Fallback: If superadmin/admin and no explicit restrictive policy found, give full access
   if (isSuperAdmin) {
-    return (
+    return enrichClientPolicyScope(
       policies.find((p) => p.id === 'policy-super-admin') || {
         id: 'policy-super-admin',
         name: 'Super Administrator',
@@ -919,7 +951,7 @@ export function getEffectiveUserPolicy(
   }
 
   // Default non-admin fallback
-  return {
+  return enrichClientPolicyScope({
     id: 'policy-default-restricted',
     name: 'Restricted User',
     description: 'Default safe view access',
@@ -948,7 +980,7 @@ export function getEffectiveUserPolicy(
     canManageDevices: false,
     canApplyTemplates: false,
     canBatchOperate: false,
-  };
+  });
 }
 
 export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {

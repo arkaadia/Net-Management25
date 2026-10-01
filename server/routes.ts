@@ -32,6 +32,8 @@ import {
   getEffectivePolicyForUser,
   getDeviceGroups,
   saveDeviceGroups,
+  getAllDevices,
+  getDeviceById,
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   getHierarchy,
@@ -1188,6 +1190,215 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Database-Authoritative RBAC Device Scoping Endpoints
+// -------------------------------------------------------------
+function getRawTopologyData(): any {
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const data = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      const rawDevices = data.devices || [];
+      const nodes = rawDevices.map((d: any) => ({
+        ...d,
+        role: d.role || 'Network Device',
+        model: d.model || 'Cisco',
+        platform: d.platform || 'cisco_ios_xe',
+        is_online: d.is_online !== undefined ? d.is_online : true,
+        latency_ms: d.latency_ms || 1.0,
+        total_ports: d.total_ports || (d.ports ? d.ports.length : 24),
+      }));
+      return {
+        nodes,
+        links: data.topology_links || [],
+        buildings: Array.from(new Set(rawDevices.map((d: any) => d.building).filter(Boolean))),
+        floors: Array.from(new Set(rawDevices.map((d: any) => `${d.building} - ${d.floor}`).filter((f: string) => !f.startsWith('undefined')))),
+        summary: {
+          total_nodes: nodes.length,
+          total_links: (data.topology_links || []).length,
+          core_switches: nodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Core')).length,
+          access_switches: nodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Access')).length,
+          routers: nodes.filter((d: any) => d.type === 'router').length,
+          access_points: nodes.filter((d: any) => d.type === 'access_point').length,
+        }
+      };
+    }
+  } catch (err) {
+    console.error('[Topology Load Error in routes.ts]', err);
+  }
+  return { nodes: [], links: [], buildings: [], floors: [], summary: { total_nodes: 0, total_links: 0 } };
+}
+
+async function resolveRequestContextPolicy(req: Request): Promise<{
+  user: any | null;
+  effectivePolicy: any | null;
+  isSuperAdmin: boolean;
+  allowedDeviceIds: string[] | null;
+}> {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  if (!token) {
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null };
+  }
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null };
+  }
+
+  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (userRecord && userRecord.status === 'disabled') {
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: [] };
+  }
+
+  let effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+  const cleanUsername = (userRecord?.username || payload.username || '').toLowerCase();
+  const cleanRole = (userRecord?.role || payload.role || '').toLowerCase();
+  const isSuperAdmin = cleanUsername === 'admin' || cleanRole.includes('super admin') || cleanRole.includes('administrator');
+
+  // Check role simulation header (only authorized for Super Admins)
+  const simulatedHeader = (req.headers['x-simulated-role'] as string) || '';
+  if (isSuperAdmin && simulatedHeader && simulatedHeader !== 'actual-user') {
+    const policies = await getAccessPolicies();
+    const simP = policies.find((p: any) => p.id === simulatedHeader);
+    if (simP) {
+      if (simP.id === 'policy-super-admin' || simP.targetScope === 'all') {
+        effectivePolicy = { ...simP, allowedDeviceIds: null, allowedServerIds: null };
+      } else if (simP.targetScope === 'groups') {
+        const allDeviceGroups = await getDeviceGroups();
+        const targetGroupSet = new Set((simP.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase()));
+        const devSet = new Set<string>();
+        for (const g of allDeviceGroups) {
+          const gid = (g.id || '').trim().toLowerCase();
+          const gname = (g.name || '').trim().toLowerCase();
+          if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+            const dIds: string[] = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []);
+            dIds.forEach((d) => devSet.add(d));
+          }
+        }
+        effectivePolicy = { ...simP, allowedDeviceIds: Array.from(devSet) };
+      } else if (simP.targetScope === 'specific') {
+        effectivePolicy = { ...simP, allowedDeviceIds: Array.isArray(simP.targetDeviceIds) ? simP.targetDeviceIds : [] };
+      } else {
+        effectivePolicy = { ...simP, allowedDeviceIds: [] };
+      }
+      return {
+        user: userRecord || payload,
+        effectivePolicy,
+        isSuperAdmin: false,
+        allowedDeviceIds: effectivePolicy.allowedDeviceIds,
+      };
+    }
+  }
+
+  return {
+    user: userRecord || payload,
+    effectivePolicy,
+    isSuperAdmin,
+    allowedDeviceIds: isSuperAdmin ? null : (effectivePolicy?.allowedDeviceIds ?? null),
+  };
+}
+
+apiRouter.get('/devices', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    let allDevices = await getAllDevices();
+
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      const allowedSet = new Set(allowedDeviceIds);
+      allDevices = allDevices.filter((d: any) => allowedSet.has(d.id));
+    }
+
+    const cleanDevices = allDevices.map((dev: any) => {
+      const d = { ...dev };
+      if (!d.platform) d.platform = 'cisco_ios_xe';
+      if (!d.connection_mode) d.connection_mode = 'simulator';
+      const conn = { ...(d.connection || {}) };
+      delete conn.password;
+      delete conn.private_key;
+      d.connection = conn;
+      delete d.ssh_password;
+      delete d.enable_password;
+      return d;
+    });
+
+    return res.json({
+      devices: cleanDevices,
+      total: cleanDevices.length,
+      online_count: cleanDevices.filter((d: any) => d.is_online).length,
+      offline_count: cleanDevices.filter((d: any) => !d.is_online).length,
+      allowedDeviceIds: isSuperAdmin ? null : allowedDeviceIds,
+      targetScope: isSuperAdmin ? 'all' : (effectivePolicy?.targetScope || 'groups'),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch devices' });
+  }
+});
+
+apiRouter.get('/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    const deviceId = req.params.id;
+
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      if (!allowedDeviceIds.includes(deviceId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Device is outside your authorized Device Group and Network Zone scope in database policy.',
+          errorFa: 'عدم دسترسی: این تجهیز خارج از محدوده گروه‌های مجاز شما در پایگاه‌داده است.',
+        });
+      }
+    }
+
+    const device = await getDeviceById(deviceId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+
+    const d = { ...device };
+    delete d.ssh_password;
+    delete d.enable_password;
+    return res.json({ device: d });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/topology', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    const topology = getRawTopologyData();
+
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      const allowedSet = new Set(allowedDeviceIds);
+      const filteredNodes = (topology.nodes || []).filter((n: any) => allowedSet.has(n.id));
+      const filteredLinks = (topology.links || []).filter(
+        (l: any) => allowedSet.has(l.source) && allowedSet.has(l.target)
+      );
+
+      return res.json({
+        ...topology,
+        nodes: filteredNodes,
+        links: filteredLinks,
+        summary: {
+          ...topology.summary,
+          total_nodes: filteredNodes.length,
+          total_links: filteredLinks.length,
+          core_switches: filteredNodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Core')).length,
+          access_switches: filteredNodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Access')).length,
+          routers: filteredNodes.filter((d: any) => d.type === 'router').length,
+          access_points: filteredNodes.filter((d: any) => d.type === 'access_point').length,
+        }
+      });
+    }
+
+    return res.json(topology);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch topology' });
   }
 });
 

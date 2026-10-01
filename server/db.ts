@@ -278,7 +278,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     subjectType: 'local_group',
     subjectId: 'group-helpdesk-ops',
     subjectName: 'Helpdesk Operators (تیم هلپ‌دسک و پشتیبانی)',
-    targetScope: 'all',
+    targetScope: 'groups',
     targetGroupIds: ['devgroup-access'],
     targetDeviceIds: [],
     // Page Access
@@ -388,7 +388,7 @@ const DEFAULT_DEVICE_GROUPS = [
     description: 'سوییچ‌های پرسرعت Catalyst و Nexus مسئول ترافیک اصلی ستون‌فقرات',
     color: 'indigo',
     icon: 'Layers',
-    device_ids: ['dev-core-01', 'dev-dist-01', 'dev-core-02'],
+    device_ids: ['dev-core-01', 'dev-dist-bldg-a', 'dev-dist-bldg-b', 'dev-mikrotik-ccr2004', 'dev-dist-01', 'dev-core-02'],
     created_at: new Date().toISOString()
   },
   {
@@ -397,7 +397,7 @@ const DEFAULT_DEVICE_GROUPS = [
     description: 'سوییچ‌های ارتباط دهنده کلاینت‌ها، ایستگاه‌های کاری و اکسس‌پوینت‌ها',
     color: 'emerald',
     icon: 'Server',
-    device_ids: ['dev-acc-01', 'dev-acc-02', 'dev-acc-03'],
+    device_ids: ['dev-acc-bldg-a-f3', 'dev-acc-bldg-b-f2', 'dev-ap-bldg-a-f1', 'dev-ap-bldg-a-f3', 'dev-ap-bldg-b-f1', 'dev-acc-01', 'dev-acc-02', 'dev-acc-03'],
     created_at: new Date().toISOString()
   },
   {
@@ -406,7 +406,7 @@ const DEFAULT_DEVICE_GROUPS = [
     description: 'تجهیزات مرزی مسیریابی، گیت‌وی اینترنت و تانل‌های VPN',
     color: 'cyan',
     icon: 'Radio',
-    device_ids: ['dev-router-gw', 'dev-wan-gw'],
+    device_ids: ['dev-router-gw', 'dev-mikrotik-ccr2004', 'dev-wan-gw'],
     created_at: new Date().toISOString()
   }
 ];
@@ -2675,17 +2675,69 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     }
   }
 
+  // Helper to calculate database-authoritative allowed device and server IDs
+  const enrichWithScope = async (pol: any) => {
+    if (!pol) return pol;
+    let allowedDeviceIds: string[] | null = null;
+    let allowedServerIds: string[] | null = null;
+
+    if (isSuperAdmin || pol.id === 'policy-super-admin' || pol.targetScope === 'all') {
+      allowedDeviceIds = null;
+      allowedServerIds = null;
+    } else if (pol.targetScope === 'groups') {
+      const allDeviceGroups = await getDeviceGroups();
+      const targetGroupSet = new Set(
+        (pol.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+      );
+      const devSet = new Set<string>();
+      const srvSet = new Set<string>();
+
+      for (const g of allDeviceGroups) {
+        const gid = (g.id || '').trim().toLowerCase();
+        const gname = (g.name || '').trim().toLowerCase();
+        if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+          const dIds: string[] = Array.isArray(g.deviceIds)
+            ? g.deviceIds
+            : Array.isArray(g.device_ids)
+            ? g.device_ids
+            : [];
+          const sIds: string[] = Array.isArray(g.serverIds)
+            ? g.serverIds
+            : Array.isArray(g.server_ids)
+            ? g.server_ids
+            : [];
+          dIds.forEach((d) => devSet.add(d));
+          sIds.forEach((s) => srvSet.add(s));
+        }
+      }
+      allowedDeviceIds = Array.from(devSet);
+      allowedServerIds = Array.from(srvSet);
+    } else if (pol.targetScope === 'specific') {
+      allowedDeviceIds = Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [];
+      allowedServerIds = null;
+    } else {
+      allowedDeviceIds = [];
+      allowedServerIds = [];
+    }
+
+    return {
+      ...pol,
+      allowedDeviceIds,
+      allowedServerIds,
+    };
+  };
+
   // If specific matching policies found, highest priority wins
   if (matchingPolicies.length > 0) {
     matchingPolicies.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    return matchingPolicies[0];
+    return await enrichWithScope(matchingPolicies[0]);
   }
 
   // Super Administrator fallback
   if (isSuperAdmin) {
     const adminPolicy = policies.find((p) => p.id === 'policy-super-admin' || p.id === 'policy-full');
-    if (adminPolicy) return adminPolicy;
-    return {
+    if (adminPolicy) return await enrichWithScope(adminPolicy);
+    return await enrichWithScope({
       id: 'policy-super-admin',
       name: 'Super Administrator',
       description: 'Full unconstrained access',
@@ -2716,21 +2768,21 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: true,
       canExportBackup: true,
       canImportBackup: true,
-    };
+    });
   }
 
   // Check if role is Helpdesk or Operator
   if (roleName.includes('helpdesk')) {
     const hdPolicy = policies.find((p) => p.id === 'policy-helpdesk');
-    if (hdPolicy) return hdPolicy;
+    if (hdPolicy) return await enrichWithScope(hdPolicy);
   }
   if (roleName.includes('noc') || roleName.includes('operator') || roleName.includes('monitoring')) {
     const nocPolicy = policies.find((p) => p.id === 'policy-noc-observer');
-    if (nocPolicy) return nocPolicy;
+    if (nocPolicy) return await enrichWithScope(nocPolicy);
   }
 
   // Default non-admin restricted fallback
-  return {
+  return await enrichWithScope({
     id: 'policy-default-restricted',
     name: 'Restricted User',
     description: 'Default safe view access',
@@ -2761,7 +2813,59 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
-  };
+  });
+}
+
+// -------------------------------------------------------------
+// Database Devices (PostgreSQL-Authoritative Equipment Catalog)
+// -------------------------------------------------------------
+export async function getAllDevices(): Promise<any[]> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM devices ORDER BY name ASC');
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map((r) => {
+          let ports = [];
+          try {
+            ports = typeof r.ports === 'string' ? JSON.parse(r.ports) : (r.ports || []);
+          } catch {}
+          return {
+            id: r.id,
+            name: r.name,
+            ip: r.ip,
+            type: r.type || 'switch',
+            model: r.model || '',
+            platform: r.platform || 'cisco_ios_xe',
+            role: r.role || '',
+            connection_mode: r.connection_mode || 'simulator',
+            ssh_host: r.ssh_host || r.ip,
+            ssh_port: r.ssh_port || 22,
+            ssh_username: r.ssh_username || 'admin',
+            is_online: r.is_online !== undefined ? Boolean(r.is_online) : true,
+            latency_ms: Number(r.latency_ms) || 1.5,
+            mac: r.mac_address || '',
+            mac_address: r.mac_address || '',
+            uptime: r.uptime_str || '',
+            uptime_str: r.uptime_str || '',
+            ports,
+          };
+        });
+      }
+    } catch (e) {
+      console.error('[DB Query Error in getAllDevices]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.devices) && store.devices.length > 0) {
+    return store.devices;
+  }
+  return loadInitialDevices();
+}
+
+export async function getDeviceById(id: string): Promise<any | null> {
+  const all = await getAllDevices();
+  return all.find((d) => d.id === id || d.name === id) || null;
 }
 
 // -------------------------------------------------------------
