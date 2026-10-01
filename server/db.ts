@@ -2573,6 +2573,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       targetScope: 'all',
       targetGroupIds: [],
       targetDeviceIds: [],
+      targetServerIds: [],
+      allowedDeviceIds: [],
+      allowedServerIds: [],
       canViewDashboard: false,
       canViewTopology: false,
       canViewDevices: false,
@@ -2714,7 +2717,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       allowedServerIds = Array.from(srvSet);
     } else if (pol.targetScope === 'specific') {
       allowedDeviceIds = Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [];
-      allowedServerIds = null;
+      allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
     } else {
       allowedDeviceIds = [];
       allowedServerIds = [];
@@ -2793,6 +2796,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     targetScope: 'all',
     targetGroupIds: [],
     targetDeviceIds: [],
+    targetServerIds: [],
     canViewDashboard: true,
     canViewTopology: true,
     canViewDevices: true,

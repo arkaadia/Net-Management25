@@ -1237,22 +1237,23 @@ async function resolveRequestContextPolicy(req: Request): Promise<{
   effectivePolicy: any | null;
   isSuperAdmin: boolean;
   allowedDeviceIds: string[] | null;
+  allowedServerIds: string[] | null;
 }> {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
 
   if (!token) {
-    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null };
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null, allowedServerIds: null };
   }
 
   const payload = verifyToken(token);
   if (!payload) {
-    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null };
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: null, allowedServerIds: null };
   }
 
   const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
   if (userRecord && userRecord.status === 'disabled') {
-    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: [] };
+    return { user: null, effectivePolicy: null, isSuperAdmin: false, allowedDeviceIds: [], allowedServerIds: [] };
   }
 
   let effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
@@ -1272,25 +1273,33 @@ async function resolveRequestContextPolicy(req: Request): Promise<{
         const allDeviceGroups = await getDeviceGroups();
         const targetGroupSet = new Set((simP.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase()));
         const devSet = new Set<string>();
+        const srvSet = new Set<string>();
         for (const g of allDeviceGroups) {
           const gid = (g.id || '').trim().toLowerCase();
           const gname = (g.name || '').trim().toLowerCase();
           if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
             const dIds: string[] = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []);
+            const sIds: string[] = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []);
             dIds.forEach((d) => devSet.add(d));
+            sIds.forEach((s) => srvSet.add(s));
           }
         }
-        effectivePolicy = { ...simP, allowedDeviceIds: Array.from(devSet) };
+        effectivePolicy = { ...simP, allowedDeviceIds: Array.from(devSet), allowedServerIds: Array.from(srvSet) };
       } else if (simP.targetScope === 'specific') {
-        effectivePolicy = { ...simP, allowedDeviceIds: Array.isArray(simP.targetDeviceIds) ? simP.targetDeviceIds : [] };
+        effectivePolicy = {
+          ...simP,
+          allowedDeviceIds: Array.isArray(simP.targetDeviceIds) ? simP.targetDeviceIds : [],
+          allowedServerIds: Array.isArray(simP.targetServerIds) ? simP.targetServerIds : [],
+        };
       } else {
-        effectivePolicy = { ...simP, allowedDeviceIds: [] };
+        effectivePolicy = { ...simP, allowedDeviceIds: [], allowedServerIds: [] };
       }
       return {
         user: userRecord || payload,
         effectivePolicy,
         isSuperAdmin: false,
         allowedDeviceIds: effectivePolicy.allowedDeviceIds,
+        allowedServerIds: effectivePolicy.allowedServerIds,
       };
     }
   }
@@ -1300,6 +1309,7 @@ async function resolveRequestContextPolicy(req: Request): Promise<{
     effectivePolicy,
     isSuperAdmin,
     allowedDeviceIds: isSuperAdmin ? null : (effectivePolicy?.allowedDeviceIds ?? null),
+    allowedServerIds: isSuperAdmin ? null : (effectivePolicy?.allowedServerIds ?? null),
   };
 }
 

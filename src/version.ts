@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.239.1';
+export const APP_VERSION = '1.240.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.240.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۱: موتور محاسباتی دیتابیس-محور دسترسی به سرورها (PostgreSQL-Authoritative Server Scope Engine)',
+    title_en: 'Phase 1: Database-Authoritative Server Scope & RBAC Calculation Engine',
+    changes: [
+      'توسعه و ارتقای موتور محاسبه پالیسی دسترسی در دیتابیس (getEffectivePolicyForUser در server/db.ts): استخراج و تجمیع خودکار server_ids منتسب به گروه‌های مجاز کاربر (device_groups) در پایگاه‌داده PostgreSQL.',
+      'محاسبه معتبر allowedServerIds به موازات allowedDeviceIds در پالیسی موثر کاربر بر مبنای محدوده دسترسی (targetScope: groups / specific / all).',
+      'ارتقای تابع امنیتی resolveRequestContextPolicy در server/routes.ts جهت اعتبارسنجی توکن Bearer کاربر و استخراج سرورهای مجاز (allowedServerIds) با پشتیبانی کامل از شبیه‌سازی نقش‌ها (Role Simulation).',
+      'تجهیز مدل AccessPolicy و توابع محاسباتی به فیلدهای targetServerIds و allowedServerIds جهت حذف کامل هرگونه وابستگی به حافظه محلی مرورگر (LocalStorage) در تعیین محدوده مجاز سرورها.'
+    ],
+    changes_en: [
+      'Engineered backend database-authoritative server scope calculation engine in getEffectivePolicyForUser (server/db.ts): automatically queries and aggregates server_ids from PostgreSQL device_groups based on user policy targetGroupIds.',
+      'Computed authentic allowedServerIds alongside allowedDeviceIds based on targetScope (groups / specific / all) directly from the database.',
+      'Enhanced resolveRequestContextPolicy in server/routes.ts to resolve token-authenticated user sessions, extract allowedServerIds, and support Super Admin role simulation.',
+      'Extended AccessPolicy model with targetServerIds and allowedServerIds, enforcing the mandatory zero-localStorage security rule for server fleet scope.'
+    ],
+  },
   {
     version: '1.239.1',
     releaseDate: '2026-10-01',

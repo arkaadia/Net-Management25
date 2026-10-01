@@ -585,6 +585,7 @@ export interface AccessPolicy {
   targetScope: 'all' | 'groups' | 'specific';
   targetGroupIds: string[];
   targetDeviceIds: string[];
+  targetServerIds?: string[];
   allowedDeviceIds?: string[] | null;
   allowedServerIds?: string[] | null;
   // Page / Module Access: Where can they go?

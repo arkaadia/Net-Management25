@@ -814,7 +814,11 @@ function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
     return { ...pol, allowedDeviceIds: Array.from(devSet), allowedServerIds: Array.from(srvSet) };
   }
   if (pol.targetScope === 'specific') {
-    return { ...pol, allowedDeviceIds: Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [], allowedServerIds: null };
+    return {
+      ...pol,
+      allowedDeviceIds: Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [],
+      allowedServerIds: Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [],
+    };
   }
   return { ...pol, allowedDeviceIds: [], allowedServerIds: [] };
 }
