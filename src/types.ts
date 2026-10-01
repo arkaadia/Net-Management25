@@ -122,6 +122,7 @@ export interface Device {
   detected_ports?: SwitchPort[];
   web_configs?: DeviceWebConfig[];
   winbox_port?: number;
+  tags?: string[];
 }
 
 export interface DeviceWebConfig {
@@ -484,7 +485,11 @@ export interface DeviceGroup {
   description: string;
   color: GroupColor;
   icon?: string;
+  tags?: string[];
   deviceIds: string[];
+  device_ids?: string[];
+  serverIds?: string[];
+  server_ids?: string[];
   createdAt: string;
   updatedAt: string;
 }

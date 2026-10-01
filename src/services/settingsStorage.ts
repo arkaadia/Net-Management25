@@ -129,6 +129,7 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'amber',
     icon: 'Headphones',
     deviceIds: ['dev-dist-bldg-a', 'dev-access-bldg-b'],
+    serverIds: ['srv-web-prod01'],
     createdAt: '2026-03-01 08:30:00',
     updatedAt: '2026-03-09 14:20:00',
   },
@@ -139,6 +140,7 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'indigo',
     icon: 'Server',
     deviceIds: ['dev-core-01', 'dev-router-gw'],
+    serverIds: ['srv-db-master', 'srv-dc-corp01'],
     createdAt: '2026-03-01 08:30:00',
     updatedAt: '2026-03-09 14:20:00',
   },
@@ -149,6 +151,7 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
     color: 'cyan',
     icon: 'Wifi',
     deviceIds: ['dev-dist-bldg-b', 'dev-ap-bldg-a'],
+    serverIds: ['srv-ci-runner'],
     createdAt: '2026-03-02 11:00:00',
     updatedAt: '2026-03-09 15:00:00',
   },
@@ -585,7 +588,13 @@ export function loadDeviceGroups(): DeviceGroup[] {
     const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_GROUPS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((g: any) => ({
+          ...g,
+          deviceIds: Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []),
+          serverIds: Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []),
+        }));
+      }
     }
   } catch (e) {
     console.error('Failed to parse device groups from localStorage', e);
@@ -597,6 +606,12 @@ export function loadDeviceGroups(): DeviceGroup[] {
 export function saveDeviceGroups(groups: DeviceGroup[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.DEVICE_GROUPS, JSON.stringify(groups));
+    // Asynchronously push to backend database
+    fetch('/api/device-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups }),
+    }).catch(() => {});
   } catch (e) {
     console.error('Failed to save device groups to localStorage', e);
   }

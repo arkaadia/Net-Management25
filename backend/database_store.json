@@ -205,40 +205,95 @@
     {
       "id": "devgroup-core",
       "name": "سوییچ‌های لایه هسته و توزیع (Core & Distribution)",
-      "description": "سوییچ‌های پرسرعت Catalyst و Nexus مسئول ترافیک اصلی ستون‌فقرات",
+      "description": "سوییچ‌های پرسرعت Catalyst و Nexus مسئول ترافیک اصلی ستون‌فقرات و سرورهای دیتابیس",
       "color": "indigo",
       "icon": "Layers",
+      "deviceIds": [
+        "dev-core-01",
+        "dev-dist-01",
+        "dev-core-02"
+      ],
       "device_ids": [
         "dev-core-01",
         "dev-dist-01",
         "dev-core-02"
       ],
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "serverIds": [
+        "srv-db-master",
+        "srv-dc-corp01"
+      ],
+      "server_ids": [
+        "srv-db-master",
+        "srv-dc-corp01"
+      ],
+      "tags": [
+        "core",
+        "datacenter",
+        "backbone",
+        "high-priority"
+      ],
+      "createdAt": "2026-10-01T09:30:56.684Z",
+      "updatedAt": "2026-10-01T09:30:56.684Z"
     },
     {
       "id": "devgroup-access",
       "name": "سوییچ‌های لایه دسترسی (Access Layer Switches)",
-      "description": "سوییچ‌های ارتباط دهنده کلاینت‌ها، ایستگاه‌های کاری و اکسس‌پوینت‌ها",
+      "description": "سوییچ‌های ارتباط دهنده کلاینت‌ها، ایستگاه‌های کاری، وب‌سرورها و اکسس‌پوینت‌ها",
       "color": "emerald",
       "icon": "Server",
+      "deviceIds": [
+        "dev-acc-01",
+        "dev-acc-02",
+        "dev-acc-03"
+      ],
       "device_ids": [
         "dev-acc-01",
         "dev-acc-02",
         "dev-acc-03"
       ],
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "serverIds": [
+        "srv-web-prod01"
+      ],
+      "server_ids": [
+        "srv-web-prod01"
+      ],
+      "tags": [
+        "access",
+        "helpdesk",
+        "office",
+        "lan"
+      ],
+      "createdAt": "2026-10-01T09:30:56.684Z",
+      "updatedAt": "2026-10-01T09:30:56.684Z"
     },
     {
       "id": "devgroup-routers",
       "name": "روترها و لبه شبکه WAN (Edge & Gateways)",
-      "description": "تجهیزات مرزی مسیریابی، گیت‌وی اینترنت و تانل‌های VPN",
+      "description": "تجهیزات مرزی مسیریابی، گیت‌وی اینترنت، سرورهای ابری و تانل‌های VPN",
       "color": "cyan",
       "icon": "Radio",
+      "deviceIds": [
+        "dev-router-gw",
+        "dev-wan-gw"
+      ],
       "device_ids": [
         "dev-router-gw",
         "dev-wan-gw"
       ],
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "serverIds": [
+        "srv-ci-runner"
+      ],
+      "server_ids": [
+        "srv-ci-runner"
+      ],
+      "tags": [
+        "wan",
+        "gateway",
+        "border",
+        "vpn"
+      ],
+      "createdAt": "2026-10-01T09:30:56.684Z",
+      "updatedAt": "2026-10-01T09:30:56.684Z"
     }
   ],
   "custom_maps": [

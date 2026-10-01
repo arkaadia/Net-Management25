@@ -1498,6 +1498,9 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS mysql_database VARCHAR(64) DEFAULT 'mysql'");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS web_http_port INT DEFAULT 80");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS web_https_port INT DEFAULT 443");
+      await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS server_ids JSONB DEFAULT '[]'::jsonb");
+      await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
+      await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -2440,24 +2443,64 @@ export async function getDeviceGroups(): Promise<any[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM device_groups ORDER BY created_at ASC');
-      return res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        color: r.color,
-        icon: r.icon,
-        deviceIds: typeof r.device_ids === 'string' ? JSON.parse(r.device_ids) : r.device_ids,
-      }));
+      return res.rows.map((r) => {
+        const devIds = typeof r.device_ids === 'string' ? JSON.parse(r.device_ids) : (r.device_ids || []);
+        const srvIds = typeof r.server_ids === 'string' ? JSON.parse(r.server_ids) : (r.server_ids || []);
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          color: r.color,
+          icon: r.icon,
+          deviceIds: devIds,
+          device_ids: devIds,
+          serverIds: srvIds,
+          server_ids: srvIds,
+          tags: Array.isArray(r.tags) ? r.tags : (typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : []),
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        };
+      });
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in getDeviceGroups]', e);
     }
   }
-  return loadFallbackStore().device_groups;
+  return (loadFallbackStore().device_groups || []).map((g: any) => {
+    const devIds = g.deviceIds || g.device_ids || [];
+    const srvIds = g.serverIds || g.server_ids || [];
+    return {
+      ...g,
+      deviceIds: devIds,
+      device_ids: devIds,
+      serverIds: srvIds,
+      server_ids: srvIds,
+      tags: Array.isArray(g.tags) ? g.tags : [],
+    };
+  });
 }
 
 export async function saveDeviceGroups(groups: any[]): Promise<void> {
+  const normalized = (groups || []).map((g: any) => {
+    const devIds = g.deviceIds || g.device_ids || [];
+    const srvIds = g.serverIds || g.server_ids || [];
+    return {
+      id: g.id,
+      name: g.name,
+      description: g.description || '',
+      color: g.color || 'indigo',
+      icon: g.icon || 'FolderTree',
+      deviceIds: devIds,
+      device_ids: devIds,
+      serverIds: srvIds,
+      server_ids: srvIds,
+      tags: Array.isArray(g.tags) ? g.tags : [],
+      createdAt: g.createdAt || g.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
   const store = loadFallbackStore();
-  store.device_groups = groups;
+  store.device_groups = normalized;
   saveFallbackStore(store);
 
   if (isPostgresReady && pool) {
@@ -2465,17 +2508,27 @@ export async function saveDeviceGroups(groups: any[]): Promise<void> {
       const client = await pool.connect();
       await client.query('BEGIN');
       await client.query('DELETE FROM device_groups');
-      for (const g of groups) {
+      for (const g of normalized) {
         await client.query(
-          `INSERT INTO device_groups (id, name, description, color, icon, device_ids)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [g.id, g.name, g.description, g.color, g.icon, JSON.stringify(g.deviceIds || g.device_ids || [])]
+          `INSERT INTO device_groups (id, name, description, color, icon, device_ids, server_ids, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            g.id,
+            g.name,
+            g.description,
+            g.color,
+            g.icon,
+            JSON.stringify(g.deviceIds),
+            JSON.stringify(g.serverIds),
+            g.createdAt,
+            g.updatedAt,
+          ]
         );
       }
       await client.query('COMMIT');
       client.release();
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in saveDeviceGroups]', e);
     }
   }
 }

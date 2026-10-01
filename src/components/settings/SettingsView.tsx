@@ -121,10 +121,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Dynamic header meta per sub-section
   const subMenuMeta = {
     groups: {
-      title: isEn ? 'Device Grouping & Network Zones' : 'گروه‌بندی تجهیزات شبکه (Device Groups)',
+      title: isEn ? 'Device Grouping & Network Zones' : 'گروه‌بندی تجهیزات شبکه و سرورها (Device Groups & Zones)',
       desc: isEn
-        ? 'Organize switches and routers into operational groups and zones for scoped RBAC policies.'
-        : 'دسته‌بندی منطقی سوئیچ‌ها و روترها به گروه‌های کاری (نظیر Access, Core, Helpdesk) جهت اعمال پالیسی‌های تفکیک‌شده.',
+        ? 'Organize switches, routers, and remote servers into operational groups and zones with custom tagging, and persist them securely into the database.'
+        : 'دسته‌بندی منطقی تجهیزات شبکه و سرورها در گروه‌های کاری و زون‌های عملیاتی با قابلیت برچسب‌گذاری و ذخیره در دیتابیس.',
       icon: FolderTree,
       badge: `${deviceGroups.length} ${isEn ? 'Groups' : 'گروه'}`,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
@@ -221,7 +221,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           }`}
         >
           <FolderTree className="w-3.5 h-3.5 text-amber-400" />
-          <span>{isEn ? 'Device Grouping' : 'گروه‌بندی دیوایس‌ها'}</span>
+          <span>{isEn ? 'Device Grouping & Tagging' : 'گروه‌بندی و تگینگ دیوایس‌ها و سرورها'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
             {deviceGroups.length}
           </span>

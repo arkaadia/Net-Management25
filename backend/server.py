@@ -1997,9 +1997,23 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/device-groups":
+            raw_groups = data.get("device_groups", [])
+            normalized_groups = []
+            for g in raw_groups:
+                if isinstance(g, dict):
+                    dev_ids = g.get("deviceIds") if g.get("deviceIds") is not None else (g.get("device_ids") or [])
+                    srv_ids = g.get("serverIds") if g.get("serverIds") is not None else (g.get("server_ids") or [])
+                    g_copy = dict(g)
+                    g_copy["deviceIds"] = list(dev_ids)
+                    g_copy["device_ids"] = list(dev_ids)
+                    g_copy["serverIds"] = list(srv_ids)
+                    g_copy["server_ids"] = list(srv_ids)
+                    normalized_groups.append(g_copy)
+                else:
+                    normalized_groups.append(g)
             self._send_json(200, {
-                "groups": data.get("device_groups", []),
-                "total": len(data.get("device_groups", []))
+                "groups": normalized_groups,
+                "total": len(normalized_groups)
             })
             return
 
@@ -3214,9 +3228,22 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
         if path == "/api/device-groups":
             groups = body.get("groups", body) if isinstance(body, dict) else body
             if isinstance(groups, list):
-                data["device_groups"] = groups
+                normalized = []
+                for g in groups:
+                    if isinstance(g, dict):
+                        dev_ids = g.get("deviceIds") if g.get("deviceIds") is not None else (g.get("device_ids") or [])
+                        srv_ids = g.get("serverIds") if g.get("serverIds") is not None else (g.get("server_ids") or [])
+                        g_copy = dict(g)
+                        g_copy["deviceIds"] = list(dev_ids)
+                        g_copy["device_ids"] = list(dev_ids)
+                        g_copy["serverIds"] = list(srv_ids)
+                        g_copy["server_ids"] = list(srv_ids)
+                        normalized.append(g_copy)
+                    else:
+                        normalized.append(g)
+                data["device_groups"] = normalized
                 save_data(data)
-                self._send_json(200, {"success": True, "groups": data["device_groups"]})
+                self._send_json(200, {"success": True, "groups": normalized, "count": len(normalized)})
                 return
             self._send_json(400, {"error": "Invalid groups payload format"})
             return

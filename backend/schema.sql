@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS device_groups (
     color VARCHAR(32) DEFAULT 'indigo',
     icon VARCHAR(64) DEFAULT 'Server',
     device_ids JSONB DEFAULT '[]'::jsonb,
+    server_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

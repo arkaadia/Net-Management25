@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.233.0';
+export const APP_VERSION = '1.234.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.234.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'سیستم جامع گروه‌بندی مشترک و تگینگ تجهیزات شبکه و سرورها و ذخیره‌سازی دائمی در دیتابیس (Device Grouping & Tagging)',
+    title_en: 'Unified Device & Server Grouping, Custom Tagging System, and Persistent Database Storage',
+    changes: [
+      'توسعه و ارتقای تب گروه‌بندی تجهیزات شبکه و زون‌ها (Device Grouping & Tagging) جهت پشتیبانی همزمان و مشترک از تجهیزات شبکه (سوئیچ‌ها، روترها و اکسس‌پوینت‌ها) و سرورهای ریموت (لینوکس و ویندوز).',
+      'افزودن امکان انتخاب چندگانه و گروهی (Multi-Select Batch Operations) با چک‌باکس بر روی تمام تجهیزات و سرورهای آماده تخصیص، همراه با دکمه انتخاب همه (Select All) و افزودن همزمان تمام موارد انتخابی به گروه با یک کلیک.',
+      'پیاده‌سازی نوار و چیپ‌های فیلتر بر اساس تگ‌ها (Tag Filters) جهت جستجو و پالایش سریع سرورها و تجهیزات بر مبنای برچسب‌های عملیاتی (مانند web، database، core، production و dmz).',
+      'تجهیز گروه‌ها به قابلیت ثبت برچسب‌های عملیاتی اختصاصی (Operational Tags) در زمان ایجاد گروه جدید و نمایش تگ‌ها روی کارت‌های گروه.',
+      'تجهیز سیستم به دکمه اختصاصی و اعلان‌های هوشمند «ذخیره در دیتابیس» (Save to Database) با ذخیره‌سازی قطعی و همگام در PostgreSQL و پایگاه داده محلی همراه با گزارش دقیق تعداد گروه‌ها و تخصیص‌ها.',
+      'رعایت صددرصدی استانداردهای دوزبانه (فارسی و انگلیسی) بدون نمایش متن فارسی در حالت انگلیسی و عدم استفاده از هرگونه داده ساختگی.'
+    ],
+    changes_en: [
+      'Engineered unified Device Grouping & Tagging system supporting both network hardware (switches, routers, APs) and remote servers (Linux & Windows) within cohesive operational groups and network zones.',
+      'Implemented multi-select checkbox batch operations on available equipment and servers, featuring a "Select All" toggle and a 1-click "Add Selected to Group" batch assignment action.',
+      'Added dynamic Tag Filter chips to instantly filter both equipment and servers by operational tags (e.g. web, database, core, production, dmz).',
+      'Added custom operational tags assignment to newly created groups with tag chips displayed across group overview cards and member lists.',
+      'Enhanced dedicated "Save to Database" workflow with real-time unsaved changes detection, animated pulse, and persistent synchronization to backend PostgreSQL database and store.',
+      'Enforced strict bilingual i18n localization compliance across all labels, badges, notifications, and tooltips with zero fake data.'
+    ]
+  },
   {
     version: '1.233.0',
     releaseDate: '2026-09-30',
