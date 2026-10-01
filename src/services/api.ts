@@ -857,7 +857,9 @@ export async function testActiveDirectoryConnectionApi(config: ActiveDirectoryCo
   success: boolean;
   latency_ms: number;
   message: string;
-  serverBanner: string;
+  serverBanner?: string;
+  sslValid?: boolean;
+  bindSuccess?: boolean;
   logs: string[];
 }> {
   const res = await fetch(`${API_BASE}/active-directory/test`, {
@@ -865,7 +867,30 @@ export async function testActiveDirectoryConnectionApi(config: ActiveDirectoryCo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config }),
   });
-  if (!res.ok) throw new Error('Active directory test probe failed');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Active Directory connection test failed');
+  }
+  return res.json();
+}
+
+export async function syncActiveDirectoryApi(config: ActiveDirectoryConfig): Promise<{
+  success: boolean;
+  groups: import('../types').ADSecurityGroup[];
+  users: import('../types').ADUser[];
+  message?: string;
+  error?: string;
+  config?: ActiveDirectoryConfig;
+}> {
+  const res = await fetch(`${API_BASE}/active-directory/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.message || 'Active Directory synchronization request failed');
+  }
   return res.json();
 }
 

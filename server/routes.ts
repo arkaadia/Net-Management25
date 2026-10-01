@@ -418,6 +418,7 @@ import {
   performNginxSecurityAudit,
   applyNginxSecurityHardening,
 } from './nginxSecurityAuditor';
+import { testLdapConnection, syncLdapDirectory } from './ldapManager';
 
 export const apiRouter = Router();
 
@@ -1042,10 +1043,77 @@ apiRouter.get(['/settings/active-directory', '/active-directory'], async (req: R
 
 apiRouter.post(['/settings/active-directory', '/active-directory'], async (req: Request, res: Response) => {
   try {
-    await saveActiveDirectoryConfig(req.body);
-    res.json({ success: true });
+    const configToSave = req.body?.config || req.body;
+    await saveActiveDirectoryConfig(configToSave);
+    res.json({ success: true, config: configToSave });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post(['/settings/active-directory/test', '/active-directory/test'], async (req: Request, res: Response) => {
+  try {
+    const config = req.body?.config || req.body;
+    const result = await testLdapConnection(config);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      latency_ms: 0,
+      message: err.message || 'Active Directory connection test failed',
+      logs: [`[Fatal Error] ${err.message}`],
+    });
+  }
+});
+
+apiRouter.post(['/settings/active-directory/sync', '/active-directory/sync'], async (req: Request, res: Response) => {
+  try {
+    const config = req.body?.config || req.body;
+    const result = await syncLdapDirectory(config);
+    const currentConfig = (await getActiveDirectoryConfig()) || {};
+
+    if (result.success) {
+      const updatedConfig = {
+        ...currentConfig,
+        ...config,
+        syncedGroups: result.groups,
+        syncedUsers: result.users,
+        lastSyncStatus: 'success',
+        lastSyncMessage: result.message,
+        lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      };
+      await saveActiveDirectoryConfig(updatedConfig);
+      res.json({
+        success: true,
+        groups: result.groups,
+        users: result.users,
+        message: result.message,
+        config: updatedConfig,
+      });
+    } else {
+      const updatedConfig = {
+        ...currentConfig,
+        ...config,
+        lastSyncStatus: 'failed',
+        lastSyncMessage: result.error || 'Failed to sync objects from Active Directory',
+        lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      };
+      await saveActiveDirectoryConfig(updatedConfig);
+      res.json({
+        success: false,
+        groups: [],
+        users: [],
+        error: result.error || 'Failed to sync objects from Active Directory',
+        config: updatedConfig,
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      groups: [],
+      users: [],
+      error: err.message || 'Active Directory synchronization failed',
+    });
   }
 });
 

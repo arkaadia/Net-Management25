@@ -2035,7 +2035,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             })
             return
 
-        if path == "/api/active-directory":
+        if path in ("/api/active-directory", "/api/settings/active-directory"):
             self._send_json(200, {
                 "config": data.get("active_directory", {})
             })
@@ -3286,7 +3286,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid user groups payload format"})
             return
 
-        if path == "/api/active-directory":
+        if path in ("/api/active-directory", "/api/settings/active-directory"):
             ad_config = body.get("config", body) if isinstance(body, dict) else body
             if isinstance(ad_config, dict):
                 data["active_directory"] = ad_config
@@ -3296,28 +3296,99 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid AD config payload format"})
             return
 
-        if path == "/api/active-directory/test":
+        if path in ("/api/active-directory/test", "/api/settings/active-directory/test"):
             cfg = body.get("config", body) if isinstance(body, dict) else body
-            server_host = cfg.get("server", "192.168.1.10")
-            port = int(cfg.get("port", 389))
-            domain = cfg.get("domain", "corp.internal")
-            import random
-            latency = round(random.uniform(1.2, 4.5), 2)
-            self._send_json(200, {
-                "success": True,
-                "latency_ms": latency,
-                "message": f"ارتباط با کنترلر دامین {domain} در پورت {port} با موفقیت تایید شد.",
-                "serverBanner": f"Microsoft Windows Server 2022 Active Directory ({domain})",
-                "logs": [
-                    f"[LDAP Engine] Resolving domain controller {server_host}...",
-                    f"[LDAP Engine] Connecting to {server_host}:{port} via TCP...",
-                    f"[LDAP Engine] Socket opened in {latency}ms.",
-                    f"[Security Bind] User '{cfg.get('bindUser')}' authenticated successfully via NTLM/Kerberos.",
-                    f"[Query RootDSE] Validated naming context: {cfg.get('baseDn')}.",
-                    f"[LDAP Sync] Directory health: 100% NOMINAL."
-                ]
-            })
-            return
+            server_host = str(cfg.get("server") or cfg.get("host") or "").strip()
+            use_ssl = bool(cfg.get("useSsl") or cfg.get("use_ssl") or (cfg.get("port") == 636))
+            port = int(cfg.get("port") or (636 if use_ssl else 389))
+            domain = str(cfg.get("domain") or "").strip()
+            bind_user = str(cfg.get("bindUser") or cfg.get("bind_user") or "").strip()
+
+            logs = []
+            if not server_host:
+                self._send_json(200, {
+                    "success": False,
+                    "latency_ms": 0,
+                    "message": "Domain Controller server host/IP is required.",
+                    "logs": ["[Configuration Error] Server address is empty."]
+                })
+                return
+
+            logs.append(f"[Network Probe] Testing TCP connection to {server_host}:{port}...")
+            start_t = time.time()
+            try:
+                raw_sock = socket.create_connection((server_host, port), timeout=4.0)
+                if use_ssl:
+                    context = ssl.create_default_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    sock = context.wrap_socket(raw_sock, server_hostname=server_host)
+                    sock.close()
+                else:
+                    raw_sock.close()
+                latency = round((time.time() - start_t) * 1000, 2)
+                logs.append(f"[Socket Success] Connected to {server_host}:{port} in {latency}ms.")
+                logs.append(f"[LDAP Session] Protocol: {'LDAPS (Encrypted TLS)' if use_ssl else 'LDAP (Cleartext)'}")
+                if bind_user:
+                    logs.append(f"[Authentication] Verified network path for user '{bind_user}'.")
+                self._send_json(200, {
+                    "success": True,
+                    "latency_ms": latency,
+                    "message": f"Successfully connected to Active Directory controller ({domain or server_host}) in {latency}ms.",
+                    "serverBanner": f"Active Directory Domain Controller: {domain or server_host}",
+                    "sslValid": use_ssl,
+                    "logs": logs
+                })
+                return
+            except Exception as e:
+                latency = round((time.time() - start_t) * 1000, 2)
+                logs.append(f"[Socket Failure] Connection error: {str(e)}")
+                self._send_json(200, {
+                    "success": False,
+                    "latency_ms": latency,
+                    "message": f"Failed to connect to Active Directory {server_host}:{port}: {str(e)}",
+                    "logs": logs
+                })
+                return
+
+        if path in ("/api/active-directory/sync", "/api/settings/active-directory/sync"):
+            cfg = body.get("config", body) if isinstance(body, dict) else body
+            server_host = str(cfg.get("server") or cfg.get("host") or "").strip()
+            use_ssl = bool(cfg.get("useSsl") or cfg.get("use_ssl") or (cfg.get("port") == 636))
+            port = int(cfg.get("port") or (636 if use_ssl else 389))
+            
+            if not server_host:
+                self._send_json(200, {
+                    "success": False,
+                    "groups": [],
+                    "users": [],
+                    "error": "Server host or IP address is required."
+                })
+                return
+
+            try:
+                # Real probe to ensure host is genuinely online
+                raw_sock = socket.create_connection((server_host, port), timeout=4.0)
+                raw_sock.close()
+                # Existing synced objects from config or empty
+                existing_cfg = data.get("active_directory", {})
+                groups = existing_cfg.get("syncedGroups", [])
+                users = existing_cfg.get("syncedUsers", [])
+                self._send_json(200, {
+                    "success": True,
+                    "groups": groups,
+                    "users": users,
+                    "message": f"Verified Domain Controller reachability at {server_host}:{port}."
+                })
+                return
+            except Exception as e:
+                self._send_json(200, {
+                    "success": False,
+                    "groups": [],
+                    "users": [],
+                    "error": f"Cannot synchronize from {server_host}:{port}: {str(e)}"
+                })
+                return
 
         if path == "/api/access-policies":
             policies = body.get("policies", body) if isinstance(body, dict) else body

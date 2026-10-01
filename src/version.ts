@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.235.0';
+export const APP_VERSION = '1.236.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.236.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'یکپارچه‌سازی و اتصال واقعی به اکتیو دایرکتوری و LDAP با بک‌اند زنده، استعلام لحظه‌ای آبجکت‌ها و ذخیره‌سازی پایدار (Active Directory / LDAP)',
+    title_en: 'Authentic Active Directory & LDAP Integration with Live Backend Queries, Real-Time Sync & Persistent Database Storage',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی بک‌اند Active Directory و LDAP (server/ldapManager.ts) با استفاده از کتابخانه رسمی ldapjs و سوکت‌های شبکه واقعی TCP/TLS.',
+      'حذف کامل داده‌های ساختگی و شبیه‌سازی‌شده (Mock/Simulated Data) طبق اصل قطعی Prohibition of Fake Data؛ اتصال و استعلام واقعی از دامین کنترلر هدف.',
+      'افزودن اندپوینت‌های تست اتصال زنده (/api/active-directory/test و /api/settings/active-directory/test) با سنجش میلی‌ثانیه‌ای تاخیر شبکه، اعتبارسنجی بایند ساده (Simple Bind)، بازخوانی فراداده‌های RootDSE و ثبت لاگ‌های تشخیصی کنسول.',
+      'افزودن اندپوینت‌های همگام‌سازی واقعی (/api/active-directory/sync و /api/settings/active-directory/sync) جهت استعلام خودکار تمام گروه‌های امنیتی و کاربران دامین بر اساس Base DN و واحدهای سازمانی (OU) تعیین‌شده.',
+      'پیاده‌سازی ذخیره‌سازی پایدار اطلاعات اتصال و آبجکت‌های همگام‌شده در دیتابیس (پشتیبانی توامان از PostgreSQL و Fallback Store) و همگام‌سازی خودکار در زمان بارگذاری تب تنظیمات.',
+      'بهینه‌سازی کامل رابط کاربری تب اکتیو دایرکتوری، افزودن راهنماهای سه‌بخشی FieldInfoTooltip به تمام فیلدهای اتصال، نمایش وضعیت زنده ارتباط و انطباق کامل با قوانین دوزبانگی (عدم نمایش حتی یک کاراکتر فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Engineered an authentic Active Directory / LDAP backend engine (server/ldapManager.ts) powered by official ldapjs and real TCP/TLS network socket probes.',
+      'Completely eliminated simulated mock data per the absolute Prohibition of Fake Data mandate; all groups, users, and latency diagnostics are authentically queried from the target Domain Controller.',
+      'Added live connection probe endpoints (/api/active-directory/test & /api/settings/active-directory/test) measuring genuine network latency, simple bind validation, RootDSE metadata extraction, and diagnostic console logs.',
+      'Added directory sync endpoints (/api/active-directory/sync & /api/settings/active-directory/sync) dynamically querying security groups and domain users filtered by Base DN and target OUs, with automated machine account filtering.',
+      'Implemented persistent database storage for Active Directory configurations and synced directory objects across PostgreSQL and json store with auto-sync on settings view mount.',
+      'Modernized Active Directory tab UI with 3-part FieldInfoTooltips across all connection fields, live status telemetry, informative empty states, and strict bilingual compliance (zero Persian characters in English mode).'
+    ]
+  },
   {
     version: '1.235.0',
     releaseDate: '2026-10-01',

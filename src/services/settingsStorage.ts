@@ -160,86 +160,20 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
 // Initial Seed: Active Directory Config & Synced Objects
 export const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
   enabled: true,
-  server: '192.168.1.10',
+  server: '',
   port: 389,
   useSsl: false,
-  domain: 'corp.internal',
-  baseDn: 'DC=corp,DC=internal',
-  bindUser: 'svc-netops@corp.internal',
-  bindPassword: '••••••••••••',
-  userSearchBase: 'OU=Staff,DC=corp,DC=internal',
-  groupSearchBase: 'OU=SecurityGroups,DC=corp,DC=internal',
-  lastSyncStatus: 'success',
-  lastSyncMessage: 'همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 6 کاربر دامین دریافت گردید)',
-  lastSyncTime: '2026-09-09 16:30:00',
-  syncedGroups: [
-    {
-      dn: 'CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Helpdesk-Admins',
-      description: 'کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان',
-      memberCount: 8,
-    },
-    {
-      dn: 'CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NetOps-Engineers',
-      description: 'مهندسان ارشد شبکه و زیرساخت ارتباطی',
-      memberCount: 4,
-    },
-    {
-      dn: 'CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NOC-Monitoring',
-      description: 'تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)',
-      memberCount: 6,
-    },
-    {
-      dn: 'CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Security-Auditors',
-      description: 'حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها',
-      memberCount: 3,
-    },
-  ],
-  syncedUsers: [
-    {
-      dn: 'CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'm.shahbazi',
-      displayName: 'مسعود شهبازی (Network Lead)',
-      email: 'm.shahbazi@corp.internal',
-      department: 'زیرساخت و شبکه',
-      title: 'Senior Network Architect',
-      groups: ['NetOps-Engineers'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'a.rezaei',
-      displayName: 'علی رضایی (Helpdesk L1)',
-      email: 'a.rezaei@corp.internal',
-      department: 'پشتیبانی فنی (Helpdesk)',
-      title: 'Helpdesk Specialist',
-      groups: ['Helpdesk-Admins'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Sara Karimi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 's.karimi',
-      displayName: 'سارا کریمی (NOC Operator)',
-      email: 's.karimi@corp.internal',
-      department: 'مرکز عملیات شبکه',
-      title: 'NOC Tier-1 Analyst',
-      groups: ['NOC-Monitoring'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'r.mohammadi',
-      displayName: 'رضا محمدی (Security Auditor)',
-      email: 'r.mohammadi@corp.internal',
-      department: 'امنیت اطلاعات',
-      title: 'Infosec Compliance Officer',
-      groups: ['Security-Auditors'],
-      enabled: true,
-    },
-  ],
+  domain: '',
+  baseDn: '',
+  bindUser: '',
+  bindPassword: '',
+  userSearchBase: '',
+  groupSearchBase: '',
+  lastSyncStatus: 'idle',
+  lastSyncMessage: undefined,
+  lastSyncTime: null,
+  syncedGroups: [],
+  syncedUsers: [],
 };
 
 // Initial Seed: Granular Access Policies (RBAC)
@@ -689,9 +623,36 @@ export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
 export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
   try {
     localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(config));
+    // Asynchronously sync with backend database
+    fetch('/api/settings/active-directory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    }).catch((e) => console.error('Failed to save AD config to backend DB', e));
   } catch (e) {
     console.error('Failed to save AD config to localStorage', e);
   }
+}
+
+export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDirectoryConfig | null> {
+  try {
+    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/settings/active-directory', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const cfg = data?.config || data;
+      if (cfg && typeof cfg === 'object') {
+        localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(cfg));
+        return cfg as ActiveDirectoryConfig;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to sync AD config from database', e);
+  }
+  return null;
 }
 
 export function loadAccessPolicies(): AccessPolicy[] {
@@ -733,38 +694,12 @@ export function saveSimulatedRoleId(policyId: string): void {
 }
 
 // ==========================================
-// Simulation & Diagnostic Helpers
+// Authentic Active Directory Test & Diagnostic Helper
 // ==========================================
 
 export async function simulateTestADConnection(cfg: ActiveDirectoryConfig): Promise<ADTestResult> {
-  const startTime = Date.now();
-  // Simulate network probe
-  await new Promise((res) => setTimeout(res, 900));
-  const latency = Math.floor(Math.random() * 4) + 1.2;
-
-  const logs = [
-    `[LDAP Probe] Initiating TCP handshake to ${cfg.server}:${cfg.port}...`,
-    `[LDAP Probe] Socket connection established in ${latency}ms.`,
-    cfg.useSsl
-      ? `[TLS/SSL] Handshake validated with Certificate Authority (Subject: CN=${cfg.server}).`
-      : `[LDAP] Cleartext LDAP connection active (Port ${cfg.port}).`,
-    `[Kerberos/Bind] Attempting simple bind for account "${cfg.bindUser}"...`,
-    `[Kerberos/Bind] Credentials accepted. Bind status: SUCCESS (0x0).`,
-    `[RootDSE] Querying Directory BaseDN "${cfg.baseDn}"...`,
-    `[Search] Root container accessible: ${cfg.groupSearchBase}`,
-    `[Search] User container accessible: ${cfg.userSearchBase}`,
-    `[Summary] Domain Controller "${cfg.domain}" is HEALTHY & SYNCHRONIZED.`,
-  ];
-
-  return {
-    success: true,
-    latency_ms: latency,
-    message: `ارتباط با اکتیو دایرکتوری ${cfg.domain} روی سرور ${cfg.server} با موفقیت برقرار شد.`,
-    serverBanner: `Microsoft Windows Server 2022 Active Directory Domain Controller (Domain: ${cfg.domain})`,
-    sslValid: cfg.useSsl,
-    bindSuccess: true,
-    logs,
-  };
+  const { testActiveDirectoryConnectionApi } = await import('./api');
+  return testActiveDirectoryConnectionApi(cfg);
 }
 
 // ==========================================
