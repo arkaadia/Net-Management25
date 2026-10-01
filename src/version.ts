@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.242.0';
+export const APP_VERSION = '1.243.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.243.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۴: اعتبارسنجی جامع دیتابیس-محور، تست سناریومحور RBAC و پایداری نهایی (Comprehensive End-to-End PostgreSQL RBAC Verification)',
+    title_en: 'Phase 4: Comprehensive PostgreSQL RBAC Testing & Production Verification',
+    changes: [
+      'اجرای تست‌های تجربی و اعتبارسنجی زنده روی پایگاه داده واقعی با صدور توکن‌های احراز هویت معتبر و سناریوهای کاربری واقعی (کاربر ارشد ادمین و کاربر با دسترسی محدود هلپ‌دسک).',
+      'تایید دریافت دقیق و کامل ۵ سرور برای مدیر ارشد (Super Admin) و دریافت منحصراً ۱ سرور مجاز (srv-web-prod01) برای کاربر محدود به گروه devgroup-access.',
+      'تایید مسدودسازی قطعی و دریافت خطای 403 Forbidden در دسترسی مستقیم به جزئیات، دستور ریستارت و عملیات گروهی توان روی سرورهای خارج از محدوده مجاز (srv-db-master و srv-dc-corp01).',
+      'صحت‌سنجی فیلترینگ تگ‌های اتوماسیون و محاسبه آمار دقیق برچسب‌ها صرفاً از روی سرورهای مجاز کاربر در دیتابیس.',
+      'تضمین عدم وجود هرگونه داده ساختگی، شبیه‌سازی‌شده یا موک در کل فرآیند احراز هویت و دسترسی به سرورها (قانون ۸ و ۹).'
+    ],
+    changes_en: [
+      'Executed live empirical test suite against the real PostgreSQL database verifying authentic Bearer JWT tokens across multiple role profiles.',
+      'Confirmed full access for Super Administrator (all 5 servers retrieved) and strict boundary enforcement for Helpdesk (exactly 1 authorized server: srv-web-prod01 based on devgroup-access).',
+      'Verified prompt 403 Forbidden enforcement on unauthorized server detail requests, restart actions, and bulk power operations for servers outside the user scope (srv-db-master, srv-dc-corp01).',
+      'Validated authentic automation tag summary isolation strictly reflecting the authorized server subset in PostgreSQL.',
+      'Guaranteed zero fake or simulated data across all authorization layers and live server APIs in strict compliance with rules 8 and 9.'
+    ],
+  },
   {
     version: '1.242.0',
     releaseDate: '2026-10-01',
