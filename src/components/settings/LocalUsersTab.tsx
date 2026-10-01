@@ -24,7 +24,14 @@ import {
 } from 'lucide-react';
 import { LocalUser, LocalGroup } from '../../types';
 import { logPortalEvent } from '../../services/auditLogger';
-import { saveUserToDatabase, deleteUserFromDatabase } from '../../services/settingsStorage';
+import {
+  saveUserToDatabase,
+  deleteUserFromDatabase,
+  saveLocalGroupsToDatabase,
+} from '../../services/settingsStorage';
+import { ModalHeaderControls } from '../common/ModalHeaderControls';
+import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { UserPickerModal } from './UserPickerModal';
 
 interface LocalUsersTabProps {
   users: LocalUser[];
@@ -32,6 +39,7 @@ interface LocalUsersTabProps {
   groups: LocalGroup[];
   onSaveGroups: (groups: LocalGroup[]) => void;
   isEn?: boolean;
+  isLightMode?: boolean;
 }
 
 const GROUP_COLORS: { [key: string]: { bg: string; text: string; border: string; name: string } } = {
@@ -49,7 +57,12 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   groups,
   onSaveGroups,
   isEn = false,
+  isLightMode = false,
 }) => {
+  const resolvedLightMode = Boolean(
+    isLightMode || (typeof document !== 'undefined' && document.documentElement.classList.contains('light'))
+  );
+
   const [activeSection, setActiveSection] = useState<'users' | 'groups'>('users');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
@@ -62,14 +75,36 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [userError, setUserError] = useState('');
   const [isSavingUser, setIsSavingUser] = useState(false);
+  const [isUserMaximized, setIsUserMaximized] = useState(false);
 
   // Group Modal State
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Partial<LocalGroup> | null>(null);
   const [groupError, setGroupError] = useState('');
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [isGroupMaximized, setIsGroupMaximized] = useState(false);
+
+  // Dedicated User Directory Picker State
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [activePickerGroup, setActivePickerGroup] = useState<{
+    id: string;
+    name: string;
+    memberUserIds: string[];
+  } | null>(null);
 
   // Delete Confirm State
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'user' | 'group'; id: string; name: string } | null>(null);
+
+  // Initials generator
+  const getInitials = (name?: string, username?: string) => {
+    const clean = (name || username || '').trim();
+    if (!clean) return 'U';
+    const parts = clean.split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return clean.substring(0, 2).toUpperCase();
+  };
 
   // Filtered Users
   const filteredUsers = users.filter((u) => {
@@ -346,18 +381,88 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       isBuiltin: false,
     });
     setGroupError('');
+    setIsGroupMaximized(false);
     setGroupModalOpen(true);
   };
 
   // Handler: Open Group Modal for Edit
   const handleOpenEditGroup = (group: LocalGroup) => {
-    setEditingGroup({ ...group });
+    setEditingGroup({
+      ...group,
+      memberUserIds: [...(group.memberUserIds || [])],
+    });
     setGroupError('');
+    setIsGroupMaximized(false);
     setGroupModalOpen(true);
   };
 
-  // Handler: Save Group
-  const handleSaveGroup = (e: React.FormEvent) => {
+  // Handler: Open Direct Directory Picker from Group Card
+  const handleOpenDirectPicker = (group: LocalGroup) => {
+    setActivePickerGroup({
+      id: group.id,
+      name: group.name,
+      memberUserIds: [...(group.memberUserIds || [])],
+    });
+    setUserPickerOpen(true);
+  };
+
+  // Handler: Direct Update Group Members from Directory Picker
+  const handleDirectUpdateGroupMembers = async (groupId: string, newMemberIds: string[]) => {
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const updatedGroups = groups.map((g) =>
+      g.id === groupId
+        ? {
+            ...g,
+            memberUserIds: newMemberIds,
+            updatedAt: nowStr,
+          }
+        : g
+    );
+
+    // Synchronize users groupIds
+    const updatedUsers = users.map((u) => {
+      const shouldBeInGroup = newMemberIds.includes(u.id);
+      const userGroups = new Set(u.groupIds || []);
+      if (shouldBeInGroup) {
+        userGroups.add(groupId);
+      } else {
+        userGroups.delete(groupId);
+      }
+      return { ...u, groupIds: Array.from(userGroups) };
+    });
+
+    onSaveGroups(updatedGroups);
+    onSaveUsers(updatedUsers);
+
+    // Persist directly to backend database
+    try {
+      await saveLocalGroupsToDatabase(updatedGroups);
+      const targetGroup = groups.find((g) => g.id === groupId);
+      logPortalEvent({
+        category: 'user_management',
+        action: 'USER_GROUP_UPDATED',
+        title: `بروزرسانی اعضای گروه کاربری «${targetGroup?.name || groupId}» (${newMemberIds.length} عضو)`,
+        title_en: `Updated members for group "${targetGroup?.name || groupId}" (${newMemberIds.length} members)`,
+        target: {
+          type: 'group',
+          id: groupId,
+          name: targetGroup?.name || groupId,
+          metadata: { memberCount: newMemberIds.length, memberUserIds: newMemberIds },
+        },
+        severity: 'info',
+        status: 'success',
+        details: `تعداد ${newMemberIds.length} کاربر به عنوان اعضای گروه «${targetGroup?.name || groupId}» در پایگاه داده ذخیره شدند.`,
+        details_en: `${newMemberIds.length} users assigned as members of group "${targetGroup?.name || groupId}" and persisted to database.`,
+      });
+    } catch (err) {
+      console.warn('Failed to persist group members to backend database:', err);
+    }
+
+    setActivePickerGroup(null);
+  };
+
+  // Handler: Save Group with Database Persistence
+  const handleSaveGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingGroup?.name?.trim()) {
       setGroupError(isEn ? 'Group name is required.' : 'نام گروه الزامی است.');
@@ -397,13 +502,72 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       return { ...u, groupIds: Array.from(userGroups) };
     });
 
-    onSaveGroups(newGroups);
-    onSaveUsers(newUsers);
-    setGroupModalOpen(false);
+    setIsSavingGroup(true);
+    setGroupError('');
+
+    try {
+      // 1. Persist directly to backend database
+      const saveRes = await saveLocalGroupsToDatabase(newGroups);
+      if (!saveRes.success) {
+        setGroupError(
+          saveRes.error ||
+            (isEn
+              ? 'Failed to persist group in database.'
+              : 'ذخیره‌سازی گروه در پایگاه داده با خطا مواجه شد.')
+        );
+        setIsSavingGroup(false);
+        return;
+      }
+
+      // 2. Synchronize frontend application states
+      onSaveGroups(newGroups);
+      onSaveUsers(newUsers);
+
+      // 3. Log portal audit event
+      try {
+        logPortalEvent({
+          category: 'user_management',
+          action: isNew ? 'USER_GROUP_CREATED' : 'USER_GROUP_UPDATED',
+          title: isNew
+            ? `ایجاد گروه کاربری محلی جدید «${updatedGroup.name}» با ${updatedGroup.memberUserIds.length} عضو`
+            : `ویرایش مشخصات و اعضای گروه کاربری «${updatedGroup.name}» (${updatedGroup.memberUserIds.length} عضو)`,
+          title_en: isNew
+            ? `Local security group created: ${updatedGroup.name} (${updatedGroup.memberUserIds.length} members)`
+            : `Security group updated: ${updatedGroup.name} (${updatedGroup.memberUserIds.length} members)`,
+          target: {
+            type: 'group',
+            id: updatedGroup.id,
+            name: updatedGroup.name,
+            metadata: {
+              memberCount: updatedGroup.memberUserIds.length,
+              color: updatedGroup.color,
+              memberUserIds: updatedGroup.memberUserIds,
+            },
+          },
+          severity: isNew ? 'info' : 'notice',
+          status: 'success',
+          details: `گروه کاربری «${updatedGroup.name}» با موفقیت در پایگاه داده سامانه ذخیره و اعضای آن همگام‌سازی شدند.`,
+          details_en: `Security group "${updatedGroup.name}" persisted to database with synchronized memberships.`,
+        });
+      } catch (err) {
+        console.warn('Failed to log group audit event:', err);
+      }
+
+      setGroupModalOpen(false);
+    } catch (err: any) {
+      setGroupError(
+        err?.message ||
+          (isEn
+            ? 'Connection error while persisting group.'
+            : 'خطا در برقراری ارتباط با پایگاه داده جهت ذخیره گروه.')
+      );
+    } finally {
+      setIsSavingGroup(false);
+    }
   };
 
-  // Handler: Delete Group
-  const handleDeleteGroup = (groupId: string) => {
+  // Handler: Delete Group with Database Persistence
+  const handleDeleteGroup = async (groupId: string) => {
     const grp = groups.find((g) => g.id === groupId);
     if (grp?.isBuiltin) {
       alert(isEn ? 'Built-in system groups cannot be deleted.' : 'گروه‌های پیش‌فرض و سیستمی قابل حذف نیستند.');
@@ -415,8 +579,25 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       ...u,
       groupIds: u.groupIds?.filter((gid) => gid !== groupId) || [],
     }));
+
+    await saveLocalGroupsToDatabase(newGroups).catch(() => {});
     onSaveGroups(newGroups);
     onSaveUsers(newUsers);
+
+    try {
+      logPortalEvent({
+        category: 'user_management',
+        action: 'USER_GROUP_DELETED',
+        title: `حذف گروه کاربری محلی «${grp?.name || groupId}»`,
+        title_en: `Deleted security group "${grp?.name || groupId}"`,
+        target: { type: 'group', id: groupId, name: grp?.name || groupId },
+        severity: 'warning',
+        status: 'success',
+        details: `گروه «${grp?.name || groupId}» از پایگاه داده سامانه حذف گردید.`,
+        details_en: `Group "${grp?.name || groupId}" permanently deleted from database.`,
+      });
+    } catch (e) {}
+
     setDeleteConfirm(null);
   };
 
@@ -800,7 +981,17 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                     <span className="text-[10px] text-slate-500 font-mono">
                       {isEn ? 'Created:' : 'ایجاد:'} {group.createdAt?.substring(0, 10) || '-'}
                     </span>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDirectPicker(group)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold transition cursor-pointer"
+                        title={isEn ? 'Assign or manage group members' : 'تخصیص و مدیریت اعضای گروه'}
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Members' : 'مدیریت اعضا'}</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleOpenEditGroup(group)}
@@ -831,8 +1022,18 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
 
       {/* MODAL: CREATE / EDIT LOCAL USER */}
       {userModalOpen && editingUser && (
-        <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-white/15 p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div
+          className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center transition-all duration-200 ${
+            isUserMaximized ? 'p-0' : 'p-3 sm:p-4 bg-black/70 backdrop-blur-sm'
+          }`}
+        >
+          <div
+            className={`transition-all duration-200 bg-slate-900 border border-white/15 p-5 shadow-2xl space-y-4 overflow-y-auto custom-scrollbar ${
+              isUserMaximized
+                ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+                : 'w-full max-w-lg rounded-2xl max-h-[90vh]'
+            }`}
+          >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400">
@@ -855,13 +1056,14 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setUserModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <ModalHeaderControls
+                onClose={() => setUserModalOpen(false)}
+                onMinimize={() => setUserModalOpen(false)}
+                onMaximizeToggle={() => setIsUserMaximized(!isUserMaximized)}
+                isMaximized={isUserMaximized}
+                isLightMode={resolvedLightMode}
+                isEn={isEn}
+              />
             </div>
 
             {userError && (
@@ -1069,15 +1271,34 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
 
       {/* MODAL: CREATE / EDIT LOCAL GROUP */}
       {groupModalOpen && editingGroup && (
-        <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-white/15 p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
+        <div
+          className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center transition-all duration-200 ${
+            isGroupMaximized ? 'p-0' : 'p-3 sm:p-4 bg-black/75 backdrop-blur-sm'
+          }`}
+        >
+          <div
+            className={`transition-all duration-200 overflow-hidden shadow-2xl flex flex-col ${
+              isGroupMaximized
+                ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+                : 'w-full max-w-2xl max-h-[88vh] rounded-2xl border'
+            } ${
+              resolvedLightMode
+                ? 'bg-slate-50 border-slate-300 text-slate-900 shadow-slate-300/40'
+                : 'bg-slate-950 border-slate-800 text-white shadow-black/80'
+            }`}
+          >
+            {/* Modal Header */}
+            <div
+              className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 ${
+                resolvedLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
                   <FolderTree className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-white">
+                  <h3 className="font-bold text-sm">
                     {groups.some((g) => g.id === editingGroup.id)
                       ? isEn
                         ? 'Edit Local Group'
@@ -1088,60 +1309,112 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   </h3>
                   <p className="text-[11px] text-slate-400">
                     {isEn
-                      ? 'Local groups can be assigned permissions en-masse in RBAC.'
+                      ? 'Local security groups are mapped to RBAC policies and persistent access rules.'
                       : 'می‌توانید به کل اعضای این گروه در بخش پالیسی‌ها، سطح دسترسی مشترک دهید.'}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setGroupModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <ModalHeaderControls
+                onClose={() => setGroupModalOpen(false)}
+                onMinimize={() => setGroupModalOpen(false)}
+                onMaximizeToggle={() => setIsGroupMaximized(!isGroupMaximized)}
+                isMaximized={isGroupMaximized}
+                isLightMode={resolvedLightMode}
+                isEn={isEn}
+              />
             </div>
 
+            {/* Error Banner */}
             {groupError && (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+              <div className="mx-5 mt-3 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{groupError}</span>
               </div>
             )}
 
-            <form onSubmit={handleSaveGroup} className="space-y-3.5">
+            {/* Modal Body / Form */}
+            <form onSubmit={handleSaveGroup} className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+              {/* Group Name */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  {isEn ? 'Group Name *' : 'نام گروه کاربری *'}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-300">
+                    {isEn ? 'Group Name *' : 'نام گروه کاربری *'}
+                  </label>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Group Name' : 'نام گروه کاربری'}
+                    infoWhatEn="Unique identifier and display title for this local security group."
+                    infoWhatFa="عنوان نمایشی و شناسه یکتای گروه امنیتی محلی."
+                    infoWhyEn="Identifies the group across role simulations, RBAC policies, and audit logs."
+                    infoWhyFa="شناسایی گروه در شبیه‌سازی نقش‌ها، پالیسی‌های دسترسی و ثبت وقایع ممیزی."
+                    infoExampleEn="e.g. NOC Tier-2 Operators or Core DC Admins"
+                    infoExampleFa="مثال: کارشناسان عملیات لایه ۲ یا مدیران دیتاسنتر"
+                    isEn={isEn}
+                    isLightMode={resolvedLightMode}
+                  />
+                </div>
                 <input
                   type="text"
                   required
                   value={editingGroup.name || ''}
                   onChange={(e) => setEditingGroup({ ...editingGroup, name: e.target.value })}
-                  placeholder="e.g. NOC Tier-2 Operators"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-indigo-400"
+                  placeholder={isEn ? 'e.g. NOC Tier-2 Operators' : 'مثال: کارشناسان عملیات شبکه'}
+                  className={`w-full px-3 py-2 rounded-xl text-xs transition focus:outline-none ${
+                    resolvedLightMode
+                      ? 'bg-white border border-slate-300 text-slate-900 focus:border-indigo-500'
+                      : 'bg-slate-900 border border-white/15 text-white focus:border-indigo-400'
+                  }`}
                 />
               </div>
 
+              {/* Description */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  {isEn ? 'Description' : 'توضیحات و شرح وظایف گروه'}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-300">
+                    {isEn ? 'Description & Scope' : 'توضیحات و شرح وظایف گروه'}
+                  </label>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Group Description' : 'شرح وظایف گروه'}
+                    infoWhatEn="Detailed scope of responsibilities and permissions associated with this group."
+                    infoWhatFa="شرح اختیارات، مسئولیت‌ها و حوزه عملیاتی کاربران عضو این گروه."
+                    infoWhyEn="Provides clarity for system audits and role separation."
+                    infoWhyFa="شفاف‌سازی برای ممیزی سامانه و تفکیک مسئولیت‌های راهبری."
+                    infoExampleEn="Handles 24/7 network monitoring, incident triage, and port diagnostics."
+                    infoExampleFa="پایش ۲۴ ساعته لینک‌ها، تریاژ حوادث و خطایابی پورت‌ها."
+                    isEn={isEn}
+                    isLightMode={resolvedLightMode}
+                  />
+                </div>
                 <textarea
                   rows={2}
                   value={editingGroup.description || ''}
                   onChange={(e) => setEditingGroup({ ...editingGroup, description: e.target.value })}
                   placeholder={isEn ? 'Describe scope of this group...' : 'شرح دامنه اختیارات یا افراد این گروه...'}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-indigo-400 resize-none"
+                  className={`w-full px-3 py-2 rounded-xl text-xs transition resize-none focus:outline-none ${
+                    resolvedLightMode
+                      ? 'bg-white border border-slate-300 text-slate-900 focus:border-indigo-500'
+                      : 'bg-slate-900 border border-white/15 text-white focus:border-indigo-400'
+                  }`}
                 />
               </div>
 
-              {/* Color Picker */}
+              {/* Badge Color Picker */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
-                  {isEn ? 'Badge Color' : 'رنگ و شناسه ظاهری گروه'}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-slate-300">
+                    {isEn ? 'Badge Color Tag' : 'رنگ و شناسه ظاهری گروه'}
+                  </label>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Badge Color' : 'رنگ نمادین گروه'}
+                    infoWhatEn="Color accent used to tag members and policies of this group."
+                    infoWhatFa="رنگ اختصاصی جهت نمایش نمادین اعضا و پالیسی‌های این گروه."
+                    infoWhyEn="Enables instant visual grouping in maps, telemetry, and lists."
+                    infoWhyFa="تشخیص بصری فوری در نقشه‌ها، لاگ‌ها و جدول کاربران."
+                    infoExampleEn="Amber for Security Auditors, Cyan for NOC"
+                    infoExampleFa="کهربایی برای ممیزان امنیتی، فیروزه‌ای برای تیم NOC"
+                    isEn={isEn}
+                    isLightMode={resolvedLightMode}
+                  />
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(GROUP_COLORS).map(([colorKey, style]) => {
                     const selected = editingGroup.color === colorKey;
@@ -1151,7 +1424,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                         type="button"
                         onClick={() => setEditingGroup({ ...editingGroup, color: colorKey })}
                         className={`px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition ${style.bg} ${style.text} ${
-                          selected ? 'ring-2 ring-white border-white' : style.border
+                          selected ? 'ring-2 ring-white border-white scale-105' : style.border
                         }`}
                       >
                         {style.name}
@@ -1161,65 +1434,210 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                 </div>
               </div>
 
-              {/* Member Selection */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-semibold text-slate-300">
-                  {isEn ? 'Select Local Users for this Group:' : 'انتخاب کاربران محلی عضو این گروه:'}
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                  {users.map((usr) => {
-                    const checked = editingGroup.memberUserIds?.includes(usr.id) || false;
-                    return (
+              {/* Enhanced Member Selection & Directory Browser */}
+              <div className="space-y-2.5 pt-3 border-t border-white/10">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-indigo-400" />
+                      <span>{isEn ? 'Group Members:' : 'اعضای گروه:'}</span>
+                    </label>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                      {editingGroup.memberUserIds?.length || 0} {isEn ? 'users assigned' : 'کاربر منتسب'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {/* Dedicated Open Directory Picker Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePickerGroup(null);
+                        setUserPickerOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs shadow-md shadow-indigo-600/25 transition cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Select Users from List...' : 'انتخاب کاربران از فهرست...'}</span>
+                    </button>
+
+                    {(editingGroup.memberUserIds?.length || 0) > 0 && (
                       <button
-                        key={usr.id}
                         type="button"
-                        onClick={() => {
-                          const current = editingGroup.memberUserIds || [];
-                          const next = checked ? current.filter((id) => id !== usr.id) : [...current, usr.id];
-                          setEditingGroup({ ...editingGroup, memberUserIds: next });
-                        }}
-                        className={`flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer transition ${
-                          checked
-                            ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
-                            : 'bg-slate-800/60 border-white/10 text-slate-400 hover:text-white'
-                        }`}
+                        onClick={() => setEditingGroup({ ...editingGroup, memberUserIds: [] })}
+                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 text-xs font-medium transition cursor-pointer"
+                        title={isEn ? 'Clear all assigned members' : 'حذف همه اعضای انتخابی'}
                       >
-                        <div className="flex items-center gap-2 truncate">
-                          {checked ? (
-                            <CheckSquare className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                          ) : (
-                            <Square className="w-3.5 h-3.5 shrink-0" />
-                          )}
-                          <span className="truncate">{usr.fullName}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono">@{usr.username}</span>
+                        {isEn ? 'Clear All' : 'پاکسازی همه'}
                       </button>
-                    );
-                  })}
+                    )}
+
+                    <FieldInfoTooltip
+                      title={isEn ? 'Group Members Directory' : 'فهرست اعضای گروه'}
+                      infoWhatEn="Local user accounts associated with this group. Inherits group policies."
+                      infoWhatFa="کاربران محلی منتسب به این گروه که پالیسی‌ها را به ارث می‌برند."
+                      infoWhyEn="Using the directory picker allows fast searching across hundreds of users and filtering by roles."
+                      infoWhyFa="استفاده از کاوشگر فهرست امکان جستجو میان صدها کاربر و فیلتر نقش را به سادگی میسر می‌سازد."
+                      infoExampleEn="Click 'Select Users from List' to pick multiple operators at once."
+                      infoExampleFa="با زدن دکمه 'انتخاب کاربران از فهرست'، چند کاربر را همزمان جستجو و اضافه کنید."
+                      isEn={isEn}
+                      isLightMode={resolvedLightMode}
+                    />
+                  </div>
                 </div>
+
+                {/* Selected Members Chips Roster / Empty State */}
+                {(!editingGroup.memberUserIds || editingGroup.memberUserIds.length === 0) ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setActivePickerGroup(null);
+                      setUserPickerOpen(true);
+                    }}
+                    className={`p-6 rounded-2xl border-2 border-dashed text-center space-y-2 cursor-pointer transition ${
+                      resolvedLightMode
+                        ? 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40'
+                        : 'border-white/10 hover:border-indigo-500/50 hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    <div className="p-3 rounded-2xl bg-indigo-500/10 text-indigo-400 w-fit mx-auto">
+                      <Users className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-semibold text-slate-300">
+                      {isEn
+                        ? 'No users assigned to this group yet.'
+                        : 'هنوز کاربری به این گروه تخصیص داده نشده است.'}
+                    </p>
+                    <p className="text-[11px] text-indigo-400">
+                      {isEn
+                        ? '+ Click here to open user directory and assign members'
+                        : '+ جهت باز کردن فهرست کاربران و انتخاب اعضا اینجا کلیک کنید'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1">
+                    {users
+                      .filter((u) => editingGroup.memberUserIds?.includes(u.id))
+                      .map((usr) => (
+                        <div
+                          key={usr.id}
+                          className={`flex items-center justify-between p-2 rounded-xl border text-xs transition ${
+                            resolvedLightMode
+                              ? 'bg-white border-slate-200 hover:border-indigo-300'
+                              : 'bg-slate-900/80 border-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-300 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
+                              {getInitials(usr.fullName, usr.username)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate text-[11px]">
+                                {usr.fullName || usr.username}
+                              </div>
+                              <div className="text-[10px] text-cyan-400 font-mono truncate">
+                                @{usr.username}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {usr.role && (
+                              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] bg-white/5 text-slate-400 font-medium truncate max-w-[80px]">
+                                {usr.role}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = (editingGroup.memberUserIds || []).filter((id) => id !== usr.id);
+                                setEditingGroup({ ...editingGroup, memberUserIds: next });
+                              }}
+                              className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                              title={isEn ? 'Remove user from group' : 'حذف کاربر از گروه'}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
 
-              {/* Actions */}
-              <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setGroupModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs transition cursor-pointer"
-                >
-                  {isEn ? 'Cancel' : 'انصراف'}
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition cursor-pointer"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isEn ? 'Save Group' : 'ذخیره گروه کاربری'}</span>
-                </button>
+              {/* Form Actions */}
+              <div
+                className={`flex items-center justify-between gap-3 pt-3 border-t shrink-0 ${
+                  resolvedLightMode ? 'border-slate-200' : 'border-white/10'
+                }`}
+              >
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {editingGroup.memberUserIds?.length || 0} {isEn ? 'members will be saved' : 'عضو ذخیره خواهند شد'}
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGroupModalOpen(false)}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                      resolvedLightMode
+                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isSavingGroup}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs shadow-md shadow-indigo-600/25 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Save className={`w-4 h-4 ${isSavingGroup ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isSavingGroup
+                        ? isEn
+                          ? 'Saving to DB...'
+                          : 'در حال ذخیره در دیتابیس...'
+                        : isEn
+                        ? 'Save Group'
+                        : 'ذخیره گروه کاربری'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* MODAL: ADVANCED USER DIRECTORY PICKER */}
+      <UserPickerModal
+        isOpen={userPickerOpen}
+        onClose={() => {
+          setUserPickerOpen(false);
+          setActivePickerGroup(null);
+        }}
+        groupName={activePickerGroup ? activePickerGroup.name : (editingGroup?.name || '')}
+        groupColor={editingGroup?.color || 'indigo'}
+        allUsers={users}
+        selectedUserIds={
+          activePickerGroup
+            ? activePickerGroup.memberUserIds
+            : (editingGroup?.memberUserIds || [])
+        }
+        onConfirmSelection={async (selectedIds) => {
+          if (editingGroup) {
+            setEditingGroup({ ...editingGroup, memberUserIds: selectedIds });
+          }
+          if (activePickerGroup) {
+            await handleDirectUpdateGroupMembers(activePickerGroup.id, selectedIds);
+          }
+        }}
+        isEn={isEn}
+        isLightMode={resolvedLightMode}
+      />
 
       {/* MODAL: DELETE CONFIRMATION */}
       {deleteConfirm && (

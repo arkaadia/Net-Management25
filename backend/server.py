@@ -2017,6 +2017,24 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path in ("/api/user-groups", "/api/settings/user-groups"):
+            raw_groups = data.get("user_groups", [])
+            normalized_groups = []
+            for g in raw_groups:
+                if isinstance(g, dict):
+                    m_ids = g.get("memberUserIds") if g.get("memberUserIds") is not None else (g.get("member_user_ids") or [])
+                    g_copy = dict(g)
+                    g_copy["memberUserIds"] = list(m_ids)
+                    g_copy["member_user_ids"] = list(m_ids)
+                    normalized_groups.append(g_copy)
+                else:
+                    normalized_groups.append(g)
+            self._send_json(200, {
+                "groups": normalized_groups,
+                "total": len(normalized_groups)
+            })
+            return
+
         if path == "/api/active-directory":
             self._send_json(200, {
                 "config": data.get("active_directory", {})
@@ -3246,6 +3264,26 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"success": True, "groups": normalized, "count": len(normalized)})
                 return
             self._send_json(400, {"error": "Invalid groups payload format"})
+            return
+
+        if path in ("/api/user-groups", "/api/settings/user-groups"):
+            groups = body.get("groups", body) if isinstance(body, dict) else body
+            if isinstance(groups, list):
+                normalized = []
+                for g in groups:
+                    if isinstance(g, dict):
+                        m_ids = g.get("memberUserIds") if g.get("memberUserIds") is not None else (g.get("member_user_ids") or [])
+                        g_copy = dict(g)
+                        g_copy["memberUserIds"] = list(m_ids)
+                        g_copy["member_user_ids"] = list(m_ids)
+                        normalized.append(g_copy)
+                    else:
+                        normalized.append(g)
+                data["user_groups"] = normalized
+                save_data(data)
+                self._send_json(200, {"success": True, "groups": normalized, "count": len(normalized)})
+                return
+            self._send_json(400, {"error": "Invalid user groups payload format"})
             return
 
         if path == "/api/active-directory":

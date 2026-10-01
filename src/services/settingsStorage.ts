@@ -578,9 +578,64 @@ export function loadLocalGroups(): LocalGroup[] {
 export function saveLocalGroups(groups: LocalGroup[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(groups));
+    // Asynchronously push to backend database
+    fetch('/api/settings/user-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups }),
+    }).catch(() => {});
   } catch (e) {
     console.error('Failed to save local groups to localStorage', e);
   }
+}
+
+export async function saveLocalGroupsToDatabase(
+  groups: LocalGroup[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(groups));
+    const res = await fetch('/api/settings/user-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups }),
+    });
+    if (res.ok) {
+      return { success: true };
+    }
+    const data = await res.json().catch(() => ({}));
+    return { success: false, error: data.error || 'Failed to persist groups in database' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Connection error to backend database' };
+  }
+}
+
+export async function syncLocalGroupsFromDatabase(): Promise<LocalGroup[]> {
+  try {
+    const res = await fetch('/api/settings/user-groups');
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.groups)
+        ? data.groups
+        : [];
+      if (list.length > 0) {
+        const normalized = list.map((g: any) => ({
+          ...g,
+          memberUserIds: Array.isArray(g.memberUserIds)
+            ? g.memberUserIds
+            : Array.isArray(g.member_user_ids)
+            ? g.member_user_ids
+            : [],
+        }));
+        localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(normalized));
+        return normalized;
+      }
+    }
+  } catch (e) {
+    // Offline or fallback
+  }
+  return loadLocalGroups();
 }
 
 export function loadDeviceGroups(): DeviceGroup[] {

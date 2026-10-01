@@ -2349,24 +2349,65 @@ export async function getUserGroups(): Promise<any[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM user_groups ORDER BY created_at ASC');
-      return res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        color: r.color,
-        memberUserIds: typeof r.member_user_ids === 'string' ? JSON.parse(r.member_user_ids) : r.member_user_ids,
-        isBuiltin: r.is_builtin,
-      }));
+      return res.rows.map((r) => {
+        const rawMembers = typeof r.member_user_ids === 'string'
+          ? JSON.parse(r.member_user_ids || '[]')
+          : (r.member_user_ids || []);
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description || '',
+          color: r.color || 'indigo',
+          memberUserIds: rawMembers,
+          member_user_ids: rawMembers,
+          isBuiltin: Boolean(r.is_builtin),
+          createdAt: r.created_at,
+          updatedAt: r.updated_at || r.created_at,
+        };
+      });
     } catch (e) {
       console.error('[DB Query Error]', e);
     }
   }
-  return loadFallbackStore().user_groups;
+  const fallback = loadFallbackStore().user_groups || [];
+  return fallback.map((r: any) => {
+    const rawMembers = Array.isArray(r.memberUserIds)
+      ? r.memberUserIds
+      : (Array.isArray(r.member_user_ids) ? r.member_user_ids : []);
+    return {
+      id: r.id,
+      name: r.name,
+      description: r.description || '',
+      color: r.color || 'indigo',
+      memberUserIds: rawMembers,
+      member_user_ids: rawMembers,
+      isBuiltin: Boolean(r.is_builtin || r.isBuiltin),
+      createdAt: r.created_at || r.createdAt,
+      updatedAt: r.updated_at || r.updatedAt,
+    };
+  });
 }
 
 export async function saveUserGroups(groups: any[]): Promise<void> {
+  const normalized = (groups || []).map((g: any) => {
+    const rawMembers = Array.isArray(g.memberUserIds)
+      ? g.memberUserIds
+      : (Array.isArray(g.member_user_ids) ? g.member_user_ids : []);
+    return {
+      id: g.id,
+      name: g.name,
+      description: g.description || '',
+      color: g.color || 'indigo',
+      memberUserIds: rawMembers,
+      member_user_ids: rawMembers,
+      isBuiltin: Boolean(g.isBuiltin ?? g.is_builtin ?? false),
+      createdAt: g.createdAt || g.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
   const store = loadFallbackStore();
-  store.user_groups = groups;
+  store.user_groups = normalized;
   saveFallbackStore(store);
 
   if (isPostgresReady && pool) {
@@ -2374,11 +2415,20 @@ export async function saveUserGroups(groups: any[]): Promise<void> {
       const client = await pool.connect();
       await client.query('BEGIN');
       await client.query('DELETE FROM user_groups');
-      for (const g of groups) {
+      for (const g of normalized) {
         await client.query(
-          `INSERT INTO user_groups (id, name, description, color, member_user_ids, is_builtin)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [g.id, g.name, g.description, g.color, JSON.stringify(g.memberUserIds || g.member_user_ids || []), g.isBuiltin || false]
+          `INSERT INTO user_groups (id, name, description, color, member_user_ids, is_builtin, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            g.id,
+            g.name,
+            g.description,
+            g.color,
+            JSON.stringify(g.memberUserIds),
+            g.isBuiltin,
+            g.createdAt,
+            g.updatedAt,
+          ]
         );
       }
       await client.query('COMMIT');

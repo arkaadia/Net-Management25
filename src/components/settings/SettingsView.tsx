@@ -31,7 +31,9 @@ import {
   loadLocalUsers,
   saveLocalUsers,
   loadLocalGroups,
-  saveLocalGroups
+  saveLocalGroups,
+  syncLocalGroupsFromDatabase,
+  syncLocalUsersFromDatabase
 } from '../../services/settingsStorage';
 import { DeviceGroupingTab } from './DeviceGroupingTab';
 import { ActiveDirectoryTab } from './ActiveDirectoryTab';
@@ -82,6 +84,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [simulatedRoleId, setSimulatedRoleId] = useState<string>(() => loadSimulatedRoleId());
   const [localUsers, setLocalUsers] = useState<LocalUser[]>(() => loadLocalUsers());
   const [localGroups, setLocalGroups] = useState<LocalGroup[]>(() => loadLocalGroups());
+
+  // Synchronize users and groups from database on mount
+  useEffect(() => {
+    syncLocalGroupsFromDatabase().then((dbGroups) => {
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
+        setLocalGroups(dbGroups);
+      }
+    }).catch(() => {});
+
+    syncLocalUsersFromDatabase().then((dbUsers) => {
+      if (Array.isArray(dbUsers) && dbUsers.length > 0) {
+        setLocalUsers(dbUsers);
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleSaveDeviceGroups = (newGroups: DeviceGroup[]) => {
     setDeviceGroups(newGroups);

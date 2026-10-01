@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.234.0';
+export const APP_VERSION = '1.235.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.235.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'طراحی کاوشگر و سلکتور پیشرفته کاربران و ذخیره‌سازی پایدار اعضای گروه‌های محلی در دیتابیس (User Directory Picker)',
+    title_en: 'Advanced Local User Directory Picker & Persistent Group Membership Database Storage',
+    changes: [
+      'طراحی و پیاده‌سازی مودال پیشرفته کاوشگر و سلکتور کاربران (UserPickerModal) جهت جایگزینی چک‌باکس‌های ساده با رابط کاربری غنی و مناسب تعداد بالای کاربران.',
+      'تجهیز سلکتور به جستجوی بلادرنگ در نام، نام کاربری، ایمیل و واحد سازمانی، فیلتر وضعیت (فعال/غیرفعال)، فیلتر نقش‌های سازمانی و فیلتر اعضای تخصیص‌یافته/تخصیص‌نیافته.',
+      'افزودن کلیدهای عملیات دسته‌جمعی «انتخاب همه فیلترشده‌ها»، «لغو انتخاب فیلترشده‌ها» و «پاکسازی همه» به همراه شمارنده لحظه‌ای اعضا.',
+      'تجهیز فرم ایجاد و ویرایش گروه به نوار چیپ‌های تعاملی اعضا با نمایش تصویر پروفایل (آواتار)، نام، نام کاربری، نقش و دکمه حذف سریع (X) بدون نیاز به ورود به مودال.',
+      'افزودن دکمه مستقیم «مدیریت اعضا» (Members) بر روی کارت‌های گروه‌ها در نمای اصلی جهت دسترسی و ویرایش سریع بدون نیاز به باز کردن کل فرم گروه.',
+      'پیاده‌سازی ذخیره‌سازی قطعی و دائمی گروه‌های کاربری و اعضای آن‌ها در پایگاه داده (/api/settings/user-groups) با همگام‌سازی کامل PostgreSQL و JSON store و همگام‌سازی خودکار در زمان بارگذاری.',
+      'رعایت استانداردهای پنج‌گانه مودال‌ها شامل دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز، تمام‌صفحه)، مهار حریم فوتر (bottom-8)، انطباق با تم تیره و روشن، راهنماهای سه‌بخشی FieldInfoTooltip و دوزبانگی صددرصدی.'
+    ],
+    changes_en: [
+      'Engineered an enterprise-grade User Directory Picker Modal (UserPickerModal) replacing basic checkboxes with a high-capacity, ergonomic selection interface for large user counts.',
+      'Equipped user selector with real-time search across full name, username, email, and department, status filters (active/disabled), dynamic role filters, and membership state filters.',
+      'Added batch actions including "Select Filtered", "Deselect Filtered", and "Clear All" with live selected members counter and selection telemetry.',
+      'Redesigned Group Create/Edit modal with an interactive selected members roster featuring user initials avatars, role badges, and direct 1-click removal (X) tags.',
+      'Added a direct "Members" quick-action button on each group overview card for rapid directory-based membership assignment.',
+      'Integrated robust persistent database storage for user groups and member relationships (/api/settings/user-groups) across PostgreSQL and fallback store with auto-sync on view mount.',
+      'Strict adherence to universal modal architecture (triple header controls, bottom-8 footer boundary, dark/light theme ergonomics, 3-part FieldInfoTooltips, and zero Persian in English mode).'
+    ]
+  },
   {
     version: '1.234.0',
     releaseDate: '2026-10-01',
