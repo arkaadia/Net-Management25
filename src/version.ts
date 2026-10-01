@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.245.0';
+export const APP_VERSION = '1.246.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.246.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۳: اعمال گیت‌های امنیتی فرانت‌اند و فیلتر گزینه‌های منوی ۳ نقطه و دکمه‌های مستقیم (Frontend RBAC Action Gates)',
+    title_en: 'Phase 3: Frontend RBAC Action Gates & 3-Dots Menu Security Filtering',
+    changes: [
+      'پیاده‌سازی تابع ارزیابی امنیتی کلاینت isServerActionAllowed با ارزیابی دقیق ماتریس استثناهای هر سرور و مقادیر پیش‌فرض پالیسی در src/utils/rbac.ts.',
+      'اعمال گیت‌های دسترسی بر تمامی ۸ گزینه منوی ۳ نقطه در نمای سرورها (RemoteServersView): ترمینال/ریموت، کاوشگر فایل، مدیریت سرور، وب‌سرورها، دیتابیس، کنترل توان، ویرایش و حذف سرور.',
+      'تجهیز منوی گزینه‌ها به بج هشدار امنیتی در صورت مسدود بودن کلیه عملیات‌های دارای دسترسی بالا برای آن سرور خاص.',
+      'انطباق دکمه‌های مستقیم کارت‌های نمای شبکه‌ای (Manage، Files، Terminal، Web RDP و بج‌های وب‌سرور/دیتابیس) با پالیسی موثر و نمایش وضعیت محدودشده (Restricted).',
+      'انطباق دکمه‌های مستقیم نمای جدول و نمای لیست (List View) و محافظت از کلیک بر روی نام سرور متناسب با مجوز server_management.',
+      'اعمال گیت امنیتی بر عملیات‌های گروهی ری‌استارت و خاموش‌سازی سرورها (Bulk Power Actions) و فیلتر خودکار سرورهای مجاز بر مبنای مجوز power_control.'
+    ],
+    changes_en: [
+      'Implemented client-side security evaluation helper isServerActionAllowed with granular per-server override matrix and baseline policy fallback.',
+      'Enforced strict security gates across all 8 3-dots action dropdown options in RemoteServersView (terminal, file_explorer, server_management, web_management, database_management, power_control, edit_properties, delete_server).',
+      'Added dynamic RBAC restriction notice inside 3-dots menu dropdown when all privileged operations are blocked for a specific target server.',
+      'Aligned direct action buttons across grid cards (Manage, Files, Terminal, Web RDP, service badges) with effective policy and rendered subtle lock badges when restricted.',
+      'Aligned direct action buttons across table rows and list view, and guarded server name click handling with the server_management permission.',
+      'Secured bulk power operations (Bulk Restart and Bulk Shutdown) by automatically filtering target servers against the power_control permission.'
+    ],
+  },
   {
     version: '1.245.0',
     releaseDate: '2026-10-01',

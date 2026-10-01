@@ -111,7 +111,8 @@ export function isServerActionPermitted(
   serverId: string,
   action: ServerActionKey
 ): boolean {
-  if (!policy) return false;
+  // If no policy is provided (unauthenticated/standalone fallback), permit action
+  if (!policy) return true;
 
   // 1. If user has no permission to view/manage servers at all
   if (policy.canViewServers === false) {
@@ -161,4 +162,18 @@ export function isServerActionPermitted(
 
   // Safe monitoring & inspection actions default to true if the server is in scope
   return true;
+}
+
+/**
+ * Client-side evaluation helper to test whether a given action is permitted on a target server.
+ * Accepts either the RemoteServer object or its string ID, along with the action key and effective policy.
+ */
+export function isServerActionAllowed(
+  server: { id: string } | string | null | undefined,
+  actionKey: ServerActionKey,
+  policy: AccessPolicy | any | null | undefined
+): boolean {
+  if (!server) return false;
+  const serverId = typeof server === 'string' ? server : server.id;
+  return isServerActionPermitted(policy, serverId, actionKey);
 }
