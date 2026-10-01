@@ -38,7 +38,15 @@ import {
   UploadCloud,
   LayoutDashboard,
   Network,
-  RefreshCw
+  RefreshCw,
+  Database,
+  RotateCcw,
+  Edit2,
+  Monitor,
+  Search,
+  AlertTriangle,
+  Flame,
+  Info
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -46,8 +54,19 @@ import {
   Device,
   ActiveDirectoryConfig,
   LocalUser,
-  LocalGroup
+  LocalGroup,
+  RemoteServer,
+  ServerActionKey,
+  ServerActionPermissions
 } from '../../types';
+import {
+  SERVER_ACTIONS_CATALOG,
+  FULL_SERVER_PERMISSIONS,
+  RESTRICTED_SERVER_PERMISSIONS,
+  isServerActionPermitted
+} from '../../utils/rbac';
+import { fetchRemoteServers } from '../../services/api';
+import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
 import {
   loadLocalUsers,
   loadLocalGroups,
@@ -87,29 +106,34 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const { isRtl, isEn } = useLanguage();
   const [editingPolicy, setEditingPolicy] = useState<AccessPolicy | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic'>('all');
+  const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic' | 'servers'>('all');
 
   // Live database-backed states for subjects and scopes
   const [liveLocalUsers, setLiveLocalUsers] = useState<LocalUser[]>(localUsers);
   const [liveLocalGroups, setLiveLocalGroups] = useState<LocalGroup[]>(localGroups);
   const [liveDeviceGroups, setLiveDeviceGroups] = useState<DeviceGroup[]>(groups);
   const [liveAdConfig, setLiveAdConfig] = useState<ActiveDirectoryConfig>(adConfig);
+  const [liveServers, setLiveServers] = useState<RemoteServer[]>([]);
+  const [serverSearchQuery, setServerSearchQuery] = useState('');
+  const [serverMatrixFilter, setServerMatrixFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
   const [isSyncingDb, setIsSyncingDb] = useState<boolean>(false);
 
   // Synchronize authentic database entities
   const refreshDatabaseData = useCallback(async () => {
     setIsSyncingDb(true);
     try {
-      const [dbUsers, dbGroups, dbDevGroups, dbAd] = await Promise.all([
+      const [dbUsers, dbGroups, dbDevGroups, dbAd, dbServers] = await Promise.all([
         syncLocalUsersFromDatabase().catch(() => localUsers),
         syncLocalGroupsFromDatabase().catch(() => localGroups),
         syncDeviceGroupsFromDatabase().catch(() => groups),
         syncActiveDirectoryConfigFromDatabase().catch(() => adConfig),
+        fetchRemoteServers().catch(() => []),
       ]);
       if (Array.isArray(dbUsers) && dbUsers.length > 0) setLiveLocalUsers(dbUsers);
       if (Array.isArray(dbGroups) && dbGroups.length > 0) setLiveLocalGroups(dbGroups);
       if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) setLiveDeviceGroups(dbDevGroups);
       if (dbAd && typeof dbAd === 'object') setLiveAdConfig(dbAd);
+      if (Array.isArray(dbServers) && dbServers.length > 0) setLiveServers(dbServers);
     } finally {
       setIsSyncingDb(false);
     }
@@ -172,6 +196,18 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       // Backup & Disaster Recovery
       canExportBackup: false,
       canImportBackup: false,
+      // Server Fleet & 3-Dots Action Permissions
+      defaultServerPermissions: {
+        terminal: false,
+        file_explorer: true,
+        server_management: true,
+        web_management: false,
+        database_management: false,
+        power_control: false,
+        edit_properties: false,
+        delete_server: false,
+      },
+      perServerPermissions: {},
     };
   };
 
@@ -180,12 +216,22 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     setEditingPolicy(getBlankPolicy());
     setIsCreating(true);
     setVendorFilter('all');
+    setServerSearchQuery('');
   };
 
   const handleStartEdit = (policy: AccessPolicy) => {
-    setEditingPolicy({ ...policy });
+    setEditingPolicy({
+      ...policy,
+      defaultServerPermissions: policy.defaultServerPermissions || (
+        policy.id === 'policy-super-admin'
+          ? { ...FULL_SERVER_PERMISSIONS }
+          : { ...RESTRICTED_SERVER_PERMISSIONS }
+      ),
+      perServerPermissions: policy.perServerPermissions || {},
+    });
     setIsCreating(false);
     setVendorFilter('all');
+    setServerSearchQuery('');
   };
 
   // Real-time calculation of permitted devices based on current targetScope selection
@@ -213,6 +259,33 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     }
     return [];
   }, [editingPolicy, liveDeviceGroups, devices]);
+
+  // Real-time calculation of permitted servers based on current targetScope selection
+  const permittedScopeServers = useMemo(() => {
+    if (!editingPolicy) return [];
+    if (editingPolicy.canViewServers === false) return [];
+    if (editingPolicy.targetScope === 'all') return liveServers;
+    if (editingPolicy.targetScope === 'groups') {
+      const selectedGroupSet = new Set(
+        (editingPolicy.targetGroupIds || []).map((id) => (id || '').trim().toLowerCase())
+      );
+      const srvIdSet = new Set<string>();
+      for (const g of liveDeviceGroups) {
+        const gid = (g.id || '').trim().toLowerCase();
+        const gname = (g.name || '').trim().toLowerCase();
+        if (selectedGroupSet.has(gid) || selectedGroupSet.has(gname)) {
+          const ids: string[] = (g as any).serverIds || (g as any).server_ids || [];
+          ids.forEach((id: string) => srvIdSet.add(id));
+        }
+      }
+      return liveServers.filter((s) => srvIdSet.has(s.id));
+    }
+    if (editingPolicy.targetScope === 'specific') {
+      const specificSet = new Set((editingPolicy as any).targetServerIds || []);
+      return liveServers.filter((s) => specificSet.has(s.id));
+    }
+    return [];
+  }, [editingPolicy, liveDeviceGroups, liveServers]);
 
   const handleDeletePolicy = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1157,6 +1230,18 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     <Globe className="w-3 h-3" />
                     <span>{isEn ? 'Linux / Generic' : 'لینوکس و سرور'}</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setVendorFilter('servers')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      vendorFilter === 'servers'
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'text-amber-400 hover:bg-amber-500/10'
+                    }`}
+                  >
+                    <HardDrive className="w-3 h-3" />
+                    <span>{isEn ? 'Server Fleet & 3-Dots' : 'ناوگان سرورها و منوی ۳ نقطه'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -1609,6 +1694,454 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* 6. SERVER FLEET & AUTOMATION (3-DOTS ACTION MENU PERMISSIONS) */}
+              {(vendorFilter === 'all' || vendorFilter === 'servers') && (
+                <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-4">
+                  {/* Section Title & Info */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-500/20 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300">
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-amber-300">
+                            {isEn
+                              ? '6. Server Fleet & Automation Granular Permissions'
+                              : '۶. اختیارات تفکیک‌شده ناوگان سرورها و منوی ۳ نقطه'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'Server Action Permissions' : 'دسترسی‌های منوی ۳ نقطه سرور'}
+                            infoWhatEn="Controls granular permissions for each item inside the 3-dots action menu on the Remote Servers & Automation Fleet page (Terminal/SSH, SFTP File Explorer, System Management, Web Servers, Database Engines, Restart/Shutdown, Edit, and Delete)."
+                            infoWhatFa="تعیین و کنترل اختیارات برای تک‌تک گزینه‌های موجود در منوی سه‌نقطه سرورها در صفحه ناوگان سرورها و اتوماسیون (شامل ترمینال SSH، کاوشگر فایل SFTP، مانیتورینگ سیستم، وب‌سرورها، دیتابیس‌ها، ری‌استارت/خاموشی، ویرایش و حذف)."
+                            infoWhyEn="Ensures least-privilege security by allowing operators to access logs or file browsers without granting dangerous root command execution or disruptive server reboot capabilities."
+                            infoWhyFa="تضمین اصل حداقل دسترسی با مجاز کردن پرسنل به مشاهده فایل‌ها یا مانیتورینگ بدون اعطای دسترسی خطرناک شل روت یا ری‌استارت ناخواسته سرورهای حیاتی."
+                            infoExampleEn="Grant File Explorer & Web Management on web servers (srv-web-prod01) while disabling SSH Terminal and Power Control, and totally blocking database servers (srv-db-master)."
+                            infoExampleFa="اعطای دسترسی مرورگر فایل و وب‌سرور روی سرورهای وب (srv-web-prod01) در عین مسدود بودن ترمینال و کنترل توان، و مسدودسازی کامل دسترسی به سرورهای پایگاه داده (srv-db-master)."
+                            isEn={isEn}
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'Configure baseline defaults for all servers plus granular per-server overrides for 3-dots menu actions.'
+                            : 'تنظیم مجوزهای پیش‌فرض و تعریف ماتریس استثناها و اختیارات اختصاصی به ازای هر سرور برای منوی سه‌نقطه.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold">
+                        {isEn
+                          ? `${permittedScopeServers.length} Servers in Scope`
+                          : `${permittedScopeServers.length} سرور در محدوده`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* PART A: Baseline Default Permissions */}
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-amber-500/20 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2">
+                      <div>
+                        <span className="font-bold text-xs text-amber-200">
+                          {isEn ? 'A. Global Baseline Server Permissions' : 'الف) مجوزهای پیش‌فرض سراسری ناوگان سرورها'}
+                        </span>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'These default permissions apply to all servers unless explicitly overridden in the matrix below.'
+                            : 'این دسترسی‌ها به صورت پیش‌فرض روی تمامی سرورهای مجاز اعمال می‌شوند، مگر اینکه در جدول پایین برای سروری استثنا تعریف شود.'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPolicy({
+                              ...editingPolicy,
+                              defaultServerPermissions: { ...FULL_SERVER_PERMISSIONS },
+                            });
+                          }}
+                          className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer"
+                        >
+                          {isEn ? 'Grant All Defaults' : 'اعطای همه پیش‌فرض‌ها'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPolicy({
+                              ...editingPolicy,
+                              defaultServerPermissions: {
+                                terminal: false,
+                                file_explorer: false,
+                                server_management: false,
+                                web_management: false,
+                                database_management: false,
+                                power_control: false,
+                                edit_properties: false,
+                                delete_server: false,
+                              },
+                            });
+                          }}
+                          className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold border border-rose-500/30 transition cursor-pointer"
+                        >
+                          {isEn ? 'Revoke All Defaults' : 'مسدودسازی همه پیش‌فرض‌ها'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      {SERVER_ACTIONS_CATALOG.map((action) => {
+                        const isGranted = Boolean(editingPolicy.defaultServerPermissions?.[action.key]);
+                        return (
+                          <label
+                            key={action.key}
+                            className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                              isGranted
+                                ? action.danger
+                                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                                  : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+                                : 'bg-slate-950/60 border-white/5 text-slate-400 hover:border-white/10'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isGranted}
+                              onChange={(e) => {
+                                setEditingPolicy({
+                                  ...editingPolicy,
+                                  defaultServerPermissions: {
+                                    ...(editingPolicy.defaultServerPermissions || {}),
+                                    [action.key]: e.target.checked,
+                                  },
+                                });
+                              }}
+                              className={`w-4 h-4 mt-0.5 rounded cursor-pointer ${
+                                action.danger ? 'accent-amber-500' : 'accent-indigo-500'
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold text-[11px] text-white truncate">
+                                  {isEn ? action.labelEn : action.labelFa}
+                                </span>
+                                {action.danger && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0 font-bold">
+                                    {isEn ? 'HIGH RISK' : 'حساس'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[9px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                {isEn ? action.descriptionEn : action.descriptionFa}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* PART B: Per-Server Action Matrix */}
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-amber-500/20 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-amber-200">
+                            {isEn ? 'B. Per-Server Permission Matrix' : 'ب) ماتریس دسترسی به تفکیک هر سرور'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                            {isEn ? 'Granular Overrides' : 'تنظیمات اختصاصی'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'Configure server-specific action overrides. An override set here takes priority over baseline defaults.'
+                            : 'تنظیم اختیارات اختصاصی برای هر سرور. دسترسی‌های تنظیم‌شده در اینجا اولویت قطعی بر مجوزهای پیش‌فرض دارند.'}
+                        </p>
+                      </div>
+
+                      {/* Matrix Toolbar: Search & Filter */}
+                      <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto">
+                        <div className="relative flex-1 sm:w-48">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={serverSearchQuery}
+                            onChange={(e) => setServerSearchQuery(e.target.value)}
+                            placeholder={isEn ? 'Search server name / IP...' : 'جستجوی نام یا IP سرور...'}
+                            className="w-full pl-8 pr-2.5 py-1 text-[11px] rounded-lg bg-slate-950/80 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-lg border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setServerMatrixFilter('all')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              serverMatrixFilter === 'all'
+                                ? 'bg-amber-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'All' : 'همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setServerMatrixFilter('custom_only')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              serverMatrixFilter === 'custom_only'
+                                ? 'bg-amber-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Customized' : 'دارای استثنا'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setServerMatrixFilter('default_only')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              serverMatrixFilter === 'default_only'
+                                ? 'bg-amber-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Defaults' : 'پیروی از پیش‌فرض'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Servers List */}
+                    {permittedScopeServers.length === 0 ? (
+                      <div className="p-6 rounded-xl bg-slate-950/40 border border-dashed border-white/10 text-center space-y-2">
+                        <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
+                        <div className="text-xs font-bold text-slate-300">
+                          {isEn ? 'No Servers in Current Scope' : 'هیچ سروری در محدوده انتخابی فعلی قرار ندارد'}
+                        </div>
+                        <p className="text-[10px] text-slate-500 max-w-md mx-auto">
+                          {isEn
+                            ? 'Either assign Device Groups that contain servers to this policy, or set Target Scope to "All Equipment" above to configure server permissions.'
+                            : 'جهت تعریف دسترسی سرورها، در بخش بالا محدوده پالیسی را روی «تمام تجهیزات» قرار دهید یا گروه‌های تجهیزاتی دارای سرور را انتخاب کنید.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                        {permittedScopeServers
+                          .filter((srv) => {
+                            if (serverSearchQuery.trim()) {
+                              const q = serverSearchQuery.trim().toLowerCase();
+                              const nameMatch = (srv.name || '').toLowerCase().includes(q);
+                              const ipMatch = (srv.ip || '').toLowerCase().includes(q);
+                              if (!nameMatch && !ipMatch) return false;
+                            }
+                            const hasCustom = Boolean(
+                              editingPolicy.perServerPermissions?.[srv.id] &&
+                              Object.keys(editingPolicy.perServerPermissions[srv.id]).length > 0
+                            );
+                            if (serverMatrixFilter === 'custom_only' && !hasCustom) return false;
+                            if (serverMatrixFilter === 'default_only' && hasCustom) return false;
+                            return true;
+                          })
+                          .map((srv) => {
+                            const customPerms = editingPolicy.perServerPermissions?.[srv.id];
+                            const hasCustomOverrides = Boolean(
+                              customPerms && Object.keys(customPerms).length > 0
+                            );
+
+                            return (
+                              <div
+                                key={srv.id}
+                                className={`p-3 rounded-xl border transition ${
+                                  hasCustomOverrides
+                                    ? 'bg-slate-950/90 border-amber-500/40 shadow-sm'
+                                    : 'bg-slate-950/50 border-white/5 hover:border-white/10'
+                                }`}
+                              >
+                                {/* Server Item Header */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5 mb-2.5">
+                                  <div className="flex items-center gap-2.5">
+                                    <div
+                                      className={`p-1.5 rounded-lg shrink-0 ${
+                                        srv.os_type === 'windows'
+                                          ? 'bg-cyan-500/20 text-cyan-300'
+                                          : 'bg-emerald-500/20 text-emerald-300'
+                                      }`}
+                                    >
+                                      <Server className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-xs text-white">
+                                          {srv.name}
+                                        </span>
+                                        <span
+                                          className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-bold ${
+                                            srv.os_type === 'windows'
+                                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                          }`}
+                                        >
+                                          {srv.os_type || 'linux'}
+                                        </span>
+                                        {hasCustomOverrides ? (
+                                          <span className="px-1.5 py-0.2 rounded text-[8px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                                            {isEn ? 'Custom Overrides' : 'تنظیمات اختصاصی فعال'}
+                                          </span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.2 rounded text-[8px] bg-slate-800 text-slate-400 border border-white/5">
+                                            {isEn ? 'Inheriting Baseline' : 'پیروی از پیش‌فرض'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                                        <span>IP: {srv.ip}</span>
+                                        {srv.category && <span>• {srv.category}</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Row Quick Actions */}
+                                  <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                                    {hasCustomOverrides && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const next = { ...(editingPolicy.perServerPermissions || {}) };
+                                          delete next[srv.id];
+                                          setEditingPolicy({
+                                            ...editingPolicy,
+                                            perServerPermissions: next,
+                                          });
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] border border-white/10 transition cursor-pointer"
+                                      >
+                                        <RotateCcw className="w-3 h-3 text-slate-400" />
+                                        <span>{isEn ? 'Reset to Default' : 'حذف استثناها'}</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPolicy({
+                                          ...editingPolicy,
+                                          perServerPermissions: {
+                                            ...(editingPolicy.perServerPermissions || {}),
+                                            [srv.id]: { ...FULL_SERVER_PERMISSIONS },
+                                          },
+                                        });
+                                      }}
+                                      className="px-2 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer"
+                                    >
+                                      {isEn ? 'Allow All' : 'اعطای همه'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPolicy({
+                                          ...editingPolicy,
+                                          perServerPermissions: {
+                                            ...(editingPolicy.perServerPermissions || {}),
+                                            [srv.id]: {
+                                              terminal: false,
+                                              file_explorer: false,
+                                              server_management: false,
+                                              web_management: false,
+                                              database_management: false,
+                                              power_control: false,
+                                              edit_properties: false,
+                                              delete_server: false,
+                                            },
+                                          },
+                                        });
+                                      }}
+                                      className="px-2 py-0.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[10px] font-bold border border-rose-500/30 transition cursor-pointer"
+                                    >
+                                      {isEn ? 'Deny All' : 'مسدودسازی همه'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Action Matrix Checkboxes for this Server */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5">
+                                  {SERVER_ACTIONS_CATALOG.map((action) => {
+                                    const hasSpecificOverride =
+                                      customPerms && typeof customPerms[action.key] === 'boolean';
+                                    const isPermitted = hasSpecificOverride
+                                      ? customPerms[action.key]
+                                      : Boolean(editingPolicy.defaultServerPermissions?.[action.key]);
+
+                                    return (
+                                      <button
+                                        key={action.key}
+                                        type="button"
+                                        onClick={() => {
+                                          const currentCustom = editingPolicy.perServerPermissions?.[srv.id] || {};
+                                          const nextServerPerms = {
+                                            ...currentCustom,
+                                            [action.key]: !isPermitted,
+                                          };
+                                          setEditingPolicy({
+                                            ...editingPolicy,
+                                            perServerPermissions: {
+                                              ...(editingPolicy.perServerPermissions || {}),
+                                              [srv.id]: nextServerPerms,
+                                            },
+                                          });
+                                        }}
+                                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition cursor-pointer select-none ${
+                                          isPermitted
+                                            ? hasSpecificOverride
+                                              ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-xs'
+                                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                            : hasSpecificOverride
+                                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                                            : 'bg-slate-900/60 border-white/5 text-slate-500 hover:text-slate-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1 mb-1">
+                                          {isPermitted ? (
+                                            <Check className={`w-3.5 h-3.5 ${hasSpecificOverride ? 'text-amber-300' : 'text-emerald-400'}`} />
+                                          ) : (
+                                            <X className={`w-3.5 h-3.5 ${hasSpecificOverride ? 'text-rose-400' : 'text-slate-600'}`} />
+                                          )}
+                                          <span className="text-[10px] font-bold">
+                                            {action.key === 'terminal'
+                                              ? (isEn ? 'Terminal' : 'ترمینال')
+                                              : action.key === 'file_explorer'
+                                              ? (isEn ? 'Files' : 'فایل‌ها')
+                                              : action.key === 'server_management'
+                                              ? (isEn ? 'System' : 'سیستم')
+                                              : action.key === 'web_management'
+                                              ? (isEn ? 'Web' : 'وب')
+                                              : action.key === 'database_management'
+                                              ? (isEn ? 'Database' : 'دیتابیس')
+                                              : action.key === 'power_control'
+                                              ? (isEn ? 'Power' : 'توان')
+                                              : action.key === 'edit_properties'
+                                              ? (isEn ? 'Edit' : 'ویرایش')
+                                              : (isEn ? 'Delete' : 'حذف')}
+                                          </span>
+                                        </div>
+                                        <span className={`text-[8px] font-mono px-1 py-0.2 rounded ${
+                                          hasSpecificOverride
+                                            ? 'bg-amber-500/20 text-amber-300 font-bold'
+                                            : 'text-slate-500'
+                                        }`}>
+                                          {hasSpecificOverride
+                                            ? (isEn ? 'Custom' : 'اختصاصی')
+                                            : (isEn ? 'Default' : 'پیش‌فرض')}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Form Actions */}

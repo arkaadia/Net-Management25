@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.244.0';
+export const APP_VERSION = '1.245.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.245.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۲: طراحی رابط کاربری ماتریس دسترسی به تفکیک سرور در مدیریت پالیسی‌ها (RBAC Server Action Matrix UI)',
+    title_en: 'Phase 2: RBAC Server Action Matrix & Policy Editor UI',
+    changes: [
+      'افزودن تب فیلتر اختصاصی «ناوگان سرورها و منوی ۳ نقطه» در ویرایشگر پالیسی‌های دسترسی (AccessControlTab).',
+      'طراحی بخش مجوزهای پیش‌فرض سراسری سرورها (Global Baseline Server Permissions) همراه با دکمه‌های اعطای سریع و مسدودسازی کامل ۸ عملیات منوی سه‌نقطه.',
+      'طراحی ماتریس پیشرفته و تعاملی دسترسی به تفکیک هر سرور (Per-Server Permission Matrix) شامل واکشی خودکار سرورهای زنده پایگاه‌داده، تشخیص محدوده اسکوپ انتخابی، و ارزیابی آنی استثناها.',
+      'تجهیز کارت‌های سرور به کلیدهای بازنشانی به پیش‌فرض (Reset to Default)، اعطای کامل، مسدودسازی سریع و چک‌باکس‌های اختصاصی هریک از ۸ آیتم عملیاتی با نشانگر وضعیت Custom و Inherited.',
+      'افزودن ابزار جستجوی نام و IP سرورها، فیلترهای تفکیکی (همه، فقط دارای استثنا، فقط پیش‌فرض) و راهنمای سه‌بخشی استاندارد و مهارشده FieldInfoTooltip.'
+    ],
+    changes_en: [
+      'Added dedicated "Server Fleet & 3-Dots" filter tab in the RBAC policy editor (AccessControlTab).',
+      'Engineered Global Baseline Server Permissions section with bulk grant/revoke buttons covering all 8 server action categories.',
+      'Created interactive Per-Server Permission Matrix dynamically listing authorized servers with real-time override inspection and scope filtering.',
+      'Equipped server matrix cards with Reset to Default, Grant All, Revoke All, and 8 granular action toggles displaying explicit Custom vs Inherited status indicators.',
+      'Integrated live server search, matrix filter tabs (All, Customized, Defaults), and 3-part boundary-safe FieldInfoTooltip popovers.'
+    ],
+  },
   {
     version: '1.244.0',
     releaseDate: '2026-10-01',
