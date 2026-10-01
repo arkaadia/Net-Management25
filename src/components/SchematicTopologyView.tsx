@@ -6529,8 +6529,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
                 // Sort nodes so neon-highlighted, hovered, dragged, or selected nodes are rendered LAST (top of SVG stack)
                 const sortedNodes = [...nodesToRender].sort((a, b) => {
-                  const aClean = a.id.replace(/^hw-/, '');
-                  const bClean = b.id.replace(/^hw-/, '');
+                  const aClean = (a.id || '').replace(/^hw-/, '');
+                  const bClean = (b.id || '').replace(/^hw-/, '');
                   const aIsNeon = neonHighlightedNode && (neonHighlightedNode.nodeId === a.id || neonHighlightedNode.nodeId === aClean || neonHighlightedNode.rawId === a.id);
                   const bIsNeon = neonHighlightedNode && (neonHighlightedNode.nodeId === b.id || neonHighlightedNode.nodeId === bClean || neonHighlightedNode.rawId === b.id);
                   if (aIsNeon && !bIsNeon) return 1;

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.239.0';
+export const APP_VERSION = '1.239.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.239.1',
+    releaseDate: '2026-10-01',
+    type: 'patch',
+    title: 'رفع خطای رندرینگ و توقف کامپوننت پس از لاگین: ایمن‌سازی کامل متدهای رشته‌ای replace روی مشخصات موقعیت تجهیزات و نودهای توپولوژی',
+    title_en: 'Fix Component Rendering Interrupted After Login: Safe Null-Guarded String Operations on Device Location & Topology Node Properties',
+    changes: [
+      'رفع خطای بحرانی Component Rendering Interrupted و استثنای Cannot read properties of undefined (reading replace) در کارت‌های پایش داشبورد (DashboardView): اعمال گارد ایمن و مقدار پیش‌فرض برای مشخصات موقعیت تجهیزات (dev.building, dev.floor, dev.unit) جهت جلوگیری از بروز خطا در صورتی که تجهیز موقعیت مکانی تعریف‌نشده داشته باشد.',
+      'افزودن فالبک دو زبانه (Unassigned Location / موقعیت نامشخص) در نمایش کارت‌های پایش تجهیزات در صورت فقدان اطلاعات مکانی.',
+      'ایمن‌سازی دسترسی و اجرای رجکس روی شناسه‌ها و نام‌های تجهیزات در SchematicTopologyView و استیکی نوت‌های توپولوژی (TopologyStickyNote) در برابر شناسه‌های تهی یا نامشخص.',
+      'تایید پاک‌سازی خودکار سشن و توکن‌های منقضی در هنگام دریافت خطای 401 از اندپوینت احراز هویت /api/auth/me و جلوگیری از قفل شدن وضعیت کاربر.'
+    ],
+    changes_en: [
+      'Resolved critical "Component Rendering Interrupted" / "Cannot read properties of undefined (reading replace)" crash in DashboardView ping cards by applying safe null checks and fallbacks to device location properties (dev.building, dev.floor, dev.unit) when encountering devices with unassigned locations.',
+      'Added clean bilingual fallbacks ("Unassigned Location" / "موقعیت نامشخص") for device ping cards when location metadata is absent.',
+      'Hardened regex and string cleaning methods in SchematicTopologyView and TopologyStickyNote against undefined device and node identifiers.',
+      'Verified clean session purge and renewal behavior upon receiving 401 Unauthorized responses from /api/auth/me, preventing UI deadlocks.'
+    ],
+  },
   {
     version: '1.239.0',
     releaseDate: '2026-10-01',

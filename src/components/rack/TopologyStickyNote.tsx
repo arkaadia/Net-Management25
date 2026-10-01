@@ -296,7 +296,7 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
                   </button>
                 )}
                 {availableDevices.map((dev) => {
-                  const cleanDevId = dev.id.replace(/^hw-/, '');
+                  const cleanDevId = (dev.id || '').replace(/^hw-/, '');
                   const isLinkedToThis =
                     note.linkedDeviceId === dev.id ||
                     (note.linkedDeviceId && note.linkedDeviceId.replace(/^hw-/, '') === cleanDevId);

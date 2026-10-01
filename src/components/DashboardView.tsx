@@ -260,7 +260,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               <div className="text-[10px] text-slate-400 truncate">
-                {dev.building.replace('(Central Bldg)', '').replace('(Engineering Bldg)', '')} • {dev.floor} • {dev.unit}
+                {dev.building ? dev.building.replace('(Central Bldg)', '').replace('(Engineering Bldg)', '').trim() : ''}
+                {dev.floor ? ` • ${dev.floor}` : ''}
+                {dev.unit ? ` • ${dev.unit}` : ''}
+                {!dev.building && !dev.floor && !dev.unit ? (isEn ? 'Unassigned Location' : 'موقعیت نامشخص') : ''}
               </div>
 
               {/* Action Buttons */}
