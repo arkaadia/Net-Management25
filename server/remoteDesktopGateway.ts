@@ -552,18 +552,25 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     // Authoritative check against user's permitted server scope in PostgreSQL
     if (user) {
       try {
-        const { getEffectivePolicyForUser } = await import('./db');
+        const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
         const eff = await getEffectivePolicyForUser(user);
         const cleanU = (user.username || '').toLowerCase();
         const cleanR = (user.role || '').toLowerCase();
         const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-        if (!isSuper && eff && Array.isArray(eff.allowedServerIds)) {
-          const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
-          const sid = (serverRecord.id || '').trim().toLowerCase();
-          const sname = (serverRecord.name || '').trim().toLowerCase();
-          if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
+        if (!isSuper && eff) {
+          if (Array.isArray(eff.allowedServerIds)) {
+            const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+            const sid = (serverRecord.id || '').trim().toLowerCase();
+            const sname = (serverRecord.name || '').trim().toLowerCase();
+            if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
+              return res.status(403).json({
+                error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
+              });
+            }
+          }
+          if (!isServerActionPermitted(eff, serverRecord.id, 'terminal')) {
             return res.status(403).json({
-              error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
+              error: 'Access denied: Remote desktop and terminal access to this server is prohibited by your RBAC access policy.',
             });
           }
         }

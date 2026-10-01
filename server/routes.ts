@@ -48,6 +48,7 @@ import {
   createRemoteServer,
   updateRemoteServer,
   deleteRemoteServer,
+  isServerActionPermitted,
   RemoteServer,
   sanitizeRemoteServerForClient,
   updateRemoteServerTags,
@@ -1587,12 +1588,83 @@ apiRouter.post('/topology/discovery/apply', async (req: Request, res: Response) 
 // -------------------------------------------------------------
 
 /**
+ * Infers the granular server action key from the incoming Express Request.
+ */
+function inferServerActionKey(req: Request, serverId: string): string | null {
+  const method = (req.method || 'GET').toUpperCase();
+  const rawUrl = req.originalUrl || req.url || '';
+  const urlPath = rawUrl.split('?')[0].replace(/\/+$/, '');
+
+  // 1. File Explorer & SFTP Browser (/fs/*)
+  if (urlPath.includes('/fs/') || urlPath.endsWith('/fs')) {
+    return 'file_explorer';
+  }
+
+  // 2. Power Control (Restart, Shutdown, Poweroff, Reboot)
+  if (
+    urlPath.endsWith('/restart') ||
+    urlPath.endsWith('/poweroff') ||
+    urlPath.endsWith('/shutdown') ||
+    urlPath.endsWith('/reboot')
+  ) {
+    return 'power_control';
+  }
+
+  // 3. Web Servers (Nginx & Apache)
+  if (urlPath.includes('/nginx') || urlPath.includes('/apache')) {
+    return 'web_management';
+  }
+
+  // 4. Databases (PostgreSQL, MySQL, MariaDB)
+  if (urlPath.includes('/postgres') || urlPath.includes('/mysql') || urlPath.includes('/mariadb')) {
+    return 'database_management';
+  }
+
+  // 5. Delete Server from Fleet (DELETE /api/remote-servers/:id)
+  if (method === 'DELETE' && (urlPath.endsWith(`/remote-servers/${serverId}`) || urlPath.endsWith(`/${serverId}`))) {
+    return 'delete_server';
+  }
+
+  // 6. Edit Server Properties (PUT or PATCH /api/remote-servers/:id)
+  if ((method === 'PUT' || method === 'PATCH') && (urlPath.endsWith(`/remote-servers/${serverId}`) || urlPath.endsWith(`/${serverId}`))) {
+    return 'edit_properties';
+  }
+
+  // 7. System telemetry, services, cron jobs, processes, storage/LVM, logs, network inspection
+  if (
+    urlPath.includes('/cron-jobs') ||
+    urlPath.includes('/services') ||
+    urlPath.includes('/processes') ||
+    urlPath.includes('/metrics') ||
+    urlPath.includes('/storage') ||
+    urlPath.includes('/lvm') ||
+    urlPath.includes('/network') ||
+    urlPath.includes('/logs') ||
+    urlPath.includes('/syslog') ||
+    urlPath.includes('/live-overview') ||
+    urlPath.includes('/tcp-wrappers') ||
+    urlPath.includes('/dns') ||
+    urlPath.includes('/fail2ban') ||
+    urlPath.includes('/time') ||
+    urlPath.includes('/hosts') ||
+    urlPath.includes('/hostname') ||
+    urlPath.includes('/ssh-config')
+  ) {
+    return 'server_management';
+  }
+
+  return null;
+}
+
+/**
  * Authoritative security guard for remote server endpoints.
- * Resolves token-authenticated user policy and verifies if the server is in user's PostgreSQL scope.
+ * Resolves token-authenticated user policy, verifies if the server is in user's PostgreSQL scope,
+ * and validates whether the requested server action (ServerActionKey) is permitted.
  */
 async function assertServerScopeAccess(
   req: Request,
-  serverId: string
+  serverId: string,
+  requiredAction?: string
 ): Promise<{ allowed: boolean; server: any | null; error?: string; status?: number }> {
   const cleanId = (serverId || '').trim();
   if (!cleanId) {
@@ -1606,12 +1678,17 @@ async function assertServerScopeAccess(
 
   const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
 
-  // If user is super admin or targetScope is 'all', full access granted
-  if (isSuperAdmin || !effectivePolicy || allowedServerIds === null) {
+  // If user is super admin, full unconstrained access is granted
+  if (isSuperAdmin) {
     return { allowed: true, server };
   }
 
-  // Check explicit policy permission to view servers
+  // If no effective policy is resolved (unauthenticated / standalone mode)
+  if (!effectivePolicy) {
+    return { allowed: true, server };
+  }
+
+  // 1. Check explicit policy permission to view servers
   if (effectivePolicy.canViewServers === false) {
     return {
       allowed: false,
@@ -1621,19 +1698,35 @@ async function assertServerScopeAccess(
     };
   }
 
-  // Check server ID in allowedServerIds calculated from PostgreSQL device groups
-  const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
-  const sid = (server.id || '').trim().toLowerCase();
-  const sname = (server.name || '').trim().toLowerCase();
-  const shost = (server.hostname || '').trim().toLowerCase();
+  // 2. Check server ID in allowedServerIds calculated from PostgreSQL device groups
+  if (allowedServerIds !== null) {
+    const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+    const sid = (server.id || '').trim().toLowerCase();
+    const sname = (server.name || '').trim().toLowerCase();
+    const shost = (server.hostname || '').trim().toLowerCase();
 
-  if (!allowedSet.has(sid) && !allowedSet.has(sname) && !allowedSet.has(shost)) {
-    return {
-      allowed: false,
-      server,
-      error: 'Access denied: You do not have permission to view or manage this server based on your assigned Device Groups in PostgreSQL.',
-      status: 403,
-    };
+    if (!allowedSet.has(sid) && !allowedSet.has(sname) && !allowedSet.has(shost)) {
+      return {
+        allowed: false,
+        server,
+        error: 'Access denied: You do not have permission to view or manage this server based on your assigned Device Groups in PostgreSQL.',
+        status: 403,
+      };
+    }
+  }
+
+  // 3. Granular Server Action Check (Per-Server Override Matrix & Default Permissions)
+  const action = requiredAction || inferServerActionKey(req, cleanId);
+  if (action) {
+    const isPermitted = isServerActionPermitted(effectivePolicy, server.id, action);
+    if (!isPermitted) {
+      return {
+        allowed: false,
+        server,
+        error: `Access denied: You do not have permission to execute '${action}' on this server under your RBAC policy.`,
+        status: 403,
+      };
+    }
   }
 
   return { allowed: true, server };
@@ -1770,6 +1863,14 @@ apiRouter.get('/remote-servers/:id', async (req: Request, res: Response) => {
 // POST /api/remote-servers - Create new remote server
 apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
   try {
+    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits creating new remote servers.',
+      });
+    }
+
     const { name, ip, os_type } = req.body;
     if (!name || !ip) {
       return res.status(400).json({ success: false, error: 'Server name and IP address are required.' });
@@ -9336,13 +9437,16 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
 
     const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
     let targetIds: string[] = serverIds;
-    if (!isSuperAdmin && effectivePolicy && allowedServerIds !== null) {
-      const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
-      targetIds = serverIds.filter((id: string) => allowedSet.has((id || '').trim().toLowerCase()));
+    if (!isSuperAdmin && effectivePolicy) {
+      if (allowedServerIds !== null) {
+        const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+        targetIds = serverIds.filter((id: string) => allowedSet.has((id || '').trim().toLowerCase()));
+      }
+      targetIds = targetIds.filter((id: string) => isServerActionPermitted(effectivePolicy, id, 'power_control'));
       if (targetIds.length === 0) {
         return res.status(403).json({
           success: false,
-          error: 'Access denied: You do not have permission to execute power operations on the requested servers based on your assigned Device Groups in PostgreSQL.',
+          error: 'Access denied: You do not have permission to execute power operations on the requested servers under your assigned RBAC policy in PostgreSQL.',
         });
       }
     }

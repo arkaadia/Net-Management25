@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.246.0';
+export const APP_VERSION = '1.247.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.247.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۴: محافظت از اندپوینت‌های API در بک‌اند و اعمال گیت‌های امنیتی (Backend RBAC Route Guarding)',
+    title_en: 'Phase 4: Backend RBAC Route Guarding & API Endpoint Action Enforcement',
+    changes: [
+      'ارتقای میدل‌ویر امنیتی بک‌اند assertServerScopeAccess جهت اعتبارسنجی دقیق نوع عملیات درخواستی بر مبنای ماتریس استثناهای سرور و مجوزهای پیش‌فرض پالیسی در PostgreSQL.',
+      'پیاده‌سازی تابع تشخیص هوشمند عملیات inferServerActionKey جهت نگاشت خودکار مسیرها و متدهای HTTP به کلیدهای امنیتی سرور (file_explorer, power_control, web_management, database_management, edit_properties, delete_server, server_management).',
+      'مسدودسازی اتصالات وب‌سوکت ترمینال SSH و وب‌سوکت ریموت دسکتاپ (Guacamole HTML5 RDP/VNC) در صورت عدم وجود مجوز terminal برای کاربر روی سرور هدف و صدور کد خطای ۴۰۰۳.',
+      'اعمال گیت امنیتی بر روت‌های کاوشگر فایل (/fs/*) و صدور خطای ۴۰۳ در صورت فقدان مجوز file_explorer.',
+      'ممانعت از عملیات ری‌استارت یا خاموش‌سازی تک‌سرور و گروهی (/bulk-power) در غیاب مجوز power_control.',
+      'محافظت از اندپوینت‌های ویرایش و حذف سرور (PUT و DELETE) و روت ایجاد سرور جدید (canManageDevices).'
+    ],
+    changes_en: [
+      'Upgraded backend security guard assertServerScopeAccess to authoritatively enforce per-server action permissions from PostgreSQL.',
+      'Engineered intelligent request mapper inferServerActionKey automatically mapping HTTP routes and methods to granular server action keys (file_explorer, power_control, web_management, database_management, edit_properties, delete_server, server_management).',
+      'Blocked unauthorized interactive SSH and Guacamole RDP/VNC WebSocket sessions with WebSocket closure code 4003 when terminal permission is missing.',
+      'Enforced 403 Forbidden responses on all remote file explorer endpoints (/fs/*) when file_explorer action is unauthorized.',
+      'Guarded single-server and bulk power operations (/bulk-power) against users lacking the power_control capability.',
+      'Protected server update, deletion (PUT/DELETE), and creation endpoints with edit_properties, delete_server, and canManageDevices RBAC gates.'
+    ],
+  },
   {
     version: '1.246.0',
     releaseDate: '2026-10-01',

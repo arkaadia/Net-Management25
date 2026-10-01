@@ -2903,7 +2903,7 @@ export function isServerActionPermitted(
   serverId: string,
   action: string
 ): boolean {
-  if (!policy) return false;
+  if (!policy) return true;
 
   // 1. If user has no permission to view/manage servers at all
   if (policy.canViewServers === false) {

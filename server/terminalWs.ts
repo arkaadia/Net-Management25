@@ -83,15 +83,22 @@ export function setupTerminalWebSocket(
                 const { verifyToken } = await import('./auth');
                 const payload = verifyToken(token);
                 if (payload) {
-                  const { getEffectivePolicyForUser } = await import('./db');
+                  const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
                   const eff = await getEffectivePolicyForUser(payload);
                   const cleanU = (payload.username || '').toLowerCase();
                   const cleanR = (payload.role || '').toLowerCase();
                   const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-                  if (!isSuper && eff && Array.isArray(eff.allowedServerIds)) {
-                    const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
-                    if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
-                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
+                  if (!isSuper && eff) {
+                    if (Array.isArray(eff.allowedServerIds)) {
+                      const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+                      if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
+                        clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
+                        clientWs.close(4003, 'Forbidden');
+                        return;
+                      }
+                    }
+                    if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
+                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
                       clientWs.close(4003, 'Forbidden');
                       return;
                     }
