@@ -549,6 +549,29 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       return res.status(404).json({ error: `Server not found with ID ${serverId}` });
     }
 
+    // Authoritative check against user's permitted server scope in PostgreSQL
+    if (user) {
+      try {
+        const { getEffectivePolicyForUser } = await import('./db');
+        const eff = await getEffectivePolicyForUser(user);
+        const cleanU = (user.username || '').toLowerCase();
+        const cleanR = (user.role || '').toLowerCase();
+        const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+        if (!isSuper && eff && Array.isArray(eff.allowedServerIds)) {
+          const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+          const sid = (serverRecord.id || '').trim().toLowerCase();
+          const sname = (serverRecord.name || '').trim().toLowerCase();
+          if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
+            return res.status(403).json({
+              error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
+            });
+          }
+        }
+      } catch (err: any) {
+        console.warn('[RemoteDesktop] Scope check notice:', err.message);
+      }
+    }
+
     // Check for concurrent sessions on this server
     const currentSessionsOnServer = Array.from(activeSessions.values()).filter((s) => s.serverId === serverId);
     const concurrentCount = currentSessionsOnServer.length;

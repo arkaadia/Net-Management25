@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.240.0';
+export const APP_VERSION = '1.241.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.241.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۲: اعمال گیت‌های امنیتی روی اندپوئینت‌های API سرورها و محافظت از روت‌ها (API-Level Server Authorization & Route Guarding)',
+    title_en: 'Phase 2: API-Level Server Authorization & Comprehensive Route Guarding',
+    changes: [
+      'فیلترینگ دیتابیس-محور اندپوینت فهرست سرورها (GET /api/remote-servers): بازگرداندن منحصراً سرورهای مجاز کاربر بر مبنای توکن Bearer و گروه‌های منتسب در PostgreSQL بدون امکان دور زدن از سمت کلاینت.',
+      'تطبیق اندپوینت برچسب‌ها (GET /api/remote-servers/tags): محاسبه و گزارش تعداد تگ‌ها صرفاً از میان سرورهای دارای مجوز دسترسی برای کاربر.',
+      'پیاده‌سازی گیت امنیتی سراسری assertServerScopeAccess و میدل‌ویر پارامتر apiRouter.param(\'id\') در server/routes.ts برای مسدودسازی سریع و صدور خطای 403 Forbidden روی تمامی عملیات‌های سرور (ویرایش، حذف، مشاهده، لاگ‌ها، تسک‌ها، سرویس‌ها، کران‌جابز و فایل‌ها) در صورت عدم وجود سرور در اسکوپ کاربر.',
+      'محافظت از اندپوینت عملیات توان گروهی (POST /api/remote-servers/bulk-power) و جلوگیری از صدور دستور ریستارت یا خاموشی روی سرورهای خارج از محدوده مجاز.',
+      'افزودن ارزیابی امنیتی اسکوپ سرور در گیت‌وی ریموت دسکتاپ (remoteDesktopGateway.ts) و وب‌سوکت ترمینال لینوکس (terminalWs.ts) جهت جلوگیری از اتصال غیرمجاز.'
+    ],
+    changes_en: [
+      'Implemented database-authoritative filtering for GET /api/remote-servers: strictly returns servers authorized in PostgreSQL via Bearer session token without any client-side bypass.',
+      'Scoped GET /api/remote-servers/tags: tag summaries are dynamically calculated solely from the subset of servers accessible to the caller.',
+      'Engineered universal security guard assertServerScopeAccess and apiRouter.param(\'id\') middleware in server/routes.ts, rejecting unauthorized requests with 403 Forbidden across all sub-resources (edit, delete, view, logs, cron, services, fs).',
+      'Secured bulk power operations (POST /api/remote-servers/bulk-power) against executing restart/poweroff actions on servers outside user scope.',
+      'Integrated token-based server scope validation into remote desktop gateway (remoteDesktopGateway.ts) and Linux terminal WebSocket (terminalWs.ts).'
+    ],
+  },
   {
     version: '1.240.0',
     releaseDate: '2026-10-01',

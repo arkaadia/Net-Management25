@@ -31,7 +31,7 @@ export function setupTerminalWebSocket(
     }
   });
 
-  wss.on('connection', (clientWs: WebSocket, req: http.IncomingMessage) => {
+  wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     const hostHeader = req.headers.host || '127.0.0.1:3000';
     const parsedUrl = new URL(req.url || '', `http://${hostHeader}`);
 
@@ -74,6 +74,32 @@ export function setupTerminalWebSocket(
             username = srv.ssh_username || 'root';
             if (!password && !srv.prompt_password_on_connect) {
               password = srv.ssh_password || '';
+            }
+
+            // Authoritative server scope check
+            const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+            if (token) {
+              try {
+                const { verifyToken } = await import('./auth');
+                const payload = verifyToken(token);
+                if (payload) {
+                  const { getEffectivePolicyForUser } = await import('./db');
+                  const eff = await getEffectivePolicyForUser(payload);
+                  const cleanU = (payload.username || '').toLowerCase();
+                  const cleanR = (payload.role || '').toLowerCase();
+                  const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+                  if (!isSuper && eff && Array.isArray(eff.allowedServerIds)) {
+                    const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+                    if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
+                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
+                      clientWs.close(4003, 'Forbidden');
+                      return;
+                    }
+                  }
+                }
+              } catch (authErr: any) {
+                console.warn('[TerminalWs] Scope verification notice:', authErr.message);
+              }
             }
           } else {
             const dev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);

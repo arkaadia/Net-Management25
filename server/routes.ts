@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -1586,10 +1586,104 @@ apiRouter.post('/topology/discovery/apply', async (req: Request, res: Response) 
 // Remote Servers Fleet & Automation Tags Endpoints
 // -------------------------------------------------------------
 
-// GET /api/remote-servers - List all servers with optional query filters
+/**
+ * Authoritative security guard for remote server endpoints.
+ * Resolves token-authenticated user policy and verifies if the server is in user's PostgreSQL scope.
+ */
+async function assertServerScopeAccess(
+  req: Request,
+  serverId: string
+): Promise<{ allowed: boolean; server: any | null; error?: string; status?: number }> {
+  const cleanId = (serverId || '').trim();
+  if (!cleanId) {
+    return { allowed: false, server: null, error: 'Server ID is required', status: 400 };
+  }
+
+  const server = await getRemoteServerById(cleanId);
+  if (!server) {
+    return { allowed: false, server: null, error: 'Server not found', status: 404 };
+  }
+
+  const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+
+  // If user is super admin or targetScope is 'all', full access granted
+  if (isSuperAdmin || !effectivePolicy || allowedServerIds === null) {
+    return { allowed: true, server };
+  }
+
+  // Check explicit policy permission to view servers
+  if (effectivePolicy.canViewServers === false) {
+    return {
+      allowed: false,
+      server,
+      error: 'Access denied: Your account policy prohibits access to Remote Servers & Automation Fleet.',
+      status: 403,
+    };
+  }
+
+  // Check server ID in allowedServerIds calculated from PostgreSQL device groups
+  const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+  const sid = (server.id || '').trim().toLowerCase();
+  const sname = (server.name || '').trim().toLowerCase();
+  const shost = (server.hostname || '').trim().toLowerCase();
+
+  if (!allowedSet.has(sid) && !allowedSet.has(sname) && !allowedSet.has(shost)) {
+    return {
+      allowed: false,
+      server,
+      error: 'Access denied: You do not have permission to view or manage this server based on your assigned Device Groups in PostgreSQL.',
+      status: 403,
+    };
+  }
+
+  return { allowed: true, server };
+}
+
+// Intercept all routes under /remote-servers/:id with authoritative PostgreSQL device-group RBAC check
+apiRouter.param('id', async (req: Request, res: Response, next: NextFunction, id: string) => {
+  const originalUrl = req.originalUrl || req.url || '';
+  if (originalUrl.includes('/remote-servers/') && id !== 'tags' && id !== 'bulk-power') {
+    try {
+      const check = await assertServerScopeAccess(req, id);
+      if (!check.allowed) {
+        return res.status(check.status || 403).json({ success: false, error: check.error });
+      }
+      (req as any).scopedServer = check.server;
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+  next();
+});
+
+// GET /api/remote-servers - List all servers with optional query filters (PostgreSQL Scope Protected)
 apiRouter.get('/remote-servers', async (req: Request, res: Response) => {
   try {
+    const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+
+    // If explicit policy denies viewing servers
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canViewServers === false) {
+      return res.json({
+        success: true,
+        count: 0,
+        servers: [],
+        allowedServerIds: [],
+        targetScope: effectivePolicy?.targetScope || 'groups',
+      });
+    }
+
     let servers = await getAllRemoteServers();
+
+    if (!isSuperAdmin && effectivePolicy && allowedServerIds !== null) {
+      const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+      servers = servers.filter((s) => {
+        const sid = (s.id || '').trim().toLowerCase();
+        const sname = (s.name || '').trim().toLowerCase();
+        const shost = (s.hostname || '').trim().toLowerCase();
+        return allowedSet.has(sid) || allowedSet.has(sname) || allowedSet.has(shost);
+      });
+    }
+
     const { os, env, category, tag, search } = req.query;
 
     if (typeof os === 'string' && os) {
@@ -1618,16 +1712,42 @@ apiRouter.get('/remote-servers', async (req: Request, res: Response) => {
     }
 
     const sanitizedServers = servers.map(sanitizeRemoteServerForClient);
-    res.json({ success: true, count: sanitizedServers.length, servers: sanitizedServers });
+    res.json({
+      success: true,
+      count: sanitizedServers.length,
+      servers: sanitizedServers,
+      allowedServerIds: isSuperAdmin ? null : allowedServerIds,
+      targetScope: isSuperAdmin ? 'all' : (effectivePolicy?.targetScope || 'groups'),
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// GET /api/remote-servers/tags - Distinct tags with count
+// GET /api/remote-servers/tags - Distinct tags with count (Scoped to user permitted servers)
 apiRouter.get('/remote-servers/tags', async (req: Request, res: Response) => {
   try {
-    const summary = await getRemoteServerTagsSummary();
+    const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+    let servers = await getAllRemoteServers();
+
+    if (!isSuperAdmin && effectivePolicy && allowedServerIds !== null) {
+      const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+      servers = servers.filter((s) => {
+        const sid = (s.id || '').trim().toLowerCase();
+        const sname = (s.name || '').trim().toLowerCase();
+        const shost = (s.hostname || '').trim().toLowerCase();
+        return allowedSet.has(sid) || allowedSet.has(sname) || allowedSet.has(shost);
+      });
+    }
+
+    const tagCounts: Record<string, number> = {};
+    servers.forEach((s) => {
+      (s.tags || []).forEach((t) => {
+        tagCounts[t] = (tagCounts[t] || 0) + 1;
+      });
+    });
+
+    const summary = Object.entries(tagCounts).map(([tag, count]) => ({ tag, count }));
     res.json({ success: true, tags: summary });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -9214,11 +9334,24 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
       return res.status(400).json({ success: false, error: 'serverIds array is required' });
     }
 
+    const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+    let targetIds: string[] = serverIds;
+    if (!isSuperAdmin && effectivePolicy && allowedServerIds !== null) {
+      const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
+      targetIds = serverIds.filter((id: string) => allowedSet.has((id || '').trim().toLowerCase()));
+      if (targetIds.length === 0) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: You do not have permission to execute power operations on the requested servers based on your assigned Device Groups in PostgreSQL.',
+        });
+      }
+    }
+
     const isPowerOff = actionType === 'poweroff';
     const clientIp = getClientIp(req);
 
     const results = await Promise.allSettled(
-      serverIds.map(async (id: string) => {
+      targetIds.map(async (id: string) => {
         const server = await getRemoteServerById(id);
         if (!server) {
           throw new Error('Server not found');
