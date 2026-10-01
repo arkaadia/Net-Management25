@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.247.0';
+export const APP_VERSION = '1.248.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.248.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۵: تست جامع سناریومحور RBAC، اعتبارسنجی زنده ماتریس دسترسی سرورها، و بیلد نهایی تولید (Comprehensive RBAC Testing & Production Verification)',
+    title_en: 'Phase 5: Comprehensive Scenario-Based RBAC Testing & Production Verification',
+    changes: [
+      'اجرای ۲۳ تست زنده و تجربی (Empirical Testing) بر روی پایگاه‌داده واقعی و اندپوینت‌های فعال سرور با سناریوهای کاربری واقعی (مدیر ارشد Admin و کاربر اپراتور Helpdesk).',
+      'تایید اعطای دسترسی کامل به تمامی ۵ سرور و ۸ عملیات منوی ۳ نقطه برای کاربر Super Admin بر مبنای سیاست policy-super-admin.',
+      'تایید محدودسازی مقتدرانه کاربر Helpdesk به تک‌سرور مجاز srv-web-prod01 و ممانعت قطعی از دسترسی به سرورهای خارج از محدوده نظیر srv-db-master با خطای ۴۰۳.',
+      'صحت‌سنجی مسدودسازی عملیات‌های محافظت‌شده (Restart با خطای power_control، حذف سرور با خطای delete_server و ویرایش مشخصات با خطای edit_properties) روی سرور مجاز در صورت فقدان مجوز.',
+      'آزمون موفقیت‌آمیز قطع آنی وب‌سوکت تعاملی ترمینال SSH و وب‌سوکت ریموت دسکتاپ با کد خطای ۴۰۰۳ در غیاب مجوز terminal و صدور بنر اخطار امنیتی.',
+      'آزمون سناریوی پویای تغییر ماتریس استثناهای سرور (perServerPermissions) در دیتابیس PostgreSQL: تایید اعطای مجوز اختصاصی ترمینال و برقراری موفق وب‌سوکت، و سلب مجوز کاوشگر فایل (/fs/*) با صدور فوری خطای ۴۰۳.',
+      'اعتبارسنجی ۱۰۰٪ نوع‌ها با tsc --noEmit و بیلد نهایی پروژه (npm run build) بدون هیچ‌گونه خطا و آماده‌سازی برای دیپلوی در محیط عملیاتی.'
+    ],
+    changes_en: [
+      'Executed 23 live empirical integration tests against authentic PostgreSQL storage and server runtime across real user scenarios (Super Admin and Helpdesk Operator).',
+      'Confirmed full access to all 5 fleet servers and all 8 3-dots action categories for Super Administrator under policy-super-admin.',
+      'Verified strict scope confinement of Helpdesk user to assigned server srv-web-prod01 with prompt 403 Forbidden enforcement on out-of-scope targets (srv-db-master).',
+      'Verified granular action gating blocking unauthorized reboot (power_control), server deletion (delete_server), and property updates (edit_properties) with descriptive 403 payloads.',
+      'Empirically tested real-time WebSocket terminal closure with code 4003 Forbidden and delivery of access restriction banner when terminal permission is missing.',
+      'Validated dynamic perServerPermissions matrix overrides in PostgreSQL: verified immediate WebSocket terminal authorization upon per-server grant and immediate 403 blocking upon file_explorer revocation.',
+      'Validated zero TypeScript type errors via tsc --noEmit and completed full production build (npm run build) successfully for production deployment.'
+    ],
+  },
   {
     version: '1.247.0',
     releaseDate: '2026-10-01',
