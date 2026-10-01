@@ -66,6 +66,7 @@ export interface RemoteServersViewProps {
   initialFilter?: 'all' | 'linux' | 'windows' | 'tags';
   isLightMode?: boolean;
   isEn?: boolean;
+  effectivePolicy?: any;
 }
 
 export const formatServerHardwareSpecs = (server: RemoteServer, isEn: boolean = true) => {
@@ -117,6 +118,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   initialFilter = 'all',
   isLightMode = false,
   isEn = true,
+  effectivePolicy,
 }) => {
   const { dockModal, undockModal } = useModalDock();
 
@@ -581,7 +583,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   useEffect(() => {
     loadFleet(true);
     loadCategories();
+
+    const handleSync = () => {
+      loadFleet(true);
+    };
+    window.addEventListener('nettopology_simulated_role_changed', handleSync);
+    window.addEventListener('nettopology_access_policies_changed', handleSync);
+    window.addEventListener('nettopology_device_groups_changed', handleSync);
+    return () => {
+      window.removeEventListener('nettopology_simulated_role_changed', handleSync);
+      window.removeEventListener('nettopology_access_policies_changed', handleSync);
+      window.removeEventListener('nettopology_device_groups_changed', handleSync);
+    };
   }, []);
+
+  useEffect(() => {
+    loadFleet(true);
+  }, [effectivePolicy?.id, effectivePolicy?.targetScope, (effectivePolicy as any)?.allowedServerIds]);
 
   // Filtered servers calculation
   const filteredServers = useMemo(() => {

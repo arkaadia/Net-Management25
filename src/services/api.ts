@@ -1277,7 +1277,7 @@ export async function fetchRemoteServers(params?: {
 
   const qs = query.toString();
   const url = `${API_BASE}/remote-servers${qs ? `?${qs}` : ''}`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to fetch remote servers' }));
     throw new Error(err.error || 'Failed to fetch remote servers');
@@ -1286,7 +1286,7 @@ export async function fetchRemoteServers(params?: {
 }
 
 export async function fetchRemoteServerTags(): Promise<{ success: boolean; tags: RemoteServerTagSummary[] }> {
-  const res = await fetch(`${API_BASE}/remote-servers/tags`);
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/tags`);
   if (!res.ok) {
     throw new Error('Failed to fetch remote server tags');
   }
@@ -1294,7 +1294,7 @@ export async function fetchRemoteServerTags(): Promise<{ success: boolean; tags:
 }
 
 export async function fetchRemoteServerById(id: string): Promise<{ success: boolean; server: RemoteServer }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`);
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`);
   if (!res.ok) {
     throw new Error('Server not found');
   }
@@ -1302,7 +1302,7 @@ export async function fetchRemoteServerById(id: string): Promise<{ success: bool
 }
 
 export async function createRemoteServer(server: Partial<RemoteServer>): Promise<{ success: boolean; server: RemoteServer }> {
-  const res = await fetch(`${API_BASE}/remote-servers`, {
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(server),
@@ -1318,7 +1318,7 @@ export async function updateRemoteServer(
   id: string,
   server: Partial<RemoteServer>
 ): Promise<{ success: boolean; server: RemoteServer }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(server),
@@ -1331,7 +1331,7 @@ export async function updateRemoteServer(
 }
 
 export async function deleteRemoteServer(id: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -5291,7 +5291,7 @@ export async function executeBulkServerPower(params: {
   }>;
   error?: string;
 }> {
-  const res = await fetch(`${API_BASE}/remote-servers/bulk-power`, {
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/bulk-power`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),

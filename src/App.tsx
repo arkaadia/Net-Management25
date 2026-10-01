@@ -915,6 +915,7 @@ export default function App() {
               }
               isLightMode={panelTheme === 'light'}
               isEn={isEn}
+              effectivePolicy={effectivePolicy}
             />
           )}
 

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.241.0';
+export const APP_VERSION = '1.242.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.242.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۳: انطباق فرانت‌اند و ویوی Remote Servers Fleet با سرورهای مجاز (Frontend UI Server Scope Alignment)',
+    title_en: 'Phase 3: Frontend UI Alignment & Token-Guarded Server Fleet Scope',
+    changes: [
+      'تجهیز تمامی درخواست‌های کلاینت به سرورها (fetchRemoteServers, fetchRemoteServerTags, fetchRemoteServerById, create, update, delete, bulk-power) به ارسال خودکار توکن احراز هویت Bearer و هدر شبیه‌سازی نقش (x-simulated-role) از طریق fetchWithRetry.',
+      'همگام‌سازی بلادرنگ ویوی ناوگان سرورها (RemoteServersView) با پالیسی موثر کاربر (effectivePolicy) ارسال‌شده از کامپوننت ریشه App.tsx.',
+      'افزودن شنونده‌های رویدادهای سیستمی (شبیه‌سازی نقش، تغییر پالیسی‌ها، به‌روزرسانی گروه‌های تجهیزات) جهت بازخوانی خودکار و همگام‌سازی فوری ناوگان سرورها با دیتابیس بدون نیاز به رفرش دستی صفحه.',
+      'تضمین تطبیق آمار و برچسب‌های اتوماسیون، دسته‌بندی‌ها و پایش سرورها صرفاً بر اساس سرورهای مجاز تخصیص‌یافته به کاربر در دیتابیس PostgreSQL.'
+    ],
+    changes_en: [
+      'Equipped all remote server client API calls (fetchRemoteServers, fetchRemoteServerTags, fetchRemoteServerById, create, update, delete, bulk-power) with automatic Bearer token and role simulation header injection via fetchWithRetry.',
+      'Synchronized RemoteServersView state in real-time with the database-authoritative effectivePolicy supplied from App.tsx.',
+      'Added reactive event listeners for simulated role switches, policy changes, and device group updates, automatically triggering fleet re-fetch without manual browser refresh.',
+      'Ensured automation tags, category summaries, and fleet counts strictly reflect servers authorized in PostgreSQL.'
+    ],
+  },
   {
     version: '1.241.0',
     releaseDate: '2026-10-01',
