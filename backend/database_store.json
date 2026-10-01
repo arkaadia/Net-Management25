@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-09-21T22:59:38.067Z"
+      "last_login": "2026-10-01T12:59:17.624Z"
     },
     {
       "id": "user-helpdesk",
@@ -32,7 +32,7 @@
       ],
       "is_builtin": false,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": null
+      "last_login": "2026-10-01T12:59:21.016Z"
     },
     {
       "id": "user-noc",
@@ -55,150 +55,196 @@
   "user_groups": [
     {
       "id": "group-admin",
-      "name": "مدیران ارشد شبکه (Super Administrators)",
-      "description": "دسترسی نامحدود به تمامی منابع، نقشه‌ها، پیکربندی تجهیزات و احراز هویت",
+      "name": "مدیران ارشد سیستم (Administrators)",
+      "description": "دسترسی کامل و تام به تمام تجهیزات، رایت مموری و تنظیمات امنیتی",
       "color": "indigo",
-      "member_user_ids": [
-        "user-admin"
+      "memberUserIds": [
+        "admin"
       ],
-      "is_builtin": true,
-      "created_at": "2026-09-14T19:20:03.024Z"
-    },
-    {
-      "id": "group-noc",
-      "name": "تیم پایش و عملیات NOC (NOC Operations)",
-      "description": "پایش برخط وضعیت لینک‌ها، اجرای ابزارهای عیب‌یابی و مشاهده نقشه‌ها",
-      "color": "cyan",
       "member_user_ids": [
-        "user-noc"
+        "admin"
       ],
-      "is_builtin": false,
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "isBuiltin": true,
+      "createdAt": "2026-03-01 08:00:00",
+      "updatedAt": "2026-10-01T12:38:22.368Z"
     },
     {
       "id": "group-helpdesk-ops",
-      "name": "کارشناسان پشتیبانی و هلپ‌دسک (Helpdesk Support)",
-      "description": "پشتیبانی کاربران محلی، بررسی پورت‌ها و خطایابی کلاینت‌های شبکه",
-      "color": "emerald",
-      "member_user_ids": [
-        "user-helpdesk"
+      "name": "تیم هلپ‌دسک و پشتیبانی کاربر (Helpdesk Operators)",
+      "description": "مدیریت پورت‌های کلاینت، تغییر ویلن‌ها، نام‌گذاری پورت و پورت‌سکیوریتی",
+      "color": "amber",
+      "memberUserIds": [
+        "helpdesk_local"
       ],
-      "is_builtin": false,
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "member_user_ids": [
+        "helpdesk_local"
+      ],
+      "isBuiltin": false,
+      "createdAt": "2026-03-01 08:30:00",
+      "updatedAt": "2026-10-01T12:38:22.368Z"
     },
     {
-      "id": "group-readonly",
-      "name": "ناظران و مانیتورینگ فقط-خواندنی (Read-Only Auditors)",
-      "description": "مشاهده گزارشات، نقشه‌های عمومی و ممیزی سیستم بدون امکان اعمال تغییرات",
-      "color": "amber",
-      "member_user_ids": [],
-      "is_builtin": false,
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "id": "group-noc",
+      "name": "مرکز عملیات شبکه (NOC Monitoring)",
+      "description": "پایش مستمر وضعیت ترافیک، هشدارها، تلمتری و اسکنر همسایگی (Read-Only)",
+      "color": "cyan",
+      "memberUserIds": [
+        "noc_local"
+      ],
+      "member_user_ids": [
+        "noc_local"
+      ],
+      "isBuiltin": false,
+      "createdAt": "2026-03-02 09:15:00",
+      "updatedAt": "2026-10-01T12:38:22.368Z"
+    },
+    {
+      "id": "group-field",
+      "name": "تکنسین‌های میدانی (Field Technicians)",
+      "description": "کارشناسان اعزام در محل جهت کابل‌کشی، بررسی پورت‌های فیزیکی و ریست سوئیچ",
+      "color": "emerald",
+      "memberUserIds": [
+        "field_tech"
+      ],
+      "member_user_ids": [
+        "field_tech"
+      ],
+      "isBuiltin": false,
+      "createdAt": "2026-03-03 10:00:00",
+      "updatedAt": "2026-10-01T12:38:22.368Z"
     }
   ],
   "access_policies": [
     {
-      "id": "policy-full",
-      "name": "دسترسی کامل مدیریتی (Full Admin Policy)",
-      "description": "دسترسی بی‌قید و شرط به تمام ماژول‌ها، تجهیزات، نقشه‌ها و تنظیمات",
-      "priority": 1,
-      "is_builtin": true,
-      "policy_data": {
-        "devices": [
-          "*"
-        ],
-        "maps": [
-          "*"
-        ],
-        "actions": [
-          "create",
-          "read",
-          "update",
-          "delete",
-          "execute",
-          "manage"
-        ],
-        "modules": [
-          "all"
-        ]
-      },
-      "created_at": "2026-09-14T19:20:03.024Z"
-    },
-    {
-      "id": "policy-operator",
-      "name": "عملیات استاندارد شبکه (Network Operator Policy)",
-      "description": "امکان اجرای دستورات عیب‌یابی، مشاهده توپولوژی و ایجاد نقشه‌های اختصاصی",
-      "priority": 10,
-      "is_builtin": false,
-      "policy_data": {
-        "devices": [
-          "*"
-        ],
-        "maps": [
-          "read",
-          "create_own"
-        ],
-        "actions": [
-          "read",
-          "ping",
-          "traceroute",
-          "check_port"
-        ],
-        "modules": [
-          "topology",
-          "tools",
-          "devices"
-        ]
-      },
-      "created_at": "2026-09-14T19:20:03.024Z"
-    },
-    {
       "id": "policy-helpdesk",
-      "name": "خطایابی هلپ‌دسک (Helpdesk Diagnostics Policy)",
-      "description": "مشاهده وضعیت تجهیزات لایه دسترسی و اجرای ابزارهای پایه مانیتورینگ",
-      "priority": 20,
-      "is_builtin": false,
-      "policy_data": {
-        "devices": [
-          "type:switch",
-          "role:Access Switch"
-        ],
-        "maps": [
-          "read_public"
-        ],
-        "actions": [
-          "read",
-          "ping",
-          "port_status"
-        ],
-        "modules": [
-          "topology",
-          "tools"
-        ]
-      },
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "name": "سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "description": "دسترسی محدود به سوئیچ‌های گروه هلپ‌دسک جهت تغییر ویلن، دیسکریپشن و بازنشانی پورت‌ها بدون دسترسی به کنسول CLI یا خاموش کردن پورت‌های حساس",
+      "isBuiltin": true,
+      "priority": 10,
+      "subjectType": "ad_group",
+      "subjectId": "CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal",
+      "subjectName": "Helpdesk-Admins (اکتیو دایرکتوری)",
+      "targetScope": "groups",
+      "targetGroupIds": [
+        "group-helpdesk"
+      ],
+      "targetDeviceIds": [],
+      "canViewDashboard": true,
+      "canViewTopology": true,
+      "canViewDevices": true,
+      "canViewPorts": true,
+      "canViewScanner": false,
+      "canViewTemplates": false,
+      "canViewSettings": false,
+      "terminalAccess": "none",
+      "canToggleAdminStatus": false,
+      "canChangeVlan": true,
+      "canEditDescription": true,
+      "canTogglePortSecurity": true,
+      "canWriteMemory": false,
+      "mikrotikTerminalAccess": "none",
+      "canMikrotikToggleInterface": false,
+      "canMikrotikBridgeVlan": true,
+      "canMikrotikComment": true,
+      "canMikrotikIpPool": false,
+      "canMikrotikFirewall": false,
+      "canMikrotikBackup": false,
+      "canMikrotikSafeMode": true,
+      "genericTerminalAccess": "none",
+      "canGenericToggleLink": false,
+      "canGenericDiagnostics": true,
+      "canGenericConfigBackup": false,
+      "canManageDevices": false,
+      "canApplyTemplates": false,
+      "canBatchOperate": false,
+      "canExportBackup": false,
+      "canImportBackup": false
     },
     {
-      "id": "policy-readonly",
-      "name": "سیاست فقط-خواندنی (Read-Only Observer Policy)",
-      "description": "صرفاً مشاهده وضعیت کلی شبکه و نقشه‌های پابلیک",
-      "priority": 30,
-      "is_builtin": false,
-      "policy_data": {
-        "devices": [
-          "*"
-        ],
-        "maps": [
-          "read_public"
-        ],
-        "actions": [
-          "read"
-        ],
-        "modules": [
-          "topology"
-        ]
-      },
-      "created_at": "2026-09-14T19:20:03.024Z"
+      "id": "policy-noc-observer",
+      "name": "تیم پایش و مانیتورینگ NOC (Read-Only Observer)",
+      "description": "دسترسی فقط خواندنی به تمام تجهیزات، توپولوژی، تلمتری پورت‌ها و اسکنر همسایگی همراه با دسترسی کنسول فقط خواندنی",
+      "isBuiltin": true,
+      "priority": 20,
+      "subjectType": "ad_group",
+      "subjectId": "CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal",
+      "subjectName": "NOC-Monitoring (اکتیو دایرکتوری)",
+      "targetScope": "all",
+      "targetGroupIds": [],
+      "targetDeviceIds": [],
+      "canViewDashboard": true,
+      "canViewTopology": true,
+      "canViewDevices": true,
+      "canViewPorts": true,
+      "canViewScanner": true,
+      "canViewTemplates": true,
+      "canViewSettings": false,
+      "terminalAccess": "view_only",
+      "canToggleAdminStatus": false,
+      "canChangeVlan": false,
+      "canEditDescription": false,
+      "canTogglePortSecurity": false,
+      "canWriteMemory": false,
+      "mikrotikTerminalAccess": "view_only",
+      "canMikrotikToggleInterface": false,
+      "canMikrotikBridgeVlan": false,
+      "canMikrotikComment": false,
+      "canMikrotikIpPool": false,
+      "canMikrotikFirewall": false,
+      "canMikrotikBackup": false,
+      "canMikrotikSafeMode": false,
+      "genericTerminalAccess": "view_only",
+      "canGenericToggleLink": false,
+      "canGenericDiagnostics": true,
+      "canGenericConfigBackup": false,
+      "canManageDevices": false,
+      "canApplyTemplates": false,
+      "canBatchOperate": false,
+      "canExportBackup": false,
+      "canImportBackup": false
+    },
+    {
+      "id": "policy-super-admin",
+      "name": "مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "description": "دسترسی نامحدود به تمامی تجهیزات، کنسول‌های تعاملی SSH، رایت مموری، اعمال تمپلیت و تنظیمات امنیتی",
+      "isBuiltin": true,
+      "priority": 100,
+      "subjectType": "local_user",
+      "subjectId": "admin",
+      "subjectName": "مدیر اصلی سیستم (Local Admin / NetOps)",
+      "targetScope": "all",
+      "targetGroupIds": [],
+      "targetDeviceIds": [],
+      "canViewDashboard": true,
+      "canViewTopology": true,
+      "canViewDevices": true,
+      "canViewPorts": true,
+      "canViewScanner": true,
+      "canViewTemplates": true,
+      "canViewSettings": true,
+      "terminalAccess": "full",
+      "canToggleAdminStatus": true,
+      "canChangeVlan": true,
+      "canEditDescription": true,
+      "canTogglePortSecurity": true,
+      "canWriteMemory": true,
+      "mikrotikTerminalAccess": "full",
+      "canMikrotikToggleInterface": true,
+      "canMikrotikBridgeVlan": true,
+      "canMikrotikComment": true,
+      "canMikrotikIpPool": true,
+      "canMikrotikFirewall": true,
+      "canMikrotikBackup": true,
+      "canMikrotikSafeMode": true,
+      "genericTerminalAccess": "full",
+      "canGenericToggleLink": true,
+      "canGenericDiagnostics": true,
+      "canGenericConfigBackup": true,
+      "canManageDevices": true,
+      "canApplyTemplates": true,
+      "canBatchOperate": true,
+      "canExportBackup": true,
+      "canImportBackup": true
     }
   ],
   "device_groups": [
@@ -844,6 +890,54 @@
       "target": "Test Linux Web & DB Node (192.168.10.99)",
       "status": "success",
       "details": "Deleted server Test Linux Web & DB Node from inventory",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790859546357-yby3l",
+      "timestamp": "2026-10-01T12:59:06.357Z",
+      "user_name": "admin",
+      "action": "Failed Login (Invalid Password)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Invalid password supplied for user \"admin\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790859553605-datgg",
+      "timestamp": "2026-10-01T12:59:13.605Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790859558008-kr8ip",
+      "timestamp": "2026-10-01T12:59:18.008Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790859561405-ibxnw",
+      "timestamp": "2026-10-01T12:59:21.405Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
       "ip_address": "127.0.0.1",
       "user_agent": "curl/7.88.1"
     }

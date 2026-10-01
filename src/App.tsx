@@ -72,7 +72,7 @@ import { AccessPolicy, LocalGroup } from './types';
 
 export default function App() {
   const { t, isRtl, isEn } = useLanguage();
-  const { isAuthenticated, isLoading: isAuthLoading, user } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, user, effectivePolicy: authEffectivePolicy } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [devices, setDevices] = useState<Device[]>([]);
   const [topology, setTopology] = useState<TopologyData | null>(null);
@@ -81,10 +81,10 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // RBAC Access Control States
-  const [policies, setPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
-  const [localGroups, setLocalGroups] = useState<LocalGroup[]>(() => loadLocalGroups());
-  const [simulatedRoleId, setSimulatedRoleId] = useState<string>(() => loadSimulatedRoleId());
+  // RBAC Access Control States (Synchronized directly with PostgreSQL database via Bearer Token)
+  const [policies, setPolicies] = useState<AccessPolicy[]>([]);
+  const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
+  const [simulatedRoleId, setSimulatedRoleId] = useState<string>('actual-user');
 
   // Synchronize policies & groups from database
   useEffect(() => {
@@ -118,10 +118,26 @@ export default function App() {
     };
   }, []);
 
-  // Compute live effective policy for logged-in user
+  // Compute live effective policy for logged-in user:
+  // Primary authority is PostgreSQL database returned via Bearer Token (authEffectivePolicy).
+  // Only an authorized Administrator can temporarily preview simulated policies in the simulator.
   const effectivePolicy = useMemo(() => {
+    const isSuperAdmin =
+      user &&
+      ((user.username || '').toLowerCase() === 'admin' ||
+        (user.role || '').toLowerCase().includes('super admin'));
+
+    if (isSuperAdmin && simulatedRoleId && simulatedRoleId !== 'actual-user') {
+      const simPolicy = policies.find((p) => p.id === simulatedRoleId);
+      if (simPolicy) return simPolicy;
+    }
+
+    // Default to the authoritative policy verified and provided by PostgreSQL
+    if (authEffectivePolicy) return authEffectivePolicy;
+
+    // In-memory calculation if server policy is pending
     return getEffectiveUserPolicy(user, policies, localGroups, simulatedRoleId);
-  }, [user, policies, localGroups, simulatedRoleId]);
+  }, [authEffectivePolicy, user, policies, localGroups, simulatedRoleId]);
 
   // Enforce access control: Automatically route user to an accessible tab if current tab is denied
   useEffect(() => {

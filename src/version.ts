@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.237.0';
+export const APP_VERSION = '1.238.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.238.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'انتقال کامل کنترل دسترسی (RBAC) به دیتابیس PostgreSQL سرور، احراز هویت توکن‌محور و حذف قطعی ذخیره‌سازی دسترسی‌ها در LocalStorage مرورگر',
+    title_en: 'Database-Authoritative RBAC Architecture: PostgreSQL-Backed Permissions, Bearer Token Verification & Total Elimination of Browser LocalStorage Authorization',
+    changes: [
+      'اصلاح بنیادین معماری امنیتی: حذف کامل ذخیره‌سازی کاربران، نقش‌ها، گروه‌ها، پالیسی‌های دسترسی و سطوح مجوز از LocalStorage مرورگر و انتقال قطعی تصمیم‌گیری اختیارات به سرور پایگاه‌داده PostgreSQL.',
+      'محاسبه و اعتبارسنجی بلادرنگ پالیسی دسترسی مؤثر (Effective Policy) در سمت سرور دیتابیس (PostgreSQL) بر اساس حساب‌های کاربری فعال، عضویت در گروه‌ها و اولویت‌های جدول access_policies.',
+      'ارتباط و اعتبارسنجی امن توکن‌محور: صدور توکن نشست کریپتوگرافیک در زمان ورود و استعلام لحظه‌ای کاربر، وضعیت فعال بودن و اختیارات معتبر از طریق هدر استاندارد Authorization: Bearer <token>.',
+      'ایمن‌سازی کامل اندپوینت‌های /api/auth/me و /api/auth/effective-policy جهت بازگرداندن اختیارات تأییدشده از دیتابیس بدون امکان دستکاری یا دور زدن از سمت کلاینت مرورگر.',
+      'همگام‌سازی مستقیم و امن تنظیمات دسترسی، کاربران و گروه‌های کاربری با جداول PostgreSQL همراه با ارسال هدر احراز هویت در تمام فراخوانی‌های بک‌اند.',
+      'تبدیل شبیه‌ساز نقش (Role Simulator) به حالت اختصاصی پیش‌نمایش ویژه مدیر ارشد با گزینه پیش‌فرض و تفکیک‌شده «دسترسی واقعی تاییدشده دیتابیس» و جلوگیری از هرگونه نشت اختیارات.'
+    ],
+    changes_en: [
+      'Architectural Security Overhaul: Completely eliminated client-side persistence of users, roles, groups, access policies, and permission flags from browser localStorage, moving authorization authority strictly to the PostgreSQL database.',
+      'Server-Side Authoritative RBAC Engine: Dynamically calculates and validates user effective policies and permissions directly within PostgreSQL on the backend based on active credentials, group memberships, and prioritized access_policies records.',
+      'Secure Token-Based Protocol: Implemented Bearer token authorization across all session checks (/api/auth/me, /api/auth/effective-policy), transmitting cryptographically signed tokens via Authorization: Bearer headers.',
+      'Database Tamper-Proofing: Prevented any unauthorized client-side elevation or manipulation of access rights; permissions are now loaded in-memory strictly from the authenticated database response.',
+      'Protected Management Endpoints: Direct real-time synchronization of local users, user groups, and RBAC policies with PostgreSQL tables with enforced token headers on all API mutations.',
+      'Admin-Safe Role Simulation: Refactored role simulation into an in-memory preview mode for Super Administrators, defaulting to authentic database session policies and removing unauthenticated role overrides.'
+    ],
+  },
   {
     version: '1.237.0',
     releaseDate: '2026-10-01',

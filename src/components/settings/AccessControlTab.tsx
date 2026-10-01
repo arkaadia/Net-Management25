@@ -314,6 +314,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
             onChange={(e) => onSelectSimulatedPolicy(e.target.value)}
             className="px-3 py-1 rounded-lg bg-slate-800 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer"
           >
+            <option value="actual-user">
+              {isEn ? '🔒 Authentic Database Policy (Live Token Session)' : '🔒 سطح دسترسی واقعی از دیتابیس (سشن معتبر توکن)'}
+            </option>
             {policies.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name} ({p.subjectName})

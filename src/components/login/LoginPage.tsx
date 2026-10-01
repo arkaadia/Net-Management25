@@ -154,7 +154,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       }
 
       if (res.ok && data.success) {
-        login(data.token, data.user, rememberMe);
+        login(data.token, data.user, rememberMe, data.effectivePolicy);
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
         }

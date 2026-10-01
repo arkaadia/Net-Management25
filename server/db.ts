@@ -267,63 +267,118 @@ const DEFAULT_USER_GROUPS = [
   }
 ];
 
-const DEFAULT_ACCESS_POLICIES = [
-  {
-    id: 'policy-full',
-    name: 'دسترسی کامل مدیریتی (Full Admin Policy)',
-    description: 'دسترسی بی‌قید و شرط به تمام ماژول‌ها، تجهیزات، نقشه‌ها و تنظیمات',
-    priority: 1,
-    is_builtin: true,
-    policy_data: {
-      devices: ['*'],
-      maps: ['*'],
-      actions: ['create', 'read', 'update', 'delete', 'execute', 'manage'],
-      modules: ['all']
-    },
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'policy-operator',
-    name: 'عملیات استاندارد شبکه (Network Operator Policy)',
-    description: 'امکان اجرای دستورات عیب‌یابی، مشاهده توپولوژی و ایجاد نقشه‌های اختصاصی',
-    priority: 10,
-    is_builtin: false,
-    policy_data: {
-      devices: ['*'],
-      maps: ['read', 'create_own'],
-      actions: ['read', 'ping', 'traceroute', 'check_port'],
-      modules: ['topology', 'tools', 'devices']
-    },
-    created_at: new Date().toISOString()
-  },
+export const DEFAULT_ACCESS_POLICIES = [
   {
     id: 'policy-helpdesk',
-    name: 'خطایابی هلپ‌دسک (Helpdesk Diagnostics Policy)',
-    description: 'مشاهده وضعیت تجهیزات لایه دسترسی و اجرای ابزارهای پایه مانیتورینگ',
-    priority: 20,
-    is_builtin: false,
-    policy_data: {
-      devices: ['type:switch', 'role:Access Switch'],
-      maps: ['read_public'],
-      actions: ['read', 'ping', 'port_status'],
-      modules: ['topology', 'tools']
-    },
-    created_at: new Date().toISOString()
+    name: 'سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)',
+    description: 'دسترسی محدود به سوئیچ‌های لایه دسترسی جهت تغییر ویلن، دیسکریپشن و بازنشانی پورت‌ها بدون دسترسی به کنسول CLI یا خاموش کردن پورت‌های حساس',
+    is_builtin: true,
+    isBuiltin: true,
+    priority: 10,
+    subjectType: 'local_group',
+    subjectId: 'group-helpdesk-ops',
+    subjectName: 'Helpdesk Operators (تیم هلپ‌دسک و پشتیبانی)',
+    targetScope: 'all',
+    targetGroupIds: ['devgroup-access'],
+    targetDeviceIds: [],
+    // Page Access
+    canViewDashboard: true,
+    canViewTopology: true,
+    canViewDevices: true,
+    canViewPorts: true,
+    canViewScanner: false,
+    canViewTemplates: false,
+    canViewSettings: false,
+    canViewServers: false,
+    canViewLogs: false,
+    // Device & Port Actions
+    terminalAccess: 'none',
+    canToggleAdminStatus: false,
+    canChangeVlan: true,
+    canEditDescription: true,
+    canTogglePortSecurity: true,
+    canWriteMemory: false,
+    canManageDevices: false,
+    canApplyTemplates: false,
+    canBatchOperate: false,
+    canExportBackup: false,
+    canImportBackup: false,
+    created_at: new Date().toISOString(),
   },
   {
-    id: 'policy-readonly',
-    name: 'سیاست فقط-خواندنی (Read-Only Observer Policy)',
-    description: 'صرفاً مشاهده وضعیت کلی شبکه و نقشه‌های پابلیک',
-    priority: 30,
-    is_builtin: false,
-    policy_data: {
-      devices: ['*'],
-      maps: ['read_public'],
-      actions: ['read'],
-      modules: ['topology']
-    },
-    created_at: new Date().toISOString()
-  }
+    id: 'policy-noc-observer',
+    name: 'تیم پایش و مانیتورینگ NOC (Read-Only Observer)',
+    description: 'دسترسی فقط خواندنی به تمام تجهیزات، توپولوژی، تلمتری پورت‌ها و اسکنر همسایگی همراه با دسترسی کنسول فقط خواندنی',
+    is_builtin: true,
+    isBuiltin: true,
+    priority: 20,
+    subjectType: 'local_group',
+    subjectId: 'group-noc',
+    subjectName: 'NOC Monitoring (مرکز عملیات شبکه)',
+    targetScope: 'all',
+    targetGroupIds: [],
+    targetDeviceIds: [],
+    // Page Access
+    canViewDashboard: true,
+    canViewTopology: true,
+    canViewDevices: true,
+    canViewPorts: true,
+    canViewScanner: true,
+    canViewTemplates: true,
+    canViewSettings: false,
+    canViewServers: true,
+    canViewLogs: true,
+    // Device & Port Actions
+    terminalAccess: 'view_only',
+    canToggleAdminStatus: false,
+    canChangeVlan: false,
+    canEditDescription: false,
+    canTogglePortSecurity: false,
+    canWriteMemory: false,
+    canManageDevices: false,
+    canApplyTemplates: false,
+    canBatchOperate: false,
+    canExportBackup: false,
+    canImportBackup: false,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'policy-super-admin',
+    name: 'مدیر ارشد زیرساخت شبکه (Super Administrator)',
+    description: 'دسترسی نامحدود به تمامی تجهیزات، کنسول‌های تعاملی SSH، رایت مموری، اعمال تمپلیت و تنظیمات امنیتی',
+    is_builtin: true,
+    isBuiltin: true,
+    priority: 100,
+    subjectType: 'local_user',
+    subjectId: 'admin',
+    subjectName: 'مدیر اصلی سیستم (Local Admin / NetOps)',
+    targetScope: 'all',
+    targetGroupIds: [],
+    targetDeviceIds: [],
+    // Page Access
+    canViewDashboard: true,
+    canViewTopology: true,
+    canViewDevices: true,
+    canViewPorts: true,
+    canViewScanner: true,
+    canViewTemplates: true,
+    canViewSettings: true,
+    canViewServers: true,
+    canViewLogs: true,
+    // Device & Port Actions
+    terminalAccess: 'full',
+    canToggleAdminStatus: true,
+    canChangeVlan: true,
+    canEditDescription: true,
+    canTogglePortSecurity: true,
+    canWriteMemory: true,
+    canManageDevices: true,
+    canApplyTemplates: true,
+    canBatchOperate: true,
+    canExportBackup: true,
+    canImportBackup: true,
+    created_at: new Date().toISOString(),
+  },
 ];
 
 const DEFAULT_DEVICE_GROUPS = [
@@ -2494,6 +2549,219 @@ export async function saveAccessPolicies(policies: any[]): Promise<void> {
       console.error('[DB Query Error in saveAccessPolicies]', e);
     }
   }
+}
+
+/**
+ * Compute the authentic, database-authoritative effective access policy for a user
+ * based on PostgreSQL access_policies, user_groups, and role assignments.
+ */
+export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
+  let user = userOrId;
+  if (typeof userOrId === 'string') {
+    user = (await findUserById(userOrId)) || (await findUserByUsername(userOrId));
+  }
+
+  if (!user) {
+    return {
+      id: 'policy-guest',
+      name: 'Guest / Unauthenticated',
+      description: 'Default guest permissions',
+      priority: 0,
+      subjectType: 'local_user',
+      subjectId: 'guest',
+      subjectName: 'Guest',
+      targetScope: 'all',
+      targetGroupIds: [],
+      targetDeviceIds: [],
+      canViewDashboard: false,
+      canViewTopology: false,
+      canViewDevices: false,
+      canViewPorts: false,
+      canViewScanner: false,
+      canViewTemplates: false,
+      canViewSettings: false,
+      canViewServers: false,
+      canViewLogs: false,
+      terminalAccess: 'none',
+      canToggleAdminStatus: false,
+      canChangeVlan: false,
+      canEditDescription: false,
+      canTogglePortSecurity: false,
+      canWriteMemory: false,
+      canManageDevices: false,
+      canApplyTemplates: false,
+      canBatchOperate: false,
+      canExportBackup: false,
+      canImportBackup: false,
+    };
+  }
+
+  const cleanUsername = (user.username || '').trim().toLowerCase();
+  const userId = (user.id || '').trim();
+  const roleName = (user.role || '').trim().toLowerCase();
+  const isSuperAdmin = cleanUsername === 'admin' || roleName.includes('super admin') || roleName.includes('administrator');
+
+  // Load policies from PostgreSQL (or fallback store)
+  const policies = await getAccessPolicies();
+  // Load user groups from PostgreSQL (or fallback store)
+  const userGroups = await getUserGroups();
+
+  const matchingPolicies: any[] = [];
+  const userGroupIds: string[] = Array.isArray(user.groupIds)
+    ? user.groupIds
+    : Array.isArray(user.group_ids)
+    ? user.group_ids
+    : typeof user.group_ids === 'string'
+    ? JSON.parse(user.group_ids || '[]')
+    : [];
+
+  const userGroupSet = new Set(userGroupIds.map((g) => (g || '').toLowerCase()));
+
+  for (const p of policies) {
+    // 1. Direct user match by subjectId
+    if (
+      (p.subjectType === 'local_user' || p.subjectType === 'ad_user') &&
+      p.subjectId &&
+      (
+        p.subjectId === userId ||
+        p.subjectId.toLowerCase() === cleanUsername ||
+        cleanUsername.startsWith(p.subjectId.toLowerCase())
+      )
+    ) {
+      matchingPolicies.push(p);
+      continue;
+    }
+
+    // 2. Direct user group match
+    if (p.subjectType === 'local_group' || p.subjectType === 'ad_group') {
+      if (p.subjectId && userGroupSet.has(p.subjectId.toLowerCase())) {
+        matchingPolicies.push(p);
+        continue;
+      }
+
+      // Check membership in userGroups
+      const matchingGroup = userGroups.find(
+        (g: any) =>
+          g.id === p.subjectId ||
+          (g.name && g.name.toLowerCase() === (p.subjectName || '').toLowerCase())
+      );
+      if (matchingGroup) {
+        const members: string[] = Array.isArray(matchingGroup.memberUserIds)
+          ? matchingGroup.memberUserIds
+          : Array.isArray(matchingGroup.member_user_ids)
+          ? matchingGroup.member_user_ids
+          : typeof matchingGroup.member_user_ids === 'string'
+          ? JSON.parse(matchingGroup.member_user_ids || '[]')
+          : [];
+        const lowerMembers = members.map((m) => (m || '').toLowerCase());
+        if (lowerMembers.includes(userId.toLowerCase()) || lowerMembers.includes(cleanUsername)) {
+          matchingPolicies.push(p);
+          continue;
+        }
+      }
+    }
+
+    // 3. Match by user role name if policy subjectName or id matches role
+    if (
+      roleName &&
+      (
+        (p.name && p.name.toLowerCase().includes(roleName)) ||
+        (p.subjectName && p.subjectName.toLowerCase().includes(roleName)) ||
+        (p.id && p.id.toLowerCase().includes(roleName))
+      )
+    ) {
+      matchingPolicies.push(p);
+      continue;
+    }
+  }
+
+  // If specific matching policies found, highest priority wins
+  if (matchingPolicies.length > 0) {
+    matchingPolicies.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    return matchingPolicies[0];
+  }
+
+  // Super Administrator fallback
+  if (isSuperAdmin) {
+    const adminPolicy = policies.find((p) => p.id === 'policy-super-admin' || p.id === 'policy-full');
+    if (adminPolicy) return adminPolicy;
+    return {
+      id: 'policy-super-admin',
+      name: 'Super Administrator',
+      description: 'Full unconstrained access',
+      priority: 100,
+      subjectType: 'local_user',
+      subjectId: 'admin',
+      subjectName: 'Super Admin',
+      targetScope: 'all',
+      targetGroupIds: [],
+      targetDeviceIds: [],
+      canViewDashboard: true,
+      canViewTopology: true,
+      canViewDevices: true,
+      canViewPorts: true,
+      canViewScanner: true,
+      canViewTemplates: true,
+      canViewSettings: true,
+      canViewServers: true,
+      canViewLogs: true,
+      terminalAccess: 'full',
+      canToggleAdminStatus: true,
+      canChangeVlan: true,
+      canEditDescription: true,
+      canTogglePortSecurity: true,
+      canWriteMemory: true,
+      canManageDevices: true,
+      canApplyTemplates: true,
+      canBatchOperate: true,
+      canExportBackup: true,
+      canImportBackup: true,
+    };
+  }
+
+  // Check if role is Helpdesk or Operator
+  if (roleName.includes('helpdesk')) {
+    const hdPolicy = policies.find((p) => p.id === 'policy-helpdesk');
+    if (hdPolicy) return hdPolicy;
+  }
+  if (roleName.includes('noc') || roleName.includes('operator') || roleName.includes('monitoring')) {
+    const nocPolicy = policies.find((p) => p.id === 'policy-noc-observer');
+    if (nocPolicy) return nocPolicy;
+  }
+
+  // Default non-admin restricted fallback
+  return {
+    id: 'policy-default-restricted',
+    name: 'Restricted User',
+    description: 'Default safe view access',
+    priority: 1,
+    subjectType: 'local_user',
+    subjectId: userId,
+    subjectName: user.username || 'User',
+    targetScope: 'all',
+    targetGroupIds: [],
+    targetDeviceIds: [],
+    canViewDashboard: true,
+    canViewTopology: true,
+    canViewDevices: true,
+    canViewPorts: false,
+    canViewScanner: false,
+    canViewTemplates: false,
+    canViewSettings: false,
+    canViewServers: false,
+    canViewLogs: false,
+    terminalAccess: 'none',
+    canToggleAdminStatus: false,
+    canChangeVlan: false,
+    canEditDescription: false,
+    canTogglePortSecurity: false,
+    canWriteMemory: false,
+    canManageDevices: false,
+    canApplyTemplates: false,
+    canBatchOperate: false,
+    canExportBackup: false,
+    canImportBackup: false,
+  };
 }
 
 // -------------------------------------------------------------

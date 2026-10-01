@@ -29,6 +29,7 @@ import {
   saveUserGroups,
   getAccessPolicies,
   saveAccessPolicies,
+  getEffectivePolicyForUser,
   getDeviceGroups,
   saveDeviceGroups,
   getActiveDirectoryConfig,
@@ -550,6 +551,9 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       clearRateLimit(rateLimitKey);
       await updateLastLogin(user.id);
 
+      // Compute database-authoritative effective access policy from PostgreSQL
+      const effectivePolicy = await getEffectivePolicyForUser(user);
+
       const token = generateToken(
         {
           userId: user.id,
@@ -558,6 +562,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           email: user.email,
           role: user.role,
           userType: 'local',
+          policyId: effectivePolicy?.id,
         },
         rememberMe
       );
@@ -568,7 +573,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         category: 'security',
         target: 'Auth Gateway',
         status: 'success',
-        details: `User "${user.username}" authenticated successfully via Local Database from IP ${ip}`,
+        details: `User "${user.username}" authenticated successfully via Local Database from IP ${ip}. Enforced policy: ${effectivePolicy?.name || 'Default Restricted'}`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
@@ -585,7 +590,9 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           userType: 'local',
           groupIds: user.group_ids,
           isBuiltin: user.is_builtin,
+          policyId: effectivePolicy?.id,
         },
+        effectivePolicy,
       });
     }
 
@@ -629,6 +636,8 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         userType: 'ad' as const,
       };
 
+      const effectivePolicy = await getEffectivePolicyForUser(adUser);
+
       const token = generateToken(
         {
           userId: adUser.id,
@@ -637,6 +646,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           email: adUser.email,
           role: adUser.role,
           userType: 'ad',
+          policyId: effectivePolicy?.id,
         },
         rememberMe
       );
@@ -647,7 +657,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         category: 'security',
         target: `AD DC (${domain})`,
         status: 'success',
-        details: `Active Directory user "${adUser.username}" authenticated successfully via domain ${domain} from IP ${ip}`,
+        details: `Active Directory user "${adUser.username}" authenticated successfully via domain ${domain} from IP ${ip}. Enforced policy: ${effectivePolicy?.name || 'Default Restricted'}`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
@@ -656,6 +666,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         success: true,
         token,
         user: adUser,
+        effectivePolicy,
       });
     }
 
@@ -670,7 +681,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
   }
 });
 
-// Verify token / Current User Session
+// Verify token / Current User Session with Database Authorization
 apiRouter.get('/auth/me', async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
@@ -684,18 +695,55 @@ apiRouter.get('/auth/me', async (req: Request, res: Response) => {
     return res.status(401).json({ authenticated: false, error: 'Invalid or expired token' });
   }
 
+  // Live database lookup from PostgreSQL
+  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (userRecord && userRecord.status === 'disabled') {
+    return res.status(403).json({ authenticated: false, error: 'Account disabled in database' });
+  }
+
+  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+
   res.json({
     authenticated: true,
     user: {
-      id: payload.userId,
-      username: payload.username,
-      fullName: payload.fullName,
-      email: payload.email,
-      role: payload.role,
-      userType: payload.userType,
-      policyId: payload.policyId,
+      id: userRecord?.id || payload.userId,
+      username: userRecord?.username || payload.username,
+      fullName: userRecord?.full_name || payload.fullName,
+      email: userRecord?.email || payload.email,
+      role: userRecord?.role || payload.role,
+      userType: userRecord?.user_type || payload.userType,
+      status: userRecord?.status || 'active',
+      groupIds: userRecord?.group_ids
+        ? (typeof userRecord.group_ids === 'string' ? JSON.parse(userRecord.group_ids) : userRecord.group_ids)
+        : [],
+      isBuiltin: userRecord?.is_builtin ?? false,
+      policyId: effectivePolicy?.id,
     },
+    effectivePolicy,
   });
+});
+
+// Real-time Database-computed Effective Policy Endpoint
+apiRouter.get('/auth/effective-policy', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'No token provided' });
+  }
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  }
+
+  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (userRecord && userRecord.status === 'disabled') {
+    return res.status(403).json({ success: false, error: 'Account disabled in database' });
+  }
+
+  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+  res.json({ success: true, effectivePolicy });
 });
 
 // Logout endpoint

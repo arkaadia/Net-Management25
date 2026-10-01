@@ -391,32 +391,31 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
 // Persistence & Data Access Functions
 // ==========================================
 
+export function getAuthHeaders(): HeadersInit {
+  const token =
+    typeof window !== 'undefined'
+      ? (sessionStorage.getItem('nettopology_auth_token_v1') || localStorage.getItem('nettopology_auth_token_v1'))
+      : null;
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+let inMemoryUsers: LocalUser[] = [];
+
 export function loadLocalUsers(): LocalUser[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.LOCAL_USERS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch (e) {
-    console.error('Failed to parse local users from localStorage', e);
-  }
-  saveLocalUsers(DEFAULT_LOCAL_USERS);
+  if (inMemoryUsers.length > 0) return inMemoryUsers;
   return DEFAULT_LOCAL_USERS;
 }
 
 export function saveLocalUsers(users: LocalUser[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(users));
-    // Asynchronously push to backend database
-    fetch('/api/settings/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(users),
-    }).catch(() => {});
-  } catch (e) {
-    console.error('Failed to save local users to localStorage', e);
-  }
+  inMemoryUsers = users;
+  fetch('/api/settings/users', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(users),
+  }).catch(() => {});
 }
 
 export async function saveUserToDatabase(
@@ -425,12 +424,12 @@ export async function saveUserToDatabase(
   try {
     const res = await fetch('/api/settings/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(userPayload),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.success && data.user) {
-      const current = loadLocalUsers();
+      const current = loadLocalUsers().slice();
       const idx = current.findIndex(
         (u) =>
           (data.user.id && u.id === data.user.id) ||
@@ -441,7 +440,7 @@ export async function saveUserToDatabase(
       } else {
         current.push(data.user);
       }
-      localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(current));
+      inMemoryUsers = current;
       return { success: true, user: data.user };
     }
     return {
@@ -459,13 +458,13 @@ export async function deleteUserFromDatabase(
   try {
     const res = await fetch(`/api/settings/users/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.success) {
-      const current = loadLocalUsers().filter(
+      inMemoryUsers = loadLocalUsers().filter(
         (u) => u.id !== userId && u.username.toLowerCase() !== userId.toLowerCase()
       );
-      localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(current));
       return { success: true };
     }
     return {
@@ -479,7 +478,9 @@ export async function deleteUserFromDatabase(
 
 export async function syncLocalUsersFromDatabase(): Promise<LocalUser[]> {
   try {
-    const res = await fetch('/api/settings/users');
+    const res = await fetch('/api/settings/users', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       const data = await res.json();
       const list = Array.isArray(data)
@@ -488,7 +489,7 @@ export async function syncLocalUsersFromDatabase(): Promise<LocalUser[]> {
         ? data.users
         : [];
       if (list.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(list));
+        inMemoryUsers = list;
         return list;
       }
     }
@@ -558,41 +559,30 @@ export async function persistHierarchyToDatabase(hierarchy: any): Promise<void> 
   } catch (e) {}
 }
 
+let inMemoryGroups: LocalGroup[] = [];
+
 export function loadLocalGroups(): LocalGroup[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.LOCAL_GROUPS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch (e) {
-    console.error('Failed to parse local groups from localStorage', e);
-  }
-  saveLocalGroups(DEFAULT_LOCAL_GROUPS);
+  if (inMemoryGroups.length > 0) return inMemoryGroups;
   return DEFAULT_LOCAL_GROUPS;
 }
 
 export function saveLocalGroups(groups: LocalGroup[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(groups));
-    fetch('/api/settings/user-groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups }),
-    }).catch(() => {});
-  } catch (e) {
-    console.error('Failed to save local groups to localStorage', e);
-  }
+  inMemoryGroups = groups;
+  fetch('/api/settings/user-groups', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ groups }),
+  }).catch(() => {});
 }
 
 export async function saveLocalGroupsToDatabase(
   groups: LocalGroup[]
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(groups));
+    inMemoryGroups = groups;
     const res = await fetch('/api/settings/user-groups', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ groups }),
     });
     if (res.ok) {
@@ -607,7 +597,9 @@ export async function saveLocalGroupsToDatabase(
 
 export async function syncLocalGroupsFromDatabase(): Promise<LocalGroup[]> {
   try {
-    const res = await fetch('/api/settings/user-groups');
+    const res = await fetch('/api/settings/user-groups', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       const data = await res.json();
       const list = Array.isArray(data)
@@ -624,7 +616,7 @@ export async function syncLocalGroupsFromDatabase(): Promise<LocalGroup[]> {
             ? g.member_user_ids
             : [],
         }));
-        localStorage.setItem(STORAGE_KEYS.LOCAL_GROUPS, JSON.stringify(normalized));
+        inMemoryGroups = normalized;
         return normalized;
       }
     }
@@ -705,42 +697,54 @@ export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDir
   return loadActiveDirectoryConfig();
 }
 
+let inMemoryPolicies: AccessPolicy[] = [];
+
 export function loadAccessPolicies(): AccessPolicy[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.ACCESS_POLICIES);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch (e) {
-    console.error('Failed to parse access policies from localStorage', e);
-  }
-  saveAccessPolicies(DEFAULT_ACCESS_POLICIES);
+  if (inMemoryPolicies.length > 0) return inMemoryPolicies;
   return DEFAULT_ACCESS_POLICIES;
 }
 
 export function saveAccessPolicies(policies: AccessPolicy[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.ACCESS_POLICIES, JSON.stringify(policies));
-    // Asynchronously push to backend database
-    fetch('/api/access-policies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ policies }),
-    }).catch(() => {});
+  inMemoryPolicies = policies;
+  fetch('/api/access-policies', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ policies }),
+  }).catch(() => {});
 
-    // Dispatch custom event so sidebar and application adapt instantly
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nettopology_access_policies_changed', { detail: { policies } }));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nettopology_access_policies_changed', { detail: { policies } }));
+  }
+}
+
+export async function saveAccessPoliciesToDatabase(
+  policies: AccessPolicy[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    inMemoryPolicies = policies;
+    const res = await fetch('/api/access-policies', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ policies }),
+    });
+    if (res.ok) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nettopology_access_policies_changed', { detail: { policies } }));
+      }
+      return { success: true };
     }
-  } catch (e) {
-    console.error('Failed to save access policies to localStorage', e);
+    const data = await res.json().catch(() => ({}));
+    return { success: false, error: data.error || 'Failed to save access policies in database' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Connection error to backend database' };
   }
 }
 
 export async function syncAccessPoliciesFromDatabase(): Promise<AccessPolicy[]> {
   try {
-    const res = await fetch('/api/access-policies');
+    const res = await fetch('/api/access-policies', {
+      headers: getAuthHeaders(),
+    });
     if (res.ok) {
       const data = await res.json();
       const list = Array.isArray(data?.policies)
@@ -749,7 +753,7 @@ export async function syncAccessPoliciesFromDatabase(): Promise<AccessPolicy[]> 
         ? data
         : [];
       if (list.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.ACCESS_POLICIES, JSON.stringify(list));
+        inMemoryPolicies = list;
         return list;
       }
     }
@@ -983,22 +987,17 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
   }
 }
 
+let inMemorySimulatedRoleId: string = 'actual-user';
+
 export function loadSimulatedRoleId(): string {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.ACTIVE_SIMULATED_ROLE) || 'policy-super-admin';
-  } catch {
-    return 'policy-super-admin';
-  }
+  return inMemorySimulatedRoleId;
 }
 
 export function saveSimulatedRoleId(policyId: string): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_SIMULATED_ROLE, policyId);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nettopology_simulated_role_changed', { detail: { policyId } }));
-    }
-  } catch (e) {
-    console.error('Failed to save simulated role', e);
+  inMemorySimulatedRoleId = policyId;
+  localStorage.removeItem(STORAGE_KEYS.ACTIVE_SIMULATED_ROLE);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nettopology_simulated_role_changed', { detail: { policyId } }));
   }
 }
 
