@@ -791,7 +791,7 @@ export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
 
 function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
   if (!pol) return pol;
-  if (pol.allowedDeviceIds !== undefined) return pol;
+  if (pol.allowedDeviceIds !== undefined && pol.allowedServerIds !== undefined) return pol;
 
   if (pol.id === 'policy-super-admin' || pol.targetScope === 'all') {
     return { ...pol, allowedDeviceIds: null, allowedServerIds: null };

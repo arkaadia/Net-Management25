@@ -127,13 +127,39 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         syncLocalGroupsFromDatabase().catch(() => localGroups),
         syncDeviceGroupsFromDatabase().catch(() => groups),
         syncActiveDirectoryConfigFromDatabase().catch(() => adConfig),
-        fetchRemoteServers().catch(() => []),
+        fetchRemoteServers().catch(() => null),
       ]);
       if (Array.isArray(dbUsers) && dbUsers.length > 0) setLiveLocalUsers(dbUsers);
       if (Array.isArray(dbGroups) && dbGroups.length > 0) setLiveLocalGroups(dbGroups);
       if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) setLiveDeviceGroups(dbDevGroups);
       if (dbAd && typeof dbAd === 'object') setLiveAdConfig(dbAd);
-      if (Array.isArray(dbServers) && dbServers.length > 0) setLiveServers(dbServers);
+
+      // fetchRemoteServers() returns { success: boolean; count: number; servers: RemoteServer[] }
+      const parsedServers: RemoteServer[] = Array.isArray(dbServers)
+        ? dbServers
+        : Array.isArray((dbServers as any)?.servers)
+        ? (dbServers as any).servers
+        : [];
+
+      if (parsedServers.length > 0) {
+        setLiveServers(parsedServers);
+      } else {
+        // Fallback: direct fetch from /api/remote-servers
+        try {
+          const directRes = await fetch('/api/remote-servers');
+          if (directRes.ok) {
+            const data = await directRes.json();
+            const list = Array.isArray(data?.servers)
+              ? data.servers
+              : Array.isArray(data)
+              ? data
+              : [];
+            if (list.length > 0) setLiveServers(list);
+          }
+        } catch {
+          // ignore
+        }
+      }
     } finally {
       setIsSyncingDb(false);
     }
@@ -220,6 +246,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   };
 
   const handleStartEdit = (policy: AccessPolicy) => {
+    refreshDatabaseData();
     setEditingPolicy({
       ...policy,
       defaultServerPermissions: policy.defaultServerPermissions || (
@@ -265,25 +292,86 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     if (!editingPolicy) return [];
     if (editingPolicy.canViewServers === false) return [];
     if (editingPolicy.targetScope === 'all') return liveServers;
+
     if (editingPolicy.targetScope === 'groups') {
+      const targetGroupIds: string[] = [
+        ...(Array.isArray(editingPolicy.targetGroupIds) ? editingPolicy.targetGroupIds : []),
+        ...(Array.isArray((editingPolicy as any).target_group_ids) ? (editingPolicy as any).target_group_ids : []),
+      ];
       const selectedGroupSet = new Set(
-        (editingPolicy.targetGroupIds || []).map((id) => (id || '').trim().toLowerCase())
+        targetGroupIds.map((id) => (id || '').trim().toLowerCase())
       );
+
       const srvIdSet = new Set<string>();
       for (const g of liveDeviceGroups) {
         const gid = (g.id || '').trim().toLowerCase();
         const gname = (g.name || '').trim().toLowerCase();
         if (selectedGroupSet.has(gid) || selectedGroupSet.has(gname)) {
-          const ids: string[] = (g as any).serverIds || (g as any).server_ids || [];
-          ids.forEach((id: string) => srvIdSet.add(id));
+          const sIds: string[] = Array.isArray((g as any).serverIds)
+            ? (g as any).serverIds
+            : Array.isArray((g as any).server_ids)
+            ? (g as any).server_ids
+            : [];
+          const dIds: string[] = Array.isArray(g.deviceIds)
+            ? g.deviceIds
+            : Array.isArray((g as any).device_ids)
+            ? (g as any).device_ids
+            : [];
+
+          sIds.forEach((id: string) => {
+            if (id) srvIdSet.add(id.trim().toLowerCase());
+          });
+          dIds.forEach((id: string) => {
+            if (id) srvIdSet.add(id.trim().toLowerCase());
+          });
         }
       }
-      return liveServers.filter((s) => srvIdSet.has(s.id));
+
+      return liveServers.filter((s) => {
+        const sid = (s.id || '').trim().toLowerCase();
+        const sname = (s.name || '').trim().toLowerCase();
+        const shost = (s.hostname || '').trim().toLowerCase();
+        const sip = ((s.ip || (s as any).ip_address || '')).trim().toLowerCase();
+
+        // 1. Direct match by ID, name, hostname, or IP in srvIdSet
+        if (srvIdSet.has(sid) || srvIdSet.has(sname) || srvIdSet.has(shost) || srvIdSet.has(sip)) {
+          return true;
+        }
+
+        // 2. Server group associations
+        const sGroupIds: string[] = [
+          ...(Array.isArray((s as any).groupIds) ? (s as any).groupIds : []),
+          ...(Array.isArray((s as any).group_ids) ? (s as any).group_ids : []),
+          ...(Array.isArray((s as any).deviceGroupIds) ? (s as any).deviceGroupIds : []),
+          ...(Array.isArray((s as any).device_group_ids) ? (s as any).device_group_ids : []),
+        ].map((gid) => (gid || '').trim().toLowerCase());
+
+        if (sGroupIds.some((gid) => selectedGroupSet.has(gid))) {
+          return true;
+        }
+
+        return false;
+      });
     }
+
     if (editingPolicy.targetScope === 'specific') {
-      const specificSet = new Set((editingPolicy as any).targetServerIds || []);
-      return liveServers.filter((s) => specificSet.has(s.id));
+      const specificIds: string[] = [
+        ...(Array.isArray((editingPolicy as any).targetServerIds) ? (editingPolicy as any).targetServerIds : []),
+        ...(Array.isArray((editingPolicy as any).target_server_ids) ? (editingPolicy as any).target_server_ids : []),
+        ...(Array.isArray(editingPolicy.targetDeviceIds) ? editingPolicy.targetDeviceIds : []),
+        ...(Array.isArray((editingPolicy as any).target_device_ids) ? (editingPolicy as any).target_device_ids : []),
+      ];
+      const specificSet = new Set(specificIds.map((id: string) => (id || '').trim().toLowerCase()));
+
+      return liveServers.filter((s) => {
+        const sid = (s.id || '').trim().toLowerCase();
+        const sname = (s.name || '').trim().toLowerCase();
+        const shost = (s.hostname || '').trim().toLowerCase();
+        const sip = ((s.ip || (s as any).ip_address || '')).trim().toLowerCase();
+        return specificSet.has(sid) || specificSet.has(sname) || specificSet.has(shost) || specificSet.has(sip);
+      });
     }
+
     return [];
   }, [editingPolicy, liveDeviceGroups, liveServers]);
 
@@ -1918,30 +2006,55 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                           {isEn ? 'No Servers in Current Scope' : 'هیچ سروری در محدوده انتخابی فعلی قرار ندارد'}
                         </div>
                         <p className="text-[10px] text-slate-500 max-w-md mx-auto">
-                          {isEn
-                            ? 'Either assign Device Groups that contain servers to this policy, or set Target Scope to "All Equipment" above to configure server permissions.'
-                            : 'جهت تعریف دسترسی سرورها، در بخش بالا محدوده پالیسی را روی «تمام تجهیزات» قرار دهید یا گروه‌های تجهیزاتی دارای سرور را انتخاب کنید.'}
+                          {editingPolicy.canViewServers === false
+                            ? (isEn
+                                ? 'Remote Servers module is disabled in Section 1 above (Remote Servers checkbox is unchecked).'
+                                : 'ماژول سرورهای ریموت در بخش ۱ بالا غیرفعال است (تیک سرورهای ریموت برداشته شده است).')
+                            : editingPolicy.targetScope === 'groups' && (!editingPolicy.targetGroupIds || editingPolicy.targetGroupIds.length === 0)
+                            ? (isEn
+                                ? 'No device groups selected. Please select at least one device group in Section 2 above.'
+                                : 'هیچ گروه تجهیزاتی انتخاب نشده است. لطفاً در بخش ۲ بالا حداقل یک گروه تجهیزات را انتخاب کنید.')
+                            : (isEn
+                                ? 'Either assign Device Groups that contain servers to this policy, or set Target Scope to "All Equipment" above to configure server permissions.'
+                                : 'جهت تعریف دسترسی سرورها، در بخش بالا محدوده پالیسی را روی «تمام تجهیزات» قرار دهید یا گروه‌های تجهیزاتی دارای سرور را انتخاب کنید.')}
                         </p>
                       </div>
-                    ) : (
-                      <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
-                        {permittedScopeServers
-                          .filter((srv) => {
-                            if (serverSearchQuery.trim()) {
-                              const q = serverSearchQuery.trim().toLowerCase();
-                              const nameMatch = (srv.name || '').toLowerCase().includes(q);
-                              const ipMatch = (srv.ip || '').toLowerCase().includes(q);
-                              if (!nameMatch && !ipMatch) return false;
-                            }
-                            const hasCustom = Boolean(
-                              editingPolicy.perServerPermissions?.[srv.id] &&
-                              Object.keys(editingPolicy.perServerPermissions[srv.id]).length > 0
-                            );
-                            if (serverMatrixFilter === 'custom_only' && !hasCustom) return false;
-                            if (serverMatrixFilter === 'default_only' && hasCustom) return false;
-                            return true;
-                          })
-                          .map((srv) => {
+                    ) : (() => {
+                      const filteredServers = permittedScopeServers.filter((srv) => {
+                        if (serverSearchQuery.trim()) {
+                          const q = serverSearchQuery.trim().toLowerCase();
+                          const nameMatch = (srv.name || '').toLowerCase().includes(q);
+                          const ipMatch = ((srv.ip || (srv as any).ip_address || '')).toLowerCase().includes(q);
+                          const hostMatch = (srv.hostname || '').toLowerCase().includes(q);
+                          if (!nameMatch && !ipMatch && !hostMatch) return false;
+                        }
+                        const hasCustom = Boolean(
+                          editingPolicy.perServerPermissions?.[srv.id] &&
+                          Object.keys(editingPolicy.perServerPermissions[srv.id]).length > 0
+                        );
+                        if (serverMatrixFilter === 'custom_only' && !hasCustom) return false;
+                        if (serverMatrixFilter === 'default_only' && hasCustom) return false;
+                        return true;
+                      });
+
+                      if (filteredServers.length === 0) {
+                        return (
+                          <div className="p-6 rounded-xl bg-slate-950/40 border border-dashed border-white/10 text-center space-y-1">
+                            <div className="text-xs font-semibold text-slate-300">
+                              {isEn ? 'No Matching Servers Found' : 'هیچ سروری با این فیلتر یا جستجو یافت نشد'}
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              {isEn
+                                ? 'No servers in the current scope match your search query or filter selection.'
+                                : 'سروری در محدوده فعلی با عبارت جستجو یا فیلتر انتخابی مطابقت ندارد.'}
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                          {filteredServers.map((srv) => {
                             const customPerms = editingPolicy.perServerPermissions?.[srv.id];
                             const hasCustomOverrides = Boolean(
                               customPerms && Object.keys(customPerms).length > 0
@@ -2137,8 +2250,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                               </div>
                             );
                           })}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}

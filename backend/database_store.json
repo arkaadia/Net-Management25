@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-01T22:46:47.475Z"
+      "last_login": "2026-10-01T23:17:29.030Z"
     },
     {
       "id": "user-helpdesk",
@@ -32,7 +32,7 @@
       ],
       "is_builtin": false,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-01T22:46:49.641Z"
+      "last_login": "2026-10-01T23:17:31.202Z"
     },
     {
       "id": "user-noc",
@@ -1113,6 +1113,30 @@
     {
       "id": "log-1790894810546-oe7hd",
       "timestamp": "2026-10-01T22:46:50.546Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790896649734-ruqrz",
+      "timestamp": "2026-10-01T23:17:29.734Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790896652109-c2vwq",
+      "timestamp": "2026-10-01T23:17:32.109Z",
       "user_name": "helpdesk_user",
       "action": "Successful User Login",
       "category": "security",

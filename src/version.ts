@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.248.0';
+export const APP_VERSION = '1.248.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.248.1',
+    releaseDate: '2026-10-01',
+    type: 'patch',
+    title: 'رفع باگ عدم نمایش سرورها در ماتریس دسترسی به تفکیک سرور پالیسی‌ها (Fix Server Scope Population in RBAC Matrix)',
+    title_en: 'Fix Server Scope Population in RBAC Per-Server Permission Matrix',
+    changes: [
+      'اصلاح و تصحیح نحوه پارس خروجی تابع fetchRemoteServers در کامپوننت AccessControlTab که به دلیل ساختار آبجکتی { success, count, servers } باعث می‌شد سرورهای لایو بارگذاری نشده و لیست سرورها خالی بماند.',
+      'افزودن مکانیسم بازیابی مستقیم و خودکار از روت /api/remote-servers در صورت نیاز جهت تضمین همیشگی در دسترس بودن ناوگان سرورها در مودال پالیسی‌ها.',
+      'ارتقای الگوریتم محاسبه سرورهای مجاز (permittedScopeServers) هنگام انتخاب گزینه‌های مختلف Device Target Scope (گروه‌های تجهیزاتی دیتابیس، تمام تجهیزات و انتخاب اختصاصی) با پشتیبانی هم‌زمان از serverIds، server_ids، deviceIds و انطباق بدون حساسیت به حروف کوچک و بزرگ روی شناسه، نام، هاست‌نیم و آدرس IP.',
+      'بهبود وضعیت خالی (Empty State) در بخش ماتریس دسترسی سرورها با پیام‌های تفکیک‌شده و راهنما بر اساس وضعیت ماژول سرور، گروه‌های انتخابی و فیلترهای جستجو.',
+      'فراخوانی خودکار همگام‌سازی دیتابیس هنگام باز شدن پنجره ویرایش پالیسی (handleStartEdit) جهت اطمینان از اعمال بی‌درنگ تغییرات اعمال‌شده در سایر تب‌ها.'
+    ],
+    changes_en: [
+      'Fixed response payload parsing for fetchRemoteServers inside AccessControlTab which previously prevented live servers from populating due to the { success, count, servers } object structure.',
+      'Added resilient fallback fetching directly from /api/remote-servers to guarantee fleet servers are always populated in the policy editor.',
+      'Enhanced permittedScopeServers calculation when selecting Database Device Groups, All Equipment, or Specific Equipment with case-insensitive matching across serverIds, server_ids, deviceIds, names, hostnames, and IP addresses.',
+      'Improved empty-state diagnostics and guidance in the Per-Server Permission Matrix for disabled server modules, empty group selections, and search/filter mismatches.',
+      'Ensured database synchronization is automatically re-triggered when opening policy editor (handleStartEdit) to immediately reflect fleet changes.'
+    ],
+  },
   {
     version: '1.248.0',
     releaseDate: '2026-10-01',
