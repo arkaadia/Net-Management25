@@ -303,6 +303,17 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    defaultServerPermissions: {
+      terminal: false,
+      file_explorer: true,
+      server_management: true,
+      web_management: false,
+      database_management: false,
+      power_control: false,
+      edit_properties: false,
+      delete_server: false,
+    },
+    perServerPermissions: {},
     created_at: new Date().toISOString(),
   },
   {
@@ -340,6 +351,17 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    defaultServerPermissions: {
+      terminal: false,
+      file_explorer: false,
+      server_management: true,
+      web_management: true,
+      database_management: true,
+      power_control: false,
+      edit_properties: false,
+      delete_server: false,
+    },
+    perServerPermissions: {},
     created_at: new Date().toISOString(),
   },
   {
@@ -377,6 +399,17 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: true,
     canExportBackup: true,
     canImportBackup: true,
+    defaultServerPermissions: {
+      terminal: true,
+      file_explorer: true,
+      server_management: true,
+      web_management: true,
+      database_management: true,
+      power_control: true,
+      edit_properties: true,
+      delete_server: true,
+    },
+    perServerPermissions: {},
     created_at: new Date().toISOString(),
   },
 ];
@@ -2503,6 +2536,13 @@ export async function getAccessPolicies(): Promise<any[]> {
       const res = await pool.query('SELECT * FROM access_policies ORDER BY priority ASC, created_at ASC');
       return res.rows.map((r) => {
         const pData = typeof r.policy_data === 'string' ? JSON.parse(r.policy_data) : (r.policy_data || {});
+        const defaultPerms = pData.defaultServerPermissions || (
+          r.id === 'policy-super-admin' || (r.priority || 0) >= 100
+            ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true }
+            : r.id === 'policy-noc-observer'
+            ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
+            : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
+        );
         return {
           id: r.id,
           name: r.name,
@@ -2510,6 +2550,8 @@ export async function getAccessPolicies(): Promise<any[]> {
           priority: r.priority,
           isBuiltin: r.is_builtin,
           ...pData,
+          defaultServerPermissions: defaultPerms,
+          perServerPermissions: pData.perServerPermissions || {},
         };
       });
     } catch (e) {
@@ -2518,10 +2560,20 @@ export async function getAccessPolicies(): Promise<any[]> {
   }
   const fallback = loadFallbackStore().access_policies || [];
   return fallback.map((p: any) => {
-    if (p.policy_data && typeof p.policy_data === 'object') {
-      return { ...p, ...p.policy_data };
-    }
-    return p;
+    const pData = p.policy_data && typeof p.policy_data === 'object' ? p.policy_data : {};
+    const defaultPerms = p.defaultServerPermissions || pData.defaultServerPermissions || (
+      p.id === 'policy-super-admin' || (p.priority || 0) >= 100
+        ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true }
+        : p.id === 'policy-noc-observer'
+        ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
+        : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
+    );
+    return {
+      ...p,
+      ...pData,
+      defaultServerPermissions: defaultPerms,
+      perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
+    };
   });
 }
 
@@ -2771,6 +2823,17 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: true,
       canExportBackup: true,
       canImportBackup: true,
+      defaultServerPermissions: {
+        terminal: true,
+        file_explorer: true,
+        server_management: true,
+        web_management: true,
+        database_management: true,
+        power_control: true,
+        edit_properties: true,
+        delete_server: true,
+      },
+      perServerPermissions: {},
     });
   }
 
@@ -2817,7 +2880,78 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    defaultServerPermissions: {
+      terminal: false,
+      file_explorer: false,
+      server_management: false,
+      web_management: false,
+      database_management: false,
+      power_control: false,
+      edit_properties: false,
+      delete_server: false,
+    },
+    perServerPermissions: {},
   });
+}
+
+/**
+ * Universally evaluates whether a specific server action is permitted
+ * under a database-authoritative AccessPolicy for a given server.
+ */
+export function isServerActionPermitted(
+  policy: any | null | undefined,
+  serverId: string,
+  action: string
+): boolean {
+  if (!policy) return false;
+
+  // 1. If user has no permission to view/manage servers at all
+  if (policy.canViewServers === false) {
+    return false;
+  }
+
+  // 2. If policy targets specific groups/servers, ensure target server is in allowed fleet scope
+  if (Array.isArray(policy.allowedServerIds) && !policy.allowedServerIds.includes(serverId)) {
+    return false;
+  }
+
+  // 3. Highest Priority: Granular Per-Server Override Matrix
+  if (policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
+    const serverOverrides = policy.perServerPermissions[serverId];
+    if (serverOverrides && typeof serverOverrides === 'object') {
+      if (typeof serverOverrides[action] === 'boolean') {
+        return serverOverrides[action];
+      }
+    }
+  }
+
+  // 4. Default Server Permissions defined in the policy
+  if (policy.defaultServerPermissions && typeof policy.defaultServerPermissions === 'object') {
+    if (typeof policy.defaultServerPermissions[action] === 'boolean') {
+      return policy.defaultServerPermissions[action];
+    }
+  }
+
+  // 5. Global Policy Scope Fallback (Super Administrator unconstrained access)
+  const isSuperAdmin =
+    policy.id === 'policy-super-admin' ||
+    (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
+  if (isSuperAdmin) {
+    return true;
+  }
+
+  // Safe defaults for non-superadmin policies without explicit grants:
+  // Dangerous / sensitive actions are blocked by default
+  if (
+    action === 'delete_server' ||
+    action === 'power_control' ||
+    action === 'terminal' ||
+    action === 'edit_properties'
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 // -------------------------------------------------------------

@@ -571,6 +571,27 @@ export interface LocalUser {
   isBuiltin?: boolean;
 }
 
+export type ServerActionKey =
+  | 'terminal'            // SSH Terminal / Native RDP / In-Browser RDP / In-Browser VNC
+  | 'file_explorer'       // Linux / Windows File Explorer & SFTP
+  | 'server_management'   // System Overview, Services, Logs, Packages, Cron, Config
+  | 'web_management'      // Nginx & Apache Web Server Management
+  | 'database_management' // PostgreSQL & MySQL Database Engines
+  | 'power_control'       // Restart & Power Off / Shutdown
+  | 'edit_properties'     // Edit Server Properties (Host, IP, Credentials, Port, Tags)
+  | 'delete_server';      // Delete Server from Fleet
+
+export interface ServerActionPermissions {
+  terminal?: boolean;
+  file_explorer?: boolean;
+  server_management?: boolean;
+  web_management?: boolean;
+  database_management?: boolean;
+  power_control?: boolean;
+  edit_properties?: boolean;
+  delete_server?: boolean;
+}
+
 export interface AccessPolicy {
   id: string;
   name: string;
@@ -631,6 +652,11 @@ export interface AccessPolicy {
   // 5. Backup & Disaster Recovery Operations
   canExportBackup?: boolean;          // Export full or partial network backup package
   canImportBackup?: boolean;          // Import and restore network backup package
+
+  // 6. Server Fleet Granular Capabilities & Per-Server Override Matrix
+  defaultServerPermissions?: ServerActionPermissions;
+  perServerPermissions?: Record<string /* serverId */, ServerActionPermissions>;
+
   permissions?: any;
 }
 

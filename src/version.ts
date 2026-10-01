@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.243.0';
+export const APP_VERSION = '1.244.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.244.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'فاز ۱: توسعه مدل داده و ماتریس دسترسی به تفکیک سرور در پایگاه‌داده (Per-Server RBAC Action Matrix & DB Model)',
+    title_en: 'Phase 1: Per-Server RBAC Action Matrix & PostgreSQL Policy Model',
+    changes: [
+      'تعریف تایپ‌های ServerActionKey و ServerActionPermissions شامل ۸ دسترسی تفکیک‌شده منوی سه نقطه سرورها (ترمینال تعاملی/RDP/VNC، مرورگر فایل SFTP، پایش و سرویس‌ها، مدیریت وب‌سرورهای Nginx/Apache، مدیریت دیتابیس‌های PostgreSQL/MySQL، کنترل توان، ویرایش مشخصات، و حذف سرور).',
+      'افزودن فیلدهای defaultServerPermissions و perServerPermissions (ماتریس دسترسی به تفکیک هر سرور) به اینترفیس AccessPolicy و ذخیره‌سازی صددرصد دیتابیس‌محور در جدول access_policies پایگاه داده PostgreSQL.',
+      'ایجاد ماژول کاتالوگ و تابع ارزیابی سراسری و یونیورسال isServerActionPermitted در src/utils/rbac.ts و server/db.ts جهت سنجش سلسله‌مراتبی دسترسی با اولویت ماتریس اختصاصی سرور، مجوزهای پیش‌فرض و اسکوپ تجهیزات.',
+      'به‌روزرسانی پالیسی‌های پیش‌فرض سیستم (policy-super-admin، policy-noc-observer و policy-helpdesk) در دیتابیس با مجوزهای متناسب.'
+    ],
+    changes_en: [
+      'Defined ServerActionKey and ServerActionPermissions covering all 8 granular action categories in the 3-dots server menu (Terminal/RDP/VNC, SFTP File Explorer, System Telemetry & Services, Web Servers, Database Engines, Power Control, Edit Properties, and Server Deletion).',
+      'Extended AccessPolicy model with defaultServerPermissions and perServerPermissions (per-server override matrix) stored natively in PostgreSQL JSON policy_data.',
+      'Created universal authorization helper isServerActionPermitted in src/utils/rbac.ts and server/db.ts enforcing granular per-server priority over default policy permissions.',
+      'Configured default system policies (Super Admin, NOC Observer, and Helpdesk) in PostgreSQL with tailored server action permission baselines.'
+    ],
+  },
   {
     version: '1.243.0',
     releaseDate: '2026-10-01',
