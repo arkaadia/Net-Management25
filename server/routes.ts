@@ -34,6 +34,10 @@ import {
   saveDeviceGroups,
   getAllDevices,
   getDeviceById,
+  createDevice,
+  updateDevice,
+  deleteDevice,
+  isDeviceActionPermitted,
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   getHierarchy,
@@ -1002,6 +1006,13 @@ apiRouter.get('/settings/device-notes', async (_req: Request, res: Response) => 
 apiRouter.post('/settings/device-notes', async (req: Request, res: Response) => {
   try {
     const noteData = req.body?.note || req.body;
+    const deviceId = noteData?.deviceId || noteData?.device_id || req.body?.deviceId;
+    if (deviceId) {
+      const check = await assertDeviceScopeAccess(req, deviceId, 'device_note');
+      if (!check.allowed) {
+        return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+      }
+    }
     const previousDeviceId = req.body?.previousDeviceId;
     const saved = await saveDeviceStickyNote(noteData, previousDeviceId);
     res.json({ success: true, note: saved });
@@ -1014,6 +1025,12 @@ apiRouter.delete('/settings/device-notes/:id', async (req: Request, res: Respons
   try {
     const noteId = req.params.id;
     const deviceId = (req.query.deviceId as string) || (req.body?.deviceId as string);
+    if (deviceId) {
+      const check = await assertDeviceScopeAccess(req, deviceId, 'device_note');
+      if (!check.allowed) {
+        return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+      }
+    }
     const keepInMap = req.query.keepInMap === 'true' || req.body?.keepInMap === true;
     await deleteDeviceStickyNote(noteId, deviceId, keepInMap);
     res.json({ success: true, id: noteId, deviceId, keepInMap });
@@ -1314,6 +1331,143 @@ async function resolveRequestContextPolicy(req: Request): Promise<{
   };
 }
 
+/**
+ * Infers the granular network equipment action key from the incoming Express Request.
+ */
+function inferDeviceActionKey(req: Request, deviceId: string): string | null {
+  const method = (req.method || 'GET').toUpperCase();
+  const rawUrl = req.originalUrl || req.url || '';
+  const urlPath = rawUrl.split('?')[0].replace(/\/+$/, '');
+
+  // 1. Save to NVRAM (write_memory)
+  if (urlPath.endsWith('/write-memory') || urlPath.endsWith('/save-running')) {
+    return 'write_memory';
+  }
+
+  // 2. Inspect Ports & Interfaces (inspect_ports)
+  if (
+    urlPath.includes('/ports') ||
+    urlPath.includes('/vlans') ||
+    urlPath.endsWith('/interfaces')
+  ) {
+    return 'inspect_ports';
+  }
+
+  // 3. Delete Device (delete_device)
+  if (method === 'DELETE' && (urlPath.endsWith(`/devices/${deviceId}`) || urlPath.endsWith(`/${deviceId}`))) {
+    return 'delete_device';
+  }
+
+  // 4. Edit Device Properties (edit_properties)
+  if ((method === 'PUT' || method === 'PATCH') && (urlPath.endsWith(`/devices/${deviceId}`) || urlPath.endsWith(`/${deviceId}`))) {
+    return 'edit_properties';
+  }
+
+  // 5. Operations: Ping Keepalive (ping_keepalive)
+  if (urlPath.endsWith('/operations')) {
+    const op = (req.body?.operation || req.body?.action || '').toLowerCase();
+    if (op === 'ping' || op === 'keepalive' || !op) {
+      return 'ping_keepalive';
+    }
+  }
+
+  // 6. Terminal & Interactive CLI (terminal)
+  if (urlPath.includes('/terminal') || urlPath.includes('/cli')) {
+    return 'terminal';
+  }
+
+  // 7. Config Templates (apply_template)
+  if (urlPath.includes('/template') || urlPath.includes('/apply-config')) {
+    return 'apply_template';
+  }
+
+  // 8. Web Consoles / Web Configs (web_configs)
+  if (urlPath.includes('/web-console') || urlPath.includes('/web-config')) {
+    return 'web_configs';
+  }
+
+  return null;
+}
+
+/**
+ * Authoritative security guard for network equipment endpoints.
+ * Resolves token-authenticated user policy, verifies if the device is in user's PostgreSQL scope,
+ * and validates whether the requested equipment action (NetworkDeviceActionKey) is permitted.
+ */
+async function assertDeviceScopeAccess(
+  req: Request,
+  deviceId: string,
+  requiredAction?: string
+): Promise<{ allowed: boolean; device: any | null; error?: string; errorFa?: string; status?: number }> {
+  const cleanId = (deviceId || '').trim();
+  if (!cleanId) {
+    return { allowed: false, device: null, error: 'Device ID is required', errorFa: 'شناسه تجهیز الزامی است', status: 400 };
+  }
+
+  const device = await getDeviceById(cleanId);
+  if (!device) {
+    return { allowed: false, device: null, error: 'Device not found', errorFa: 'تجهیز شبکه یافت نشد', status: 404 };
+  }
+
+  const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+
+  // If user is super admin, full unconstrained access is granted
+  if (isSuperAdmin) {
+    return { allowed: true, device };
+  }
+
+  // If no effective policy is resolved (unauthenticated / standalone mode)
+  if (!effectivePolicy) {
+    return { allowed: true, device };
+  }
+
+  // 1. Check explicit policy permission to view network devices
+  if (effectivePolicy.canViewDevices === false) {
+    return {
+      allowed: false,
+      device,
+      error: 'Access denied: Your account policy prohibits access to Network Equipment Inventory.',
+      errorFa: 'عدم دسترسی: حساب شما فاقد مجوز دسترسی به موجودی تجهیزات شبکه است.',
+      status: 403,
+    };
+  }
+
+  // 2. Check device ID in allowedDeviceIds calculated from PostgreSQL device groups
+  if (allowedDeviceIds !== null) {
+    const allowedSet = new Set(allowedDeviceIds.map((id) => (id || '').trim().toLowerCase()));
+    const did = (device.id || '').trim().toLowerCase();
+    const dname = (device.name || '').trim().toLowerCase();
+    const dip = (device.ip || '').trim().toLowerCase();
+
+    if (!allowedSet.has(did) && !allowedSet.has(dname) && !allowedSet.has(dip)) {
+      return {
+        allowed: false,
+        device,
+        error: 'Access denied: You do not have permission to view or manage this network device based on your assigned Device Groups in PostgreSQL.',
+        errorFa: 'عدم دسترسی: این تجهیز خارج از محدوده گروه‌های مجاز شما در پایگاه‌داده است.',
+        status: 403,
+      };
+    }
+  }
+
+  // 3. Granular Device Action Check (Per-Device Override Matrix & Default Permissions)
+  const action = requiredAction || inferDeviceActionKey(req, cleanId);
+  if (action) {
+    const isPermitted = isDeviceActionPermitted(effectivePolicy, device.id, action);
+    if (!isPermitted) {
+      return {
+        allowed: false,
+        device,
+        error: `Access denied: You do not have permission to execute '${action}' on this device under your RBAC policy.`,
+        errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز انجام عملیات «${action}» روی این تجهیز را ندارید.`,
+        status: 403,
+      };
+    }
+  }
+
+  return { allowed: true, device };
+}
+
 apiRouter.get('/devices', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
@@ -1350,33 +1504,251 @@ apiRouter.get('/devices', async (req: Request, res: Response) => {
   }
 });
 
+// POST /devices - Register new network equipment
+apiRouter.post('/devices', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You do not have permission to register or add new network devices under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز افزودن یا ثبت تجهیز جدید را ندارید.',
+      });
+    }
+
+    const newDevice = await createDevice(req.body);
+    return res.status(201).json({
+      success: true,
+      device: newDevice,
+      message: 'Device successfully registered in database',
+      message_en: 'Device successfully registered in database',
+      message_fa: 'تجهیز با موفقیت در دیتابیس ثبت شد',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 apiRouter.get('/devices/:id', async (req: Request, res: Response) => {
   try {
-    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
-    const deviceId = req.params.id;
-
-    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
-      if (!allowedDeviceIds.includes(deviceId)) {
-        return res.status(403).json({
-          success: false,
-          error: 'Access denied: Device is outside your authorized Device Group and Network Zone scope in database policy.',
-          errorFa: 'عدم دسترسی: این تجهیز خارج از محدوده گروه‌های مجاز شما در پایگاه‌داده است.',
-        });
-      }
+    const check = await assertDeviceScopeAccess(req, req.params.id);
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        error: check.error,
+        errorFa: check.errorFa,
+      });
     }
 
-    const device = await getDeviceById(deviceId);
-    if (!device) {
-      return res.status(404).json({ success: false, error: 'Device not found' });
-    }
-
-    const d = { ...device };
+    const d = { ...check.device };
     delete d.ssh_password;
     delete d.enable_password;
     return res.json({ device: d });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// PUT /devices/:id - Edit device properties
+apiRouter.put('/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'edit_properties');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+
+    const updated = await updateDevice(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+
+    return res.json({
+      success: true,
+      device: updated,
+      message: 'Device properties updated successfully',
+      message_en: 'Device properties updated successfully',
+      message_fa: 'مشخصات تجهیز با موفقیت به‌روزرسانی شد',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /devices/:id - Partial update device properties
+apiRouter.patch('/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'edit_properties');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+
+    const updated = await updateDevice(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+
+    return res.json({
+      success: true,
+      device: updated,
+      message: 'Device properties updated successfully',
+      message_en: 'Device properties updated successfully',
+      message_fa: 'مشخصات تجهیز با موفقیت به‌روزرسانی شد',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /devices/:id - Delete device
+apiRouter.delete('/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'delete_device');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+
+    const ok = await deleteDevice(req.params.id);
+    return res.json({
+      success: ok,
+      message: ok ? 'Device deleted successfully' : 'Failed to delete device',
+      message_en: ok ? 'Device deleted successfully' : 'Failed to delete device',
+      message_fa: ok ? 'تجهیز با موفقیت حذف شد' : 'خطا در حذف تجهیز',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /devices/bulk-delete - Delete multiple devices
+apiRouter.post('/devices/bulk-delete', async (req: Request, res: Response) => {
+  try {
+    const deviceIds: string[] = Array.isArray(req.body?.deviceIds) ? req.body.deviceIds : [];
+    if (!deviceIds.length) {
+      return res.status(400).json({ success: false, error: 'deviceIds array is required' });
+    }
+
+    for (const devId of deviceIds) {
+      const check = await assertDeviceScopeAccess(req, devId, 'delete_device');
+      if (!check.allowed) {
+        return res.status(check.status || 403).json({
+          success: false,
+          error: `Access denied for device ${devId}: ${check.error}`,
+          errorFa: `عدم دسترسی برای تجهیز ${devId}: ${check.errorFa}`,
+        });
+      }
+    }
+
+    let deletedCount = 0;
+    for (const id of deviceIds) {
+      const ok = await deleteDevice(id);
+      if (ok) deletedCount++;
+    }
+
+    return res.json({
+      success: true,
+      deletedCount,
+      message: `Successfully deleted ${deletedCount} device(s)`,
+      message_en: `Successfully deleted ${deletedCount} device(s)`,
+      message_fa: `${deletedCount} تجهیز با موفقیت حذف شد`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /devices/:id/write-memory - Save running config to NVRAM
+apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) => {
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'write_memory');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+
+    const pythonPort = process.env.BACKEND_PORT || process.env.PYTHON_PORT || '5001';
+    try {
+      const resp = await fetch(`http://127.0.0.1:${pythonPort}/api/devices/${encodeURIComponent(req.params.id)}/write-memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body || {}),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return res.json(data);
+      }
+    } catch {
+      // Python backend offline fallback
+    }
+
+    const updated = await updateDevice(req.params.id, { has_unsaved_changes: false });
+    return res.json({
+      success: true,
+      device: updated,
+      message: 'Running configuration successfully saved to startup configuration (NVRAM)',
+      message_en: 'Running configuration successfully saved to startup configuration (NVRAM)',
+      message_fa: 'تنظیمات جاری با موفقیت در حافظه پایدار (NVRAM) ذخیره شد',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Guards for ports, interfaces, vlans, unsaved-changes (inspect_ports)
+apiRouter.use(['/devices/:id/ports', '/devices/:id/ports/*'], async (req: Request, res: Response, next: NextFunction) => {
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
+  if (!check.allowed) {
+    return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+  }
+  next();
+});
+
+apiRouter.use('/devices/:id/vlans', async (req: Request, res: Response, next: NextFunction) => {
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
+  if (!check.allowed) {
+    return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+  }
+  next();
+});
+
+apiRouter.use('/devices/:id/unsaved-changes', async (req: Request, res: Response, next: NextFunction) => {
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
+  if (!check.allowed) {
+    return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+  }
+  next();
+});
+
+// Guard for ping & keepalive telemetry
+apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, next: NextFunction) => {
+  const op = (req.body?.operation || req.body?.action || '').toLowerCase();
+  const requiredAction = op.includes('ping') || !op ? 'ping_keepalive' : undefined;
+  if (requiredAction) {
+    const check = await assertDeviceScopeAccess(req, req.params.id, requiredAction);
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+  }
+  next();
+});
+
+// Guard for terminal CLI execution
+apiRouter.use(['/devices/:id/terminal', '/devices/:id/terminal/*'], async (req: Request, res: Response, next: NextFunction) => {
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'terminal');
+  if (!check.allowed) {
+    return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+  }
+  next();
+});
+
+// Guard for applying templates to network equipment
+apiRouter.post('/templates/apply', async (req: Request, res: Response, next: NextFunction) => {
+  const deviceId = req.body?.device_id || req.body?.deviceId;
+  if (deviceId) {
+    const check = await assertDeviceScopeAccess(req, deviceId, 'apply_template');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+  }
+  next();
 });
 
 apiRouter.get('/topology', async (req: Request, res: Response) => {

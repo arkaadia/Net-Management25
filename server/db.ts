@@ -3195,6 +3195,240 @@ export async function getDeviceById(id: string): Promise<any | null> {
   return all.find((d) => d.id === id || d.name === id) || null;
 }
 
+export async function createDevice(deviceData: any): Promise<any> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.devices)) {
+    store.devices = loadInitialDevices();
+  }
+  const id = (deviceData.id || `dev-${Date.now()}`).trim();
+  const newDevice = {
+    ...deviceData,
+    id,
+    name: (deviceData.name || id).trim(),
+    ip: (deviceData.ip || '127.0.0.1').trim(),
+    type: deviceData.type || 'switch',
+    model: deviceData.model || '',
+    platform: deviceData.platform || 'cisco_ios_xe',
+    role: deviceData.role || '',
+    connection_mode: deviceData.connection_mode || 'simulator',
+    ssh_host: deviceData.ssh_host || deviceData.ip || '127.0.0.1',
+    ssh_port: Number(deviceData.ssh_port) || 22,
+    ssh_username: deviceData.ssh_username || 'admin',
+    is_online: deviceData.is_online !== undefined ? Boolean(deviceData.is_online) : true,
+    latency_ms: Number(deviceData.latency_ms) || 1.5,
+    mac_address: deviceData.mac_address || deviceData.mac || '',
+    uptime_str: deviceData.uptime_str || deviceData.uptime || '0 days',
+    ports: Array.isArray(deviceData.ports) ? deviceData.ports : [],
+  };
+
+  const existingIdx = store.devices.findIndex((d: any) => d.id === id);
+  if (existingIdx >= 0) {
+    store.devices[existingIdx] = newDevice;
+  } else {
+    store.devices.push(newDevice);
+  }
+  saveFallbackStore(store);
+
+  // Sync to network_data.json
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const netData = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      if (Array.isArray(netData.devices)) {
+        const netIdx = netData.devices.findIndex((d: any) => d.id === id);
+        if (netIdx >= 0) {
+          netData.devices[netIdx] = newDevice;
+        } else {
+          netData.devices.push(newDevice);
+        }
+        fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
+      }
+    }
+  } catch (err) {
+    console.warn('[DB createDevice network_data.json sync notice]', err);
+  }
+
+  // PostgreSQL write
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO devices (
+          id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          ip = EXCLUDED.ip,
+          type = EXCLUDED.type,
+          model = EXCLUDED.model,
+          platform = EXCLUDED.platform,
+          role = EXCLUDED.role,
+          connection_mode = EXCLUDED.connection_mode,
+          ssh_host = EXCLUDED.ssh_host,
+          ssh_port = EXCLUDED.ssh_port,
+          ssh_username = EXCLUDED.ssh_username,
+          is_online = EXCLUDED.is_online,
+          latency_ms = EXCLUDED.latency_ms,
+          mac_address = EXCLUDED.mac_address,
+          uptime_str = EXCLUDED.uptime_str,
+          ports = EXCLUDED.ports`,
+        [
+          newDevice.id,
+          newDevice.name,
+          newDevice.ip,
+          newDevice.type,
+          newDevice.model,
+          newDevice.platform,
+          newDevice.role,
+          newDevice.connection_mode,
+          newDevice.ssh_host,
+          newDevice.ssh_port,
+          newDevice.ssh_username,
+          newDevice.is_online,
+          newDevice.latency_ms,
+          newDevice.mac_address,
+          newDevice.uptime_str,
+          JSON.stringify(newDevice.ports),
+        ]
+      );
+    } catch (e) {
+      console.error('[DB createDevice in PostgreSQL error]', e);
+    }
+  }
+
+  return newDevice;
+}
+
+export async function updateDevice(id: string, updates: any): Promise<any> {
+  const cleanId = (id || updates.id || '').trim();
+  const existing = await getDeviceById(cleanId);
+  if (!existing) return null;
+
+  const updated = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    name: updates.name !== undefined ? updates.name.trim() : existing.name,
+    ip: updates.ip !== undefined ? updates.ip.trim() : existing.ip,
+    model: updates.model !== undefined ? updates.model.trim() : existing.model,
+    type: updates.type !== undefined ? updates.type : existing.type,
+    platform: updates.platform !== undefined ? updates.platform : existing.platform,
+    role: updates.role !== undefined ? updates.role.trim() : existing.role,
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.devices)) {
+    store.devices = loadInitialDevices();
+  }
+  const idx = store.devices.findIndex((d: any) => d.id === existing.id);
+  if (idx >= 0) {
+    store.devices[idx] = updated;
+  } else {
+    store.devices.push(updated);
+  }
+  saveFallbackStore(store);
+
+  // Sync to network_data.json
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const netData = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      if (Array.isArray(netData.devices)) {
+        const netIdx = netData.devices.findIndex((d: any) => d.id === existing.id);
+        if (netIdx >= 0) {
+          netData.devices[netIdx] = updated;
+        } else {
+          netData.devices.push(updated);
+        }
+        fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
+      }
+    }
+  } catch (err) {
+    console.warn('[DB updateDevice network_data.json sync notice]', err);
+  }
+
+  // PostgreSQL write
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `UPDATE devices SET
+          name = $2, ip = $3, type = $4, model = $5, platform = $6, role = $7,
+          ssh_host = $8, ssh_port = $9, ssh_username = $10, is_online = $11,
+          latency_ms = $12, mac_address = $13, uptime_str = $14, ports = $15
+        WHERE id = $1`,
+        [
+          updated.id,
+          updated.name,
+          updated.ip,
+          updated.type,
+          updated.model,
+          updated.platform,
+          updated.role,
+          updated.ssh_host || updated.ip,
+          updated.ssh_port || 22,
+          updated.ssh_username || 'admin',
+          Boolean(updated.is_online),
+          Number(updated.latency_ms) || 1.5,
+          updated.mac_address || updated.mac || '',
+          updated.uptime_str || '',
+          JSON.stringify(updated.ports || []),
+        ]
+      );
+    } catch (e) {
+      console.error('[DB updateDevice in PostgreSQL error]', e);
+    }
+  }
+
+  return updated;
+}
+
+export async function deleteDevice(id: string): Promise<boolean> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return false;
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.devices)) {
+    store.devices = store.devices.filter((d: any) => d.id !== cleanId);
+    saveFallbackStore(store);
+  }
+
+  // Remove from network_data.json
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const netData = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      if (Array.isArray(netData.devices)) {
+        netData.devices = netData.devices.filter((d: any) => d.id !== cleanId);
+      }
+      if (Array.isArray(netData.topology_links)) {
+        netData.topology_links = netData.topology_links.filter(
+          (l: any) => l.source !== cleanId && l.target !== cleanId
+        );
+      }
+      if (netData.ports && netData.ports[cleanId]) {
+        delete netData.ports[cleanId];
+      }
+      fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
+    }
+  } catch (err) {
+    console.warn('[DB deleteDevice network_data.json sync notice]', err);
+  }
+
+  // PostgreSQL delete
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM devices WHERE id = $1', [cleanId]);
+      await pool.query('DELETE FROM device_sticky_notes WHERE device_id = $1', [cleanId]);
+    } catch (e) {
+      console.error('[DB deleteDevice in PostgreSQL error]', e);
+    }
+  }
+
+  return true;
+}
+
 // -------------------------------------------------------------
 // Device Groups
 // -------------------------------------------------------------

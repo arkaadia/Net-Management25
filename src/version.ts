@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.252.0';
+export const APP_VERSION = '1.253.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.253.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۴: امن‌سازی و کنترل دسترسی اختیارات تفکیک‌شده تجهیزات شبکه در بک‌اند و اندپوینت‌های API سرور (Network Equipment Backend Route Guarding & RBAC Enforcement)',
+    title_en: 'Phase 4: Backend Route Guarding & API Endpoint Action Enforcement for Network Equipment Inventory',
+    changes: [
+      'پیاده‌سازی گارد امنیتی یکپارچه assertDeviceScopeAccess و inferDeviceActionKey در server/routes.ts جهت اعتبارسنجی توکن، تفکیک نقش‌ها، بررسی گروه تجهیزات مجاز در دیتابیس (allowedDeviceIds) و ارزیابی ماتریس دسترسی به ازای هر دیوایس.',
+      'افزودن و امن‌سازی اندپوینت‌های CRUD تجهیزات شبکه شامل POST /api/devices (ثبت تجهیز با اعتبارسنجی canManageDevices)، PUT و PATCH /api/devices/:id (ویرایش مشخصات با گارد edit_properties)، و DELETE /api/devices/:id به همراه POST /api/devices/bulk-delete (حذف تکی و گروهی با گارد delete_device).',
+      'امن‌سازی اندپوینت رایت تنظیمات در حافظه پایدار POST /api/devices/:id/write-memory منطبق بر مجوز write_memory و همگام‌سازی وضعیت در دیتابیس و فایل شبکه.',
+      'اعمال گارد امنیتی روی مشاهده و تغییر وضعیت پورت‌ها و اینترفیس‌ها (/devices/:id/ports، /vlans و /unsaved-changes) منحصراً با مجوز inspect_ports.',
+      'مسدودسازی و نظارت مقتدرانه بر فرامین خط فرمان ترمینال و اعمال تمپلیت کانفیگ (/templates/apply) بر پایه مجوزهای تفکیک‌شده terminal و apply_template.',
+      'پشتیبانی از احراز هویت و کنترل دسترسی دیتابیس‌محور در سوکت وب ترمینال (server/terminalWs.ts) با بررسی بلادرنگ محدوده گروه‌های تجهیزات و مجوز اتصال شل تعاملی.',
+      'پاسخ‌های استاندارد با کدهای وضعیت HTTP 403 Forbidden و پیام‌های خطای دو زبانه (فارسی و انگلیسی) بدون نشت اطلاعات حساس.'
+    ],
+    changes_en: [
+      'Implemented authoritative backend security guards assertDeviceScopeAccess and inferDeviceActionKey in server/routes.ts resolving user tokens, verifying PostgreSQL-defined device scope (allowedDeviceIds), and evaluating granular per-device permission matrices.',
+      'Added and strictly guarded network equipment CRUD endpoints: POST /api/devices (register equipment guarded by canManageDevices), PUT/PATCH /api/devices/:id (edit properties guarded by edit_properties), and DELETE /api/devices/:id alongside POST /api/devices/bulk-delete (guarded by delete_device).',
+      'Hardened NVRAM running-config save endpoint POST /api/devices/:id/write-memory with write_memory permission validation and synchronized persistence in database and network stores.',
+      'Guarded interface, port telemetry, and VLAN inspection routes (/devices/:id/ports, /vlans, and /unsaved-changes) strictly under the inspect_ports permission gate.',
+      'Protected CLI command execution routes and template application (POST /api/templates/apply) with granular terminal and apply_template RBAC evaluations.',
+      'Enforced authoritative database RBAC scoping inside the interactive terminal WebSocket (server/terminalWs.ts) with real-time verification of device group boundaries and CLI access rights.',
+      'Delivered standards-compliant HTTP 403 Forbidden responses with clean bilingual error payloads (English & Persian) preserving complete credential confidentiality.'
+    ],
+  },
   {
     version: '1.252.0',
     releaseDate: '2026-10-02',

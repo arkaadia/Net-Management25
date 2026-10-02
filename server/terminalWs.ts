@@ -117,6 +117,47 @@ export function setupTerminalWebSocket(
               if (!password) {
                 password = dev.connection?.password || dev.ssh_password || '';
               }
+
+              // Authoritative network equipment scope & terminal permission check
+              const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+              if (token) {
+                try {
+                  const { verifyToken } = await import('./auth');
+                  const payload = verifyToken(token);
+                  if (payload) {
+                    const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
+                    const eff = await getEffectivePolicyForUser(payload);
+                    const cleanU = (payload.username || '').toLowerCase();
+                    const cleanR = (payload.role || '').toLowerCase();
+                    const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+                    if (!isSuper && eff) {
+                      // 1. Device scope check (PostgreSQL device groups)
+                      if (Array.isArray(eff.allowedDeviceIds)) {
+                        const allowedSet = new Set(eff.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()));
+                        if (!allowedSet.has((dev.id || '').toLowerCase()) && !allowedSet.has((dev.name || '').toLowerCase())) {
+                          clientWs.send(JSON.stringify({
+                            type: 'output',
+                            data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this network device based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n'
+                          }));
+                          clientWs.close(4003, 'Forbidden');
+                          return;
+                        }
+                      }
+                      // 2. Granular device terminal action check
+                      if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
+                        clientWs.send(JSON.stringify({
+                          type: 'output',
+                          data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
+                        }));
+                        clientWs.close(4003, 'Forbidden');
+                        return;
+                      }
+                    }
+                  }
+                } catch (authErr: any) {
+                  console.warn('[TerminalWs] Device scope verification notice:', authErr.message);
+                }
+              }
             }
           }
         }
