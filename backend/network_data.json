@@ -159,7 +159,25 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9pCH1sGlMTLLcdUCtMeyZixi9BmgSqUzZ5VX0hAXJkFObmyDJuuLqZpJmZvlEJzXtYmr9gTd9iSInLh725rdVMw=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "pending_changes": [
+        {
+          "port_id": "Gi1/0/1",
+          "type": "port_update",
+          "description": "Interface Gi1/0/1 configuration update",
+          "command": "Executed 'configure terminal\ninterface Gi1/0/1\n description Testing by Admin\nexit\nexit' on SW-ACC-BLDG-A-F3 (Cisco IOS-XE simulator).",
+          "timestamp": "19:14:57"
+        },
+        {
+          "port_id": "Gi1/0/1",
+          "type": "port_update",
+          "description": "Interface Gi1/0/1 configuration update",
+          "command": "Executed 'configure terminal\ninterface Gi1/0/1\n description Helpdesk allowed description override\nexit\nexit' on SW-ACC-BLDG-A-F3 (Cisco IOS-XE simulator).",
+          "timestamp": "19:15:00"
+        }
+      ],
+      "has_unsaved_changes": true,
+      "last_modified_time": "19:15:00"
     },
     {
       "id": "dev-dist-bldg-b",
@@ -663,8 +681,10 @@
         "connected_type": "Access Point",
         "poe_status": "delivering",
         "poe_power": 13.2,
-        "description": "PoE+ to UniFi AP U6 Pro",
-        "port": "Gi1/0/1"
+        "description": "Helpdesk allowed description override",
+        "port": "Gi1/0/1",
+        "port_security_status": "disabled",
+        "port_security_learned_macs": []
       },
       {
         "port_id": "Gi1/0/2",

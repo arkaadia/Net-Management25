@@ -1692,12 +1692,277 @@ apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) 
   }
 });
 
-// Guards for ports, interfaces, vlans, unsaved-changes (inspect_ports)
+// -------------------------------------------------------------
+// Granular Port-Level RBAC Enforcement (Cisco & MikroTik)
+// -------------------------------------------------------------
+interface GranularPortActionRequirement {
+  action: string;
+  field: string;
+  titleEn: string;
+  titleFa: string;
+}
+
+/**
+ * Accurately analyzes incoming request body, query, and path parameters to extract all
+ * required port-level granular permissions for Cisco & MikroTik devices.
+ */
+function extractRequiredPortActions(body: any, urlPath: string): GranularPortActionRequirement[] {
+  const required: GranularPortActionRequirement[] = [];
+  const lowerUrl = (urlPath || '').toLowerCase();
+
+  // Collect candidate payload containers (single updates, batch updates object/array, raw body)
+  const candidateObjects: any[] = [];
+  if (body && typeof body === 'object') {
+    candidateObjects.push(body);
+    if (body.updates && typeof body.updates === 'object') {
+      candidateObjects.push(body.updates);
+    }
+    if (Array.isArray(body.items)) {
+      candidateObjects.push(...body.items);
+    }
+    if (Array.isArray(body.ports)) {
+      candidateObjects.push(...body.ports);
+    }
+  }
+
+  // 1. Port Administrative Power (Shutdown/Enable) -> port_power
+  const hasPowerField = candidateObjects.some(
+    (o) =>
+      'admin_status' in o ||
+      'status' in o ||
+      'disabled' in o ||
+      'enabled' in o ||
+      'power' in o ||
+      'shutdown' in o
+  );
+  const hasPowerUrl =
+    lowerUrl.endsWith('/toggle-admin') ||
+    lowerUrl.endsWith('/power') ||
+    lowerUrl.endsWith('/shutdown') ||
+    lowerUrl.endsWith('/no-shutdown') ||
+    lowerUrl.endsWith('/enable') ||
+    lowerUrl.endsWith('/disable');
+
+  if (hasPowerField || hasPowerUrl) {
+    required.push({
+      action: 'port_power',
+      field: 'admin_status',
+      titleEn: 'Port Administrative Power (Shutdown/Enable)',
+      titleFa: 'روشن/خاموش کردن پورت (Shutdown / Enable)',
+    });
+  }
+
+  // 2. VLAN & Bridge PVID Assignment -> port_vlan
+  const hasVlanField = candidateObjects.some(
+    (o) =>
+      'vlan' in o ||
+      'pvid' in o ||
+      'access_vlan' in o ||
+      'native_vlan' in o
+  );
+  const hasVlanUrl = lowerUrl.endsWith('/vlan') || lowerUrl.endsWith('/pvid');
+
+  if (hasVlanField || hasVlanUrl) {
+    required.push({
+      action: 'port_vlan',
+      field: 'vlan',
+      titleEn: 'VLAN & PVID Assignment',
+      titleFa: 'تخصیص و تغییر VLAN / PVID',
+    });
+  }
+
+  // 3. Switchport Mode (Trunk / Access) -> port_mode
+  const hasModeField = candidateObjects.some(
+    (o) =>
+      'mode' in o ||
+      'switchport_mode' in o ||
+      'allowed_vlans' in o
+  );
+  const hasModeUrl = lowerUrl.endsWith('/mode') || lowerUrl.endsWith('/trunk') || lowerUrl.endsWith('/access');
+
+  if (hasModeField || hasModeUrl) {
+    required.push({
+      action: 'port_mode',
+      field: 'mode',
+      titleEn: 'Switchport Mode (Trunk / Access)',
+      titleFa: 'تغییر مود پورت (Trunk / Access)',
+    });
+  }
+
+  // 4. Port Security Toggle -> port_security
+  const hasSecurityField = candidateObjects.some(
+    (o) =>
+      'port_security_enabled' in o ||
+      'port_security_max_mac' in o ||
+      'port_security_mode' in o ||
+      'port_security_configured_mac' in o ||
+      'port_security_violation' in o ||
+      'port_security_status' in o ||
+      'port_security_learned_macs' in o ||
+      'port_security' in o
+  );
+  const hasSecurityUrl = lowerUrl.endsWith('/port-security') || lowerUrl.endsWith('/security');
+
+  if (hasSecurityField || hasSecurityUrl) {
+    required.push({
+      action: 'port_security',
+      field: 'port_security',
+      titleEn: 'Port Security Toggle',
+      titleFa: 'فعال/غیرفعالسازی امنیت پورت (Port Security)',
+    });
+  }
+
+  // 5. Port Description & Comments -> port_description
+  const hasDescField = candidateObjects.some(
+    (o) =>
+      'description' in o ||
+      'comment' in o ||
+      'port_comment' in o
+  );
+  const hasDescUrl = lowerUrl.endsWith('/description') || lowerUrl.endsWith('/comment');
+
+  if (hasDescField || hasDescUrl) {
+    required.push({
+      action: 'port_description',
+      field: 'description',
+      titleEn: 'Port Description & Comment',
+      titleFa: 'تنظیم توضیحات و کامنت پورت (Description / Comment)',
+    });
+  }
+
+  // 6. Bridge Membership (Add/Remove) -> port_bridge
+  const hasBridgeField = candidateObjects.some(
+    (o) =>
+      'bridge' in o ||
+      'in_bridge' in o ||
+      'bridge_port' in o ||
+      'bridge_member' in o ||
+      'bridge_name' in o
+  );
+  const hasBridgeUrl = lowerUrl.endsWith('/bridge') || lowerUrl.endsWith('/bridge-port');
+
+  if (hasBridgeField || hasBridgeUrl) {
+    required.push({
+      action: 'port_bridge',
+      field: 'bridge',
+      titleEn: 'Bridge Membership (Add/Remove)',
+      titleFa: 'عضویت در بریج میکروتیک (Bridge Membership)',
+    });
+  }
+
+  // 7. Speed, Duplex & Auto-Negotiation -> port_speed
+  const hasSpeedField = candidateObjects.some(
+    (o) =>
+      'speed' in o ||
+      'duplex' in o ||
+      'auto_negotiation' in o ||
+      'negotiation' in o
+  );
+  const hasSpeedUrl = lowerUrl.endsWith('/speed') || lowerUrl.endsWith('/duplex') || lowerUrl.endsWith('/auto-negotiation');
+
+  if (hasSpeedField || hasSpeedUrl) {
+    required.push({
+      action: 'port_speed',
+      field: 'speed',
+      titleEn: 'Speed, Duplex & Auto-Negotiation',
+      titleFa: 'تنظیم سرعت و حالت دوبلکس (Speed / Duplex)',
+    });
+  }
+
+  // 8. TDR Cable Diagnostic Test -> port_cable_test
+  const hasCableTestField = candidateObjects.some(
+    (o) =>
+      'cable_test' in o ||
+      'tdr_test' in o ||
+      'tdr' in o
+  );
+  const hasCableTestUrl = lowerUrl.endsWith('/cable-test') || lowerUrl.endsWith('/tdr') || lowerUrl.endsWith('/tdr-test');
+
+  if (hasCableTestField || hasCableTestUrl) {
+    required.push({
+      action: 'port_cable_test',
+      field: 'cable_test',
+      titleEn: 'TDR Cable Diagnostic Test',
+      titleFa: 'تست عیب‌یابی کابل (TDR Cable Diagnostic)',
+    });
+  }
+
+  return required;
+}
+
+// Guards for ports, interfaces, vlans, unsaved-changes (inspect_ports and granular port RBAC)
 apiRouter.use(['/devices/:id/ports', '/devices/:id/ports/*'], async (req: Request, res: Response, next: NextFunction) => {
+  // 1. Baseline inspection permission check (inspect_ports)
   const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
   if (!check.allowed) {
     return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
   }
+
+  // 2. Safe read-only operations pass through
+  const method = (req.method || 'GET').toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return next();
+  }
+
+  const rawUrl = req.originalUrl || req.url || '';
+  const urlPath = rawUrl.split('?')[0].replace(/\/+$/, '');
+
+  // 3. Telemetry synchronization endpoint (/ports/sync) is an inspection discovery action
+  if (urlPath.endsWith('/ports/sync')) {
+    return next();
+  }
+
+  // 4. Granular mutation check: extract all required port permissions from payload and URL
+  const requiredPortActions = extractRequiredPortActions(req.body, urlPath);
+
+  // If payload contains specific field modifications, validate every single one of them
+  if (requiredPortActions.length > 0) {
+    for (const reqAction of requiredPortActions) {
+      const actionCheck = await assertDeviceScopeAccess(req, req.params.id, reqAction.action);
+      if (!actionCheck.allowed) {
+        // Record audit log for security violation
+        try {
+          const { effectivePolicy } = await resolveRequestContextPolicy(req);
+          await addAuditLog({
+            userName: effectivePolicy?.subjectName || 'Restricted Operator',
+            action: `Port Action Blocked (${reqAction.action})`,
+            category: 'security',
+            target: `Device: ${req.params.id}`,
+            status: 'error',
+            details: `Blocked attempt to modify field '${reqAction.field}' requiring '${reqAction.action}' (${reqAction.titleEn}) under RBAC policy.`,
+          });
+        } catch {
+          // ignore audit log failure
+        }
+
+        return res.status(actionCheck.status || 403).json({
+          success: false,
+          error:
+            actionCheck.error ||
+            `Access denied: You do not have permission to execute '${reqAction.action}' (${reqAction.titleEn}) on this device under your RBAC policy.`,
+          errorFa:
+            actionCheck.errorFa ||
+            `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز انجام عملیات «${reqAction.titleFa}» (${reqAction.action}) روی این تجهیز را ندارید.`,
+          action: reqAction.action,
+          field: reqAction.field,
+          status: 403,
+        });
+      }
+    }
+  } else {
+    // If no specific port action was matched but client is attempting a mutating operation (PUT/PATCH/POST/DELETE)
+    // verify the operator has general device editing rights or at least one port permission
+    const generalCheck = await assertDeviceScopeAccess(req, req.params.id, 'edit_properties');
+    if (!generalCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You do not have permission to modify interface configurations on this device under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز تغییر تنظیمات اینترفیس‌های این تجهیز را ندارید.',
+        status: 403,
+      });
+    }
+  }
+
   next();
 });
 
@@ -1705,6 +1970,24 @@ apiRouter.use('/devices/:id/vlans', async (req: Request, res: Response, next: Ne
   const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
   if (!check.allowed) {
     return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+  }
+
+  const method = (req.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+    const vlanCheck = await assertDeviceScopeAccess(req, req.params.id, 'port_vlan');
+    if (!vlanCheck.allowed) {
+      return res.status(vlanCheck.status || 403).json({
+        success: false,
+        error:
+          vlanCheck.error ||
+          "Access denied: You do not have permission to execute 'port_vlan' (VLAN & PVID Assignment) on this device under your RBAC policy.",
+        errorFa:
+          vlanCheck.errorFa ||
+          'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز تغییر و تخصیص VLANها (port_vlan) روی این تجهیز را ندارید.',
+        action: 'port_vlan',
+        status: 403,
+      });
+    }
   }
   next();
 });

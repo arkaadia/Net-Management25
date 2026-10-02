@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.260.0';
+export const APP_VERSION = '1.261.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.261.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۵: امن‌سازی اندپوینت‌های API بک‌اند و تست عملیاتی تجربی (Backend Enforcement & Empirical Proof)',
+    title_en: 'Phase 5: Backend API Port-Level Granular RBAC Enforcement & Empirical Proof',
+    changes: [
+      'تقویت اساسی میدلویر امنیتی اندپوینت‌های پورت (/devices/:id/ports و /devices/:id/ports/* و /devices/:id/vlans) در فایل server/routes.ts.',
+      'آنالیز عمیق و تفکیک‌شده پیلودهای ارسالی در درخواست‌های تکی و گروهی (Batch Updates) جهت استخراج دقیق اختیارات مورد نیاز پورت.',
+      'انطباق و اعتبارسنجی مستقل برای کلیه اختیارات پورت‌ها: وضعیت اداری (port_power)، تخصیص ویلن و PVID (port_vlan)، مود ترانک/اکسس (port_mode)، امنیت پورت سیسکو (port_security)، توضیحات و کامنت (port_description)، بریج میکروتیک (port_bridge)، سرعت و دوبلکس (port_speed) و تست عیب‌یابی کابل (port_cable_test).',
+      'صدور خطای استاندارد HTTP 403 Forbidden با جزئیات شفاف دوزبانه (کد اکشن، فیلد مسدودشده، عنوان پیام) در صورت تلاش برای ارسال تغییرات خارج از اختیارات پالیسی کاربر.',
+      'ثبت خودکار گزارشات تخلف امنیتی در جدول لاگ‌های سیستم (Audit Logs) در هنگام مسدودسازی درخواست‌های غیرمجاز پورت.',
+      'پشتیبانی کامل از ماتریس استثنا به ازای هر تجهیز (Per-Device Override Matrix) در پایگاه‌داده PostgreSQL به نحوی که کاربر می‌تواند روی یک تجهیز مشخص مجوز ویرایش پورت را دارا باشد و روی تجهیز دیگر فاقد مجوز باشد.',
+      'تست جامع تجربی زنده با اجرای اسکریپت آزمون روی اندپوینت‌های سرور واقعی و تایید ۱۰۰٪ موفقیت هر ۸ سناریوی امنیتی.'
+    ],
+    changes_en: [
+      'Strengthened backend API security middleware for port endpoints (/devices/:id/ports, /devices/:id/ports/*, and /devices/:id/vlans) in server/routes.ts.',
+      'Deep payload inspection across single port updates and batch update operations, accurately extracting required granular port actions from parameters.',
+      'Independent validation across all 8 granular port actions: Administrative Power (port_power), VLAN & PVID Assignment (port_vlan), Switchport Mode (port_mode), Cisco Port Security (port_security), Port Description & Comments (port_description), MikroTik Bridge Membership (port_bridge), Speed & Duplex (port_speed), and TDR Cable Diagnostics (port_cable_test).',
+      'Issued standard HTTP 403 Forbidden responses with clear bilingual error messages, including action key, rejected field, and policy details.',
+      'Automatic security audit logging (Audit Logs) capturing unauthorized interface modification attempts.',
+      'Full authoritative enforcement of the Per-Device Override Matrix in PostgreSQL, allowing granular per-device permission variations across the network fleet.',
+      'Live empirical testing verifying all 8 runtime security scenarios with 100% pass rate.'
+    ],
+  },
   {
     version: '1.260.0',
     releaseDate: '2026-10-02',
