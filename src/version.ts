@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.258.0';
+export const APP_VERSION = '1.259.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.259.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۳.۲: اعمال کنترل دسترسی تفکیک‌شده در فرم‌های ویرایش تکی و گروهی پورت‌های سیسکو (Cisco Port Single & Batch Edit Enforcement)',
+    title_en: 'Phase 3.2: Granular RBAC Enforcement in Cisco Port Single & Batch Edit Forms',
+    changes: [
+      'اعمال کامل ماتریس اختیارات پورت‌ها بر روی فرم‌های ویرایش تکی پورت و ویرایش گروهی (Batch Edit) در کامپوننت PortInspectorModal.',
+      'غیرفعال‌سازی (Disabled) بلادرنگ فیلدهای وضعیت ادمین (port_power)، مود و ویلن‌های مجاز (port_mode)، شماره ویلن (port_vlan)، توضیحات پورت (port_description) و تنظیمات امنیت پورت (port_security) به همراه نشانگر قفل اختصاصی (Locked Badge).',
+      'مسدودسازی دکمه اعمال تغییرات گروهی (Batch Apply) و تبدیل دکمه ویرایش تکی به برچسب «مشاهده فقط‌خواندنی» (Read-Only Inspection) در صورت فقدان تمامی مجوزهای ویرایش پورت.',
+      'اعتبارسنجی پیش‌پرواز (Pre-flight RBAC Validation) در توابع handleOpenSingleSaveConfirm و handleOpenBatchConfirm جهت رد قاطع هرگونه تلاش برای تغییر فیلدهای غیرمجاز همراه با اخطار دوزبانه.',
+      'تجهیز بخش تنظیمات سکیوریتی پورت (Cisco Port Security) به گارد دسترسی کامل برای سوییچ فعال‌سازی، مود یادگیری مک، سقف مک‌آدرس و اقدامات تخلف.',
+      'ایجاد اسکریپت آزمون تجربی test_phase3_2_cisco_port_inspector_rbac.ts و تایید موفقیت‌آمیز ۲۰ سناریوی اعتبارسنجی با نرخ قبولی ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Enforced comprehensive granular port permissions across single-port edit and batch-edit forms in PortInspectorModal.',
+      'Real-time disabling of Admin Status (port_power), Mode & Allowed VLANs (port_mode), VLAN ID (port_vlan), Port Description (port_description), and Port Security settings (port_security) with dedicated Lock badges.',
+      'Disabled Batch Apply button and replaced single edit button with "Read-Only Inspection" indicator when user lacks all port modification permissions.',
+      'Pre-flight RBAC validation in handleOpenSingleSaveConfirm and handleOpenBatchConfirm preventing unauthorized field updates with descriptive bilingual alerts.',
+      'Complete permission guarding on Cisco Port Security configuration box including toggle, learning mode, maximum MAC threshold, and violation actions.',
+      'Created empirical test suite test_phase3_2_cisco_port_inspector_rbac.ts passing all 20 verification test scenarios with 100% success rate.'
+    ],
+  },
   {
     version: '1.258.0',
     releaseDate: '2026-10-02',

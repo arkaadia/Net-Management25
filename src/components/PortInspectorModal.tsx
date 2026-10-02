@@ -44,6 +44,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     isDeviceActionPermitted(effectivePolicy, device.id, 'terminal')
   );
 
+  // Granular Port RBAC Permissions for this specific switch/router
+  const canPower = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_power'));
+  const canVlan = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_vlan'));
+  const canDescription = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_description'));
+  const canMode = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_mode'));
+  const canPortSecurity = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_security'));
+  const canAnyPortEdit = canPower || canVlan || canDescription || canMode || canPortSecurity;
+
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +205,25 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const handleConfirmExecuteCommand = async () => {
     if (!confirmModalState || !device) return;
     const { action, port: targetPort } = confirmModalState;
+
+    const actionPermMap: Record<string, NetworkDeviceActionKey> = {
+      shutdown: 'port_power',
+      no_shutdown: 'port_power',
+      mode_trunk: 'port_mode',
+      mode_access: 'port_mode',
+      port_sec_disable: 'port_security',
+    };
+    const reqPerm = actionPermMap[action];
+    if (reqPerm && !isDeviceActionPermitted(effectivePolicy, device.id, reqPerm)) {
+      alert(
+        isEn
+          ? `Access Denied: You do not have permission to execute '${reqPerm}' on this device.`
+          : `عدم دسترسی: شما طبق پالیسی دسترسی مجوز انجام عملیات «${reqPerm}» روی این تجهیز را ندارید.`
+      );
+      setConfirmModalState(null);
+      return;
+    }
+
     let updates: Partial<SwitchPort> = {};
 
     switch (action) {
@@ -309,6 +336,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
   const handleConfirmAssignVlan = async (newVlan: number) => {
     if (!vlanAssignModalPort || !device) return;
+    if (!isDeviceActionPermitted(effectivePolicy, device.id, 'port_vlan')) {
+      alert(
+        isEn
+          ? 'Access Denied: You do not have permission to modify VLAN assignment on this device.'
+          : 'عدم دسترسی: شما طبق پالیسی دسترسی مجوز تغییر ویلن روی این تجهیز را ندارید.'
+      );
+      setVlanAssignModalPort(null);
+      return;
+    }
     const targetPort = vlanAssignModalPort;
 
     try {
@@ -382,6 +418,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
   const handleConfirmSetDescription = async (newDescription: string) => {
     if (!descriptionModalPort || !device) return;
+    if (!isDeviceActionPermitted(effectivePolicy, device.id, 'port_description')) {
+      alert(
+        isEn
+          ? 'Access Denied: You do not have permission to modify port description on this device.'
+          : 'عدم دسترسی: شما طبق پالیسی دسترسی مجوز ویرایش توضیحات پورت روی این تجهیز را ندارید.'
+      );
+      setDescriptionModalPort(null);
+      return;
+    }
     const targetPort = descriptionModalPort;
     const cleanDesc = newDescription.trim();
 
@@ -587,40 +632,72 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const handleOpenBatchConfirm = () => {
     if (!device || selectedPortIds.length === 0) return;
 
+    if (!canAnyPortEdit) {
+      setError(
+        isEn
+          ? 'Access Denied: You do not have permission to perform batch configurations on this device.'
+          : 'عدم دسترسی: شما طبق پالیسی دسترسی مجوز اعمال تنظیمات گروهی روی این تجهیز را ندارید.'
+      );
+      return;
+    }
+
+    // Pre-flight RBAC validation
+    const unauthorizedBatch: string[] = [];
+    if (batchAdminStatus !== 'no_change' && !canPower) {
+      unauthorizedBatch.push(isEn ? 'Admin Status (port_power)' : 'وضعیت ادمین (port_power)');
+    }
+    if ((batchMode !== 'no_change' || batchAllowedVlans.trim() !== '') && !canMode) {
+      unauthorizedBatch.push(isEn ? 'Switchport Mode & Allowed VLANs (port_mode)' : 'مود پورت و ویلن‌های مجاز (port_mode)');
+    }
+    if (batchVlan.trim() !== '' && !canVlan) {
+      unauthorizedBatch.push(isEn ? 'Assign VLAN (port_vlan)' : 'تخصیص ویلن (port_vlan)');
+    }
+    if (batchPortSec !== 'no_change' && !canPortSecurity) {
+      unauthorizedBatch.push(isEn ? 'Port Security (port_security)' : 'امنیت پورت (port_security)');
+    }
+
+    if (unauthorizedBatch.length > 0) {
+      alert(
+        isEn
+          ? `Access Denied: You lack permissions for the following batch actions under your RBAC policy:\n• ${unauthorizedBatch.join('\n• ')}`
+          : `عدم دسترسی: شما طبق پالیسی دسترسی RBAC مجوز اعمال گروهی موارد زیر را ندارید:\n• ${unauthorizedBatch.join('\n• ')}`
+      );
+      return;
+    }
+
     const hasAnyChange =
-      batchAdminStatus !== 'no_change' ||
-      batchMode !== 'no_change' ||
-      batchVlan.trim() !== '' ||
-      batchAllowedVlans.trim() !== '' ||
-      batchPortSec !== 'no_change';
+      (canPower && batchAdminStatus !== 'no_change') ||
+      (canMode && (batchMode !== 'no_change' || batchAllowedVlans.trim() !== '')) ||
+      (canVlan && batchVlan.trim() !== '') ||
+      (canPortSecurity && batchPortSec !== 'no_change');
 
     if (!hasAnyChange) {
       setError(
         isEn
-          ? 'Please specify at least one configuration parameter to apply in batch.'
-          : 'لطفاً حداقل یکی از پارامترهای تنظیماتی را برای اعمال دسته‌ای مشخص نمایید.'
+          ? 'Please specify at least one permitted configuration parameter to apply in batch.'
+          : 'لطفاً حداقل یکی از پارامترهای تنظیمی مجاز را برای اعمال دسته‌ای مشخص نمایید.'
       );
       return;
     }
 
     const updates: PortConfigUpdates = {};
-    if (batchAdminStatus !== 'no_change') {
+    if (canPower && batchAdminStatus !== 'no_change') {
       updates.admin_status = batchAdminStatus;
       updates.status = batchAdminStatus === 'disabled' ? 'down' : 'up';
     }
-    if (batchMode !== 'no_change') {
+    if (canMode && batchMode !== 'no_change') {
       updates.mode = batchMode;
     }
-    if (batchVlan.trim() !== '') {
+    if (canVlan && batchVlan.trim() !== '') {
       const v = parseInt(batchVlan.trim(), 10);
       if (!isNaN(v) && v >= 1 && v <= 4094) {
         updates.vlan = v;
       }
     }
-    if (batchAllowedVlans.trim() !== '') {
+    if (canMode && batchAllowedVlans.trim() !== '') {
       updates.allowed_vlans = batchAllowedVlans.trim();
     }
-    if (batchPortSec !== 'no_change') {
+    if (canPortSecurity && batchPortSec !== 'no_change') {
       updates.port_security_enabled = batchPortSec === 'enabled';
       if (batchPortSec === 'enabled') {
         updates.port_security_mode = batchPortSecMode;
@@ -636,6 +713,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   };
 
   const startEdit = (port: SwitchPort) => {
+    if (!canAnyPortEdit) {
+      alert(
+        isEn
+          ? 'Access Denied: You do not have permission to modify port configuration on this device.'
+          : 'عدم دسترسی: شما طبق پالیسی دسترسی مجوز ویرایش تنظیمات پورت روی این تجهیز را ندارید.'
+      );
+      return;
+    }
+
     setSelectedPort(port);
     setEditAdminStatus(port.admin_status);
     setEditMode(port.mode);
@@ -660,19 +746,71 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   // Called when user clicks "ذخیره در سوئیچ" -> opens Cisco confirmation modal first
   const handleOpenSingleSaveConfirm = () => {
     if (!device || !selectedPort) return;
+
+    if (!canAnyPortEdit) {
+      alert(
+        isEn
+          ? 'Access Denied: You do not have permission to modify port parameters on this device.'
+          : 'عدم دسترسی: شما طبق پالیسی دسترسی مجوز ویرایش پارامترهای پورت روی این تجهیز را ندارید.'
+      );
+      return;
+    }
+
+    const original = selectedPort;
+    const hasAdminChange = editAdminStatus !== original.admin_status;
+    const hasModeChange = editMode !== original.mode;
+    const hasVlanChange = editVlan !== original.vlan;
+    const hasAllowedVlansChange = editAllowedVlans !== (original.allowed_vlans || '');
+    const hasDescChange = editDesc !== (original.description || '');
+    const hasPortSecChange =
+      editPortSecEnabled !== !!original.port_security_enabled ||
+      (editPortSecEnabled && (
+        editPortSecMode !== (original.port_security_mode || 'sticky') ||
+        editPortSecMaxMac !== (original.port_security_max_mac || 1) ||
+        editPortSecConfiguredMac !== (original.port_security_configured_mac || '') ||
+        editPortSecViolation !== (original.port_security_violation || 'shutdown')
+      ));
+
+    // Pre-flight validation of unauthorized changes
+    const unauthorizedChanges: string[] = [];
+    if (hasAdminChange && !canPower) {
+      unauthorizedChanges.push(isEn ? 'Admin Status (port_power)' : 'وضعیت ادمین پورت (port_power)');
+    }
+    if ((hasModeChange || hasAllowedVlansChange) && !canMode) {
+      unauthorizedChanges.push(isEn ? 'Switchport Mode / Allowed VLANs (port_mode)' : 'مود پورت و ویلن‌های مجاز (port_mode)');
+    }
+    if (hasVlanChange && !canVlan) {
+      unauthorizedChanges.push(isEn ? 'VLAN ID (port_vlan)' : 'شماره ویلن پورت (port_vlan)');
+    }
+    if (hasDescChange && !canDescription) {
+      unauthorizedChanges.push(isEn ? 'Port Description (port_description)' : 'توضیحات پورت (port_description)');
+    }
+    if (hasPortSecChange && !canPortSecurity) {
+      unauthorizedChanges.push(isEn ? 'Port Security Settings (port_security)' : 'تنظیمات پورت سکیوریتی (port_security)');
+    }
+
+    if (unauthorizedChanges.length > 0) {
+      alert(
+        isEn
+          ? `Access Denied: You do not have permission to modify the following parameters:\n• ${unauthorizedChanges.join('\n• ')}`
+          : `عدم دسترسی: شما طبق پالیسی دسترسی مجوز ویرایش پارامترهای زیر را ندارید:\n• ${unauthorizedChanges.join('\n• ')}`
+      );
+      return;
+    }
+
     const updates: PortConfigUpdates = {
-      admin_status: editAdminStatus,
-      status: editAdminStatus === 'disabled' ? 'down' : 'up',
-      mode: editMode,
-      vlan: editVlan,
-      allowed_vlans: editAllowedVlans,
+      admin_status: canPower ? editAdminStatus : original.admin_status,
+      status: canPower ? (editAdminStatus === 'disabled' ? 'down' : 'up') : original.status,
+      mode: canMode ? editMode : original.mode,
+      vlan: canVlan ? editVlan : original.vlan,
+      allowed_vlans: canMode ? editAllowedVlans : original.allowed_vlans,
       connected_device: editConnected,
-      description: editDesc,
-      port_security_enabled: editPortSecEnabled,
-      port_security_max_mac: editPortSecMaxMac,
-      port_security_mode: editPortSecMode,
-      port_security_configured_mac: editPortSecConfiguredMac,
-      port_security_violation: editPortSecViolation,
+      description: canDescription ? editDesc : original.description,
+      port_security_enabled: canPortSecurity ? editPortSecEnabled : !!original.port_security_enabled,
+      port_security_max_mac: canPortSecurity ? editPortSecMaxMac : original.port_security_max_mac,
+      port_security_mode: canPortSecurity ? editPortSecMode : original.port_security_mode,
+      port_security_configured_mac: canPortSecurity ? editPortSecConfiguredMac : original.port_security_configured_mac,
+      port_security_violation: canPortSecurity ? editPortSecViolation : original.port_security_violation,
     };
 
     setPortConfigConfirmModal({
@@ -1102,14 +1240,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               {/* Batch Settings Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                 {/* Admin Status */}
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-1.5">
-                  <label className="text-slate-300 font-semibold block text-[11px]">
-                    {isEn ? 'Admin Status:' : 'وضعیت مدیریتی:'}
-                  </label>
+                <div className={`p-2.5 rounded-lg border space-y-1.5 transition ${!canPower ? 'bg-black/20 border-white/5 opacity-60' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-semibold block text-[11px]">
+                      {isEn ? 'Admin Status:' : 'وضعیت مدیریتی:'}
+                    </label>
+                    {!canPower && (
+                      <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_power' : 'نیازمند دسترسی port_power'}>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{isEn ? 'Locked' : 'قفل'}</span>
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={batchAdminStatus}
+                    disabled={!canPower}
                     onChange={(e: any) => setBatchAdminStatus(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400"
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 ${
+                      !canPower
+                        ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                        : 'bg-black/50 border-white/20 text-white'
+                    }`}
                   >
                     <option value="no_change" className="bg-slate-900 text-slate-300">{isEn ? '-- No Change --' : '-- بدون تغییر --'}</option>
                     <option value="enabled" className="bg-slate-900 text-emerald-400">{isEn ? 'Enable (no shutdown)' : 'فعال (no shutdown)'}</option>
@@ -1118,14 +1269,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                 </div>
 
                 {/* Mode */}
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-1.5">
-                  <label className="text-slate-300 font-semibold block text-[11px]">
-                    {isEn ? 'Switchport Mode:' : 'مود سوئیچ‌پورت:'}
-                  </label>
+                <div className={`p-2.5 rounded-lg border space-y-1.5 transition ${!canMode ? 'bg-black/20 border-white/5 opacity-60' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-semibold block text-[11px]">
+                      {isEn ? 'Switchport Mode:' : 'مود سوئیچ‌پورت:'}
+                    </label>
+                    {!canMode && (
+                      <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_mode' : 'نیازمند دسترسی port_mode'}>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{isEn ? 'Locked' : 'قفل'}</span>
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={batchMode}
+                    disabled={!canMode}
                     onChange={(e: any) => setBatchMode(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400"
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 ${
+                      !canMode
+                        ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                        : 'bg-black/50 border-white/20 text-white'
+                    }`}
                   >
                     <option value="no_change" className="bg-slate-900 text-slate-300">{isEn ? '-- No Change --' : '-- بدون تغییر --'}</option>
                     <option value="access" className="bg-slate-900 text-indigo-300">{isEn ? 'Access' : 'Access (اکسس)'}</option>
@@ -1134,46 +1298,85 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                 </div>
 
                 {/* VLAN */}
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-1.5">
-                  <label className="text-slate-300 font-semibold block text-[11px]">
-                    {isEn ? 'Assign VLAN (1-4094):' : 'تخصیص ویلن (VLAN):'}
-                  </label>
+                <div className={`p-2.5 rounded-lg border space-y-1.5 transition ${!canVlan ? 'bg-black/20 border-white/5 opacity-60' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-semibold block text-[11px]">
+                      {isEn ? 'Assign VLAN (1-4094):' : 'تخصیص ویلن (VLAN):'}
+                    </label>
+                    {!canVlan && (
+                      <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_vlan' : 'نیازمند دسترسی port_vlan'}>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{isEn ? 'Locked' : 'قفل'}</span>
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="number"
                     min={1}
                     max={4094}
                     value={batchVlan}
+                    disabled={!canVlan}
                     onChange={(e) => setBatchVlan(e.target.value)}
                     placeholder={isEn ? 'Empty = No Change' : 'خالی = بدون تغییر'}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400 placeholder:text-slate-500"
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 placeholder:text-slate-500 ${
+                      !canVlan
+                        ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                        : 'bg-black/50 border-white/20 text-white'
+                    }`}
                   />
                 </div>
 
                 {/* Allowed VLANs (Trunk) */}
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-1.5">
-                  <label className="text-slate-300 font-semibold block text-[11px]">
-                    {isEn ? 'Allowed VLANs (Trunk):' : 'ویلن‌های مجاز (ترانک):'}
-                  </label>
+                <div className={`p-2.5 rounded-lg border space-y-1.5 transition ${!canMode ? 'bg-black/20 border-white/5 opacity-60' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-semibold block text-[11px]">
+                      {isEn ? 'Allowed VLANs (Trunk):' : 'ویلن‌های مجاز (ترانک):'}
+                    </label>
+                    {!canMode && (
+                      <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_mode' : 'نیازمند دسترسی port_mode'}>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{isEn ? 'Locked' : 'قفل'}</span>
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={batchAllowedVlans}
+                    disabled={!canMode}
                     onChange={(e) => setBatchAllowedVlans(e.target.value)}
                     placeholder="1-4094 or 10,20"
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400 placeholder:text-slate-500"
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 placeholder:text-slate-500 ${
+                      !canMode
+                        ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                        : 'bg-black/50 border-white/20 text-white'
+                    }`}
                     dir="ltr"
                   />
                 </div>
 
                 {/* Port Security */}
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-1.5 lg:col-span-2">
-                  <label className="text-slate-300 font-semibold block text-[11px]">
-                    {isEn ? 'Port Security:' : 'امنیت پورت (Port Security):'}
-                  </label>
+                <div className={`p-2.5 rounded-lg border space-y-1.5 lg:col-span-2 transition ${!canPortSecurity ? 'bg-black/20 border-white/5 opacity-60' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-300 font-semibold block text-[11px]">
+                      {isEn ? 'Port Security:' : 'امنیت پورت (Port Security):'}
+                    </label>
+                    {!canPortSecurity && (
+                      <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_security' : 'نیازمند دسترسی port_security'}>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{isEn ? 'Locked' : 'قفل'}</span>
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       value={batchPortSec}
+                      disabled={!canPortSecurity}
                       onChange={(e: any) => setBatchPortSec(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 ${
+                        !canPortSecurity
+                          ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                          : 'bg-black/50 border-white/20 text-white'
+                      }`}
                     >
                       <option value="no_change" className="bg-slate-900 text-slate-300">{isEn ? '-- No Change --' : '-- بدون تغییر --'}</option>
                       <option value="enabled" className="bg-slate-900 text-emerald-400">{isEn ? 'Enable Security' : 'فعال‌سازی امنیت پورت'}</option>
@@ -1182,8 +1385,13 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     {batchPortSec === 'enabled' && (
                       <select
                         value={batchPortSecMode}
+                        disabled={!canPortSecurity}
                         onChange={(e: any) => setBatchPortSecMode(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/20 text-white text-xs font-mono focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:border-indigo-400 ${
+                          !canPortSecurity
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/50 border-white/20 text-white'
+                        }`}
                       >
                         <option value="sticky" className="bg-slate-900 text-white">Sticky (MAC خودکار)</option>
                         <option value="dynamic" className="bg-slate-900 text-white">Dynamic</option>
@@ -1198,11 +1406,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                   <button
                     type="button"
                     onClick={handleOpenBatchConfirm}
-                    disabled={isBatchApplying}
+                    disabled={isBatchApplying || !canAnyPortEdit}
                     className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                   >
                     {isBatchApplying ? (
                       <span>{isEn ? 'Applying Batch...' : 'در حال اعمال تنظیمات روی پورت‌ها...'}</span>
+                    ) : !canAnyPortEdit ? (
+                      <>
+                        <Lock className="w-4 h-4 text-amber-400" />
+                        <span>{isEn ? 'Read-Only: No Port Permissions' : 'فقط خواندنی: فاقد مجوز ویرایش پورت'}</span>
+                      </>
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
@@ -1258,41 +1471,55 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                         <FileText className="w-3 h-3 text-amber-400 shrink-0" />
                         <span className="text-amber-400/80 font-bold">{isEn ? 'Description:' : 'توضیحات:'}</span>
                         <span className="text-slate-100 font-semibold">{activeSelectedPort.description}</span>
+                        {canDescription && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDescriptionModalPort(activeSelectedPort);
+                            }}
+                            className="ml-1 text-[10px] text-amber-400/70 hover:text-amber-300 underline cursor-pointer"
+                          >
+                            {isEn ? 'Edit' : 'ویرایش'}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      canDescription && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setDescriptionModalPort(activeSelectedPort);
                           }}
-                          className="ml-1 text-[10px] text-amber-400/70 hover:text-amber-300 underline cursor-pointer"
+                          className="flex items-center gap-1 mt-1 text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer font-mono"
                         >
-                          {isEn ? 'Edit' : 'ویرایش'}
+                          <FileText className="w-2.5 h-2.5 text-slate-500" />
+                          <span>{isEn ? '+ Add Description' : '+ افزودن دیسکریپشن'}</span>
                         </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDescriptionModalPort(activeSelectedPort);
-                        }}
-                        className="flex items-center gap-1 mt-1 text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer font-mono"
-                      >
-                        <FileText className="w-2.5 h-2.5 text-slate-500" />
-                        <span>{isEn ? '+ Add Description' : '+ افزودن دیسکریپشن'}</span>
-                      </button>
+                      )
                     )}
                   </div>
                 </div>
 
                 {!isEditing ? (
-                  <button
-                    onClick={() => startEdit(activeSelectedPort)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium transition cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>{isEn ? 'Edit Port Settings' : 'ویرایش تنظیمات پورت'}</span>
-                  </button>
+                  canAnyPortEdit ? (
+                    <button
+                      onClick={() => startEdit(activeSelectedPort)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium transition cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{isEn ? 'Edit Port Settings' : 'ویرایش تنظیمات پورت'}</span>
+                    </button>
+                  ) : (
+                    <div
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-300/80 border border-amber-500/20 text-xs font-medium select-none cursor-not-allowed"
+                      title={isEn ? 'Read-Only: You do not have permission to modify port configuration.' : 'فقط خواندنی: شما مجوز ویرایش تنظیمات پورت را ندارید.'}
+                    >
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isEn ? 'Read-Only Inspection' : 'مشاهده فقط خواندنی'}</span>
+                    </div>
+                  )
                 ) : (
                   <div className="flex items-center gap-2">
                     <button
@@ -1303,7 +1530,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     </button>
                     <button
                       onClick={handleOpenSingleSaveConfirm}
-                      disabled={isSaving}
+                      disabled={isSaving || !canAnyPortEdit}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-md transition disabled:opacity-50 cursor-pointer border border-white/10"
                     >
                       <Save className="w-3.5 h-3.5" />
@@ -1435,14 +1662,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                   {/* General Port Settings */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-slate-300 mb-1 font-medium">{isEn ? 'Port Mode:' : 'نوع پورت (Port Mode):'}</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-medium">{isEn ? 'Port Mode:' : 'نوع پورت (Port Mode):'}</label>
+                        {!canMode && (
+                          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_mode' : 'نیازمند دسترسی port_mode'}>
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>{isEn ? 'Locked' : 'قفل'}</span>
+                          </span>
+                        )}
+                      </div>
                       <select
                         value={editMode}
+                        disabled={!canMode}
                         onChange={(e) => {
                           const newMode = e.target.value as 'trunk' | 'access';
                           setEditMode(newMode);
                         }}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono focus:outline-none focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:outline-none focus:border-indigo-400 ${
+                          !canMode
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/30 border-white/15 text-white'
+                        }`}
                       >
                         <option value="access" className="bg-slate-900 text-white">{isEn ? 'Access (Client/Host port)' : 'Access (پورت کلاینت و هاست معمولی)'}</option>
                         <option value="trunk" className="bg-slate-900 text-white">{isEn ? 'Trunk (Uplink to Switch/Router)' : 'Trunk (پورت اتصال به سوئیچ یا روتر)'}</option>
@@ -1450,24 +1690,50 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 mb-1 font-medium">{isEn ? 'VLAN ID:' : 'شماره ویلن (VLAN ID):'}</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-medium">{isEn ? 'VLAN ID:' : 'شماره ویلن (VLAN ID):'}</label>
+                        {!canVlan && (
+                          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_vlan' : 'نیازمند دسترسی port_vlan'}>
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>{isEn ? 'Locked' : 'قفل'}</span>
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="number"
                         value={editVlan}
+                        disabled={!canVlan}
                         onChange={(e) => setEditVlan(Number(e.target.value))}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono text-left focus:outline-none focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono text-left focus:outline-none focus:border-indigo-400 ${
+                          !canVlan
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/30 border-white/15 text-white'
+                        }`}
                         dir="ltr"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 mb-1 font-medium">{isEn ? 'Allowed VLANs:' : 'ویلن‌های مجاز (Allowed VLANs):'}</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-medium">{isEn ? 'Allowed VLANs:' : 'ویلن‌های مجاز (Allowed VLANs):'}</label>
+                        {!canMode && (
+                          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_mode' : 'نیازمند دسترسی port_mode'}>
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>{isEn ? 'Locked' : 'قفل'}</span>
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={editAllowedVlans}
+                        disabled={!canMode}
                         onChange={(e) => setEditAllowedVlans(e.target.value)}
                         placeholder={isEn ? 'e.g. 1,10,20,30,50' : 'مثال: 1,10,20,30,50'}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono text-left focus:outline-none focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono text-left focus:outline-none focus:border-indigo-400 ${
+                          !canMode
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/30 border-white/15 text-white'
+                        }`}
                         dir="ltr"
                       />
                     </div>
@@ -1484,11 +1750,24 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 mb-1 font-medium">{isEn ? 'Admin Status (Shutdown / No Shutdown):' : 'وضعیت ادمین (Shutdown / No Shutdown):'}</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-medium">{isEn ? 'Admin Status (Shutdown / No Shutdown):' : 'وضعیت ادمین (Shutdown / No Shutdown):'}</label>
+                        {!canPower && (
+                          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_power' : 'نیازمند دسترسی port_power'}>
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>{isEn ? 'Locked' : 'قفل'}</span>
+                          </span>
+                        )}
+                      </div>
                       <select
                         value={editAdminStatus}
+                        disabled={!canPower}
                         onChange={(e) => setEditAdminStatus(e.target.value as 'enabled' | 'disabled')}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono focus:outline-none focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono focus:outline-none focus:border-indigo-400 ${
+                          !canPower
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/30 border-white/15 text-white'
+                        }`}
                       >
                         <option value="enabled" className="bg-slate-900 text-white">{isEn ? 'Enabled (No Shutdown)' : 'فعال (No Shutdown)'}</option>
                         <option value="disabled" className="bg-slate-900 text-white">{isEn ? 'Disabled (Shutdown)' : 'غیرفعال (Shutdown)'}</option>
@@ -1496,19 +1775,34 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 mb-1 font-medium">{isEn ? 'Port Description:' : 'توضیحات پورت (Description):'}</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-300 font-medium">{isEn ? 'Port Description:' : 'توضیحات پورت (Description):'}</label>
+                        {!canDescription && (
+                          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_description' : 'نیازمند دسترسی port_description'}>
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>{isEn ? 'Locked' : 'قفل'}</span>
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={editDesc}
+                        disabled={!canDescription}
                         onChange={(e) => setEditDesc(e.target.value)}
                         placeholder={isEn ? 'Port description or role' : 'توضیحات کاربردی پورت'}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs focus:outline-none focus:border-indigo-400"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-indigo-400 ${
+                          !canDescription
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                            : 'bg-black/30 border-white/15 text-white'
+                        }`}
                       />
                     </div>
                   </div>
 
                   {/* Cisco Port Security Configuration Box (تنظیمات پورت سکیوریتی سیسکو) */}
-                  <div id="port-security-section" className="port-sub-card border border-indigo-500/30 rounded-xl overflow-hidden bg-white/5 shadow-xs scroll-mt-6">
+                  <div id="port-security-section" className={`port-sub-card border rounded-xl overflow-hidden shadow-xs scroll-mt-6 transition ${
+                    !canPortSecurity ? 'border-white/10 bg-black/20 opacity-75' : 'border-indigo-500/30 bg-white/5'
+                  }`}>
                     <div className="flex flex-wrap items-center justify-between p-3 bg-gradient-to-r from-indigo-950/50 to-slate-900/60 border-b border-indigo-500/20 gap-2">
                       <div className="flex items-center gap-2.5">
                         <div className="p-2 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 text-white shadow-md">
@@ -1520,6 +1814,12 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             <span className="layer2-security-badge text-[10px] font-mono px-2 py-0.5 rounded font-bold" data-badge="layer2-security">
                               Layer 2 Security
                             </span>
+                            {!canPortSecurity && (
+                              <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/30">
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>{isEn ? 'Locked (Requires port_security)' : 'قفل (نیازمند مجوز port_security)'}</span>
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-300 mt-0.5">
                             {isEn ? 'Control and restrict MAC addresses on access ports to prevent MAC Flooding and unauthorized access' : 'محدودسازی و کنترل دسترسی مک آدرس‌های متصل به پورت به منظور جلوگیری از حملات MAC Flooding و نفوذ غیرمجاز'}
@@ -1530,19 +1830,23 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                       <button
                         type="button"
                         id="port-security-toggle-btn"
+                        disabled={!canPortSecurity}
                         onClick={() => {
+                          if (!canPortSecurity) return;
                           const nextState = !editPortSecEnabled;
                           setEditPortSecEnabled(nextState);
                           if (nextState && editMode === 'trunk') {
                             setEditMode('access');
                           }
                         }}
-                        className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs border cursor-pointer ${
-                          editPortSecEnabled
-                            ? 'port-sec-btn-active bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                        className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs border ${
+                          !canPortSecurity
+                            ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed opacity-60'
+                            : editPortSecEnabled
+                            ? 'port-sec-btn-active bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)] cursor-pointer'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10 cursor-pointer'
                         }`}
-                        title={isEn ? 'Toggle Cisco Layer 2 Port Security' : 'فعال یا غیرفعال‌سازی سکیوریتی پورت لایه ۲ سیسکو'}
+                        title={!canPortSecurity ? (isEn ? 'Requires port_security permission' : 'نیازمند مجوز port_security') : (isEn ? 'Toggle Cisco Layer 2 Port Security' : 'فعال یا غیرفعال‌سازی سکیوریتی پورت لایه ۲ سیسکو')}
                       >
                         {editPortSecEnabled ? (
                           <ShieldCheck className="w-4 h-4 text-white shrink-0" />
@@ -1574,8 +1878,13 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             </label>
                             <select
                               value={editPortSecMode}
+                              disabled={!canPortSecurity}
                               onChange={(e) => setEditPortSecMode(e.target.value as 'sticky' | 'configured' | 'dynamic')}
-                              className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono font-medium focus:border-indigo-400"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium focus:border-indigo-400 ${
+                                !canPortSecurity
+                                  ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                                  : 'bg-black/30 border-white/15 text-white'
+                              }`}
                             >
                               <option value="sticky" className="bg-slate-900 text-white">{isEn ? 'Sticky (Auto Learn & Save to Running-Config)' : 'استیکی (Sticky - چسبنده خودکار در Running-Config)'}</option>
                               <option value="configured" className="bg-slate-900 text-white">{isEn ? 'Configured (Manual Static Definition)' : 'کانفیگور (Configured - تعریف دستی و استاتیک مک)'}</option>
@@ -1604,18 +1913,26 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                 min={1}
                                 max={1024}
                                 value={editPortSecMaxMac}
+                                disabled={!canPortSecurity}
                                 onChange={(e) => setEditPortSecMaxMac(Math.max(1, Math.min(1024, Number(e.target.value) || 1)))}
-                                className="w-20 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono text-center font-bold focus:border-indigo-400"
+                                className={`w-20 px-2.5 py-1.5 rounded-lg border text-xs font-mono text-center font-bold focus:border-indigo-400 ${
+                                  !canPortSecurity
+                                    ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                                    : 'bg-black/30 border-white/15 text-white'
+                                }`}
                                 dir="ltr"
                               />
                               <div className="flex items-center gap-1 text-[10px]">
                                 <button
                                   type="button"
+                                  disabled={!canPortSecurity}
                                   onClick={() => setEditPortSecMaxMac(1)}
-                                  className={`px-2 py-1 rounded-lg border transition cursor-pointer ${
-                                    editPortSecMaxMac === 1
-                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold'
-                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                                  className={`px-2 py-1 rounded-lg border transition ${
+                                    !canPortSecurity
+                                      ? 'bg-slate-900/40 text-slate-600 border-white/5 cursor-not-allowed'
+                                      : editPortSecMaxMac === 1
+                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold cursor-pointer'
+                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 cursor-pointer'
                                   }`}
                                   title={isEn ? 'Single host standard' : 'استاندارد سیسکو برای پورت تک کاربر'}
                                 >
@@ -1623,11 +1940,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={!canPortSecurity}
                                   onClick={() => setEditPortSecMaxMac(2)}
-                                  className={`px-2 py-1 rounded-lg border transition cursor-pointer ${
-                                    editPortSecMaxMac === 2
-                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold'
-                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                                  className={`px-2 py-1 rounded-lg border transition ${
+                                    !canPortSecurity
+                                      ? 'bg-slate-900/40 text-slate-600 border-white/5 cursor-not-allowed'
+                                      : editPortSecMaxMac === 2
+                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold cursor-pointer'
+                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 cursor-pointer'
                                   }`}
                                   title={isEn ? 'Ideal for PC + IP Phone' : 'مناسب برای PC به همراه IP Phone سیسکو'}
                                 >
@@ -1635,11 +1955,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={!canPortSecurity}
                                   onClick={() => setEditPortSecMaxMac(5)}
-                                  className={`px-2 py-1 rounded-lg border transition cursor-pointer ${
-                                    editPortSecMaxMac === 5
-                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold'
-                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                                  className={`px-2 py-1 rounded-lg border transition ${
+                                    !canPortSecurity
+                                      ? 'bg-slate-900/40 text-slate-600 border-white/5 cursor-not-allowed'
+                                      : editPortSecMaxMac === 5
+                                      ? 'bg-indigo-600 text-white border-indigo-500 font-bold cursor-pointer'
+                                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 cursor-pointer'
                                   }`}
                                 >
                                   {isEn ? '5 MACs' : '۵ مک'}
@@ -1658,8 +1981,13 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             </label>
                             <select
                               value={editPortSecViolation}
+                              disabled={!canPortSecurity}
                               onChange={(e) => setEditPortSecViolation(e.target.value as 'shutdown' | 'restrict' | 'protect')}
-                              className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono font-medium focus:border-indigo-400"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium focus:border-indigo-400 ${
+                                !canPortSecurity
+                                  ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                                  : 'bg-black/30 border-white/15 text-white'
+                              }`}
                             >
                               <option value="shutdown" className="bg-slate-900 text-white">{isEn ? 'Shutdown (Err-Disable - Cisco Default)' : 'Shutdown (خاموشی خودکار و Err-Disable - پیش‌فرض سیسکو)'}</option>
                               <option value="restrict" className="bg-slate-900 text-white">{isEn ? 'Restrict (Drop packet + Log & SNMP Trap)' : 'Restrict (مسدودسازی بسته متخلف + ارسال لاگ و SNMP Trap)'}</option>
@@ -1683,25 +2011,32 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                               <input
                                 type="text"
                                 value={editPortSecConfiguredMac}
+                                disabled={!canPortSecurity}
                                 onChange={(e) => setEditPortSecConfiguredMac(e.target.value)}
                                 placeholder={isEn ? 'e.g. 0050.56a1.2b3c or 00:50:56:A1:2B:3C' : 'مثال: 0050.56a1.2b3c یا 00:50:56:A1:2B:3C'}
-                                className="w-full px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/15 text-white text-xs font-mono text-left font-semibold focus:border-indigo-400"
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono text-left font-semibold focus:border-indigo-400 ${
+                                  !canPortSecurity
+                                    ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
+                                    : 'bg-black/40 border-white/15 text-white'
+                                }`}
                                 dir="ltr"
                               />
                             </div>
                             <div className="pt-4 flex items-center gap-2">
                               <button
                                 type="button"
+                                disabled={!canPortSecurity}
                                 onClick={() => setEditPortSecConfiguredMac('0050.56a1.2b3c')}
-                                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium transition cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {isEn ? 'Insert Sample MAC' : 'درج مک آدرس نمونه'}
                               </button>
                               {selectedPort.connected_device && (
                                 <button
                                   type="button"
+                                  disabled={!canPortSecurity}
                                   onClick={() => setEditPortSecConfiguredMac('001c.23b4.6789')}
-                                  className="px-2.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/30 text-[11px] font-medium transition cursor-pointer"
+                                  className="px-2.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/30 text-[11px] font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   {isEn ? `Host MAC (${selectedPort.connected_device})` : `مک هاست فعلی (${selectedPort.connected_device})`}
                                 </button>
