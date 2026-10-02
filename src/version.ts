@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.257.0';
+export const APP_VERSION = '1.258.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.258.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۳.۱: اعمال کنترل دسترسی تفکیک‌شده در منوی راست‌کلیک پورت‌های سیسکو (Cisco Port Context Menu Enforcement)',
+    title_en: 'Phase 3.1: Granular RBAC Enforcement in Cisco Port Right-Click Context Menu',
+    changes: [
+      'اعمال کامل ماتریس اختیارات پورت‌ها بر روی منوی راست‌کلیک پورت سیسکو (CiscoPortContextMenu) در کامپوننت‌های PortInspectorModal و PortManagementView.',
+      'مخفی‌سازی داینامیک و بلادرنگ آیتم‌های خاموش/روشن کردن پورت بر اساس مجوز port_power، تغییر مود Trunk/Access بر اساس port_mode، تنظیمات امنیت پورت بر اساس port_security، تخصیص ویلن بر اساس port_vlan و ویرایش توضیحات بر اساس port_description.',
+      'تجهیز منوی راست‌کلیک به نشانگر بج اختصاصی «فقط‌خواندنی» (Read-Only) و کادر راهنمای امنیتی در صورت مسدود بودن اختیارات پیکربندی پورت طبق پالیسی کاربر.',
+      'اعمال گارد امنیتی دوطرفه در توابع اجرایی handleExecuteContextMenuAction جهت جلوگیری قطعی از فراخوانی هر اکشن فاقد مجوز همراه با هشدار دوزبانه.',
+      'طراحی اسکریپت آزمون تجربی test_phase3_1_cisco_context_menu_rbac.ts و تایید موفقیت‌آمیز ارزیابی‌های مربوط به سوپرادمین، اپراتور هلپ‌دسک و ناظر NOC.'
+    ],
+    changes_en: [
+      'Enforced comprehensive granular port action permissions across Cisco Port Right-Click Context Menu (CiscoPortContextMenu) in both PortInspectorModal and PortManagementView.',
+      'Dynamic, real-time suppression of port action items: Shutdown/Enable (port_power), Mode Trunk/Access (port_mode), Port Security toggle (port_security), Assign VLAN (port_vlan), and Set Description (port_description).',
+      'Equipped the context menu with dedicated Read-Only badge and informative restriction banner when port modifications are locked under user RBAC policy.',
+      'Added dual-layer handler protection in handleExecuteContextMenuAction to prevent unauthorized action execution with bilingual rejection alerts.',
+      'Created empirical test suite test_phase3_1_cisco_context_menu_rbac.ts with 100% pass rate across Super Admin, Helpdesk Operator, and NOC Observer policies.'
+    ],
+  },
   {
     version: '1.257.0',
     releaseDate: '2026-10-02',

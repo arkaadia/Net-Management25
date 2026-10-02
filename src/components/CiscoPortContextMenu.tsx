@@ -13,17 +13,22 @@ import {
   ExternalLink,
   ChevronRight,
   Server,
-  FileText
+  FileText,
+  Lock
 } from 'lucide-react';
-import { SwitchPort, VlanInfo } from '../types';
+import { SwitchPort, VlanInfo, AccessPolicy } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 export interface CiscoPortContextMenuProps {
   x: number;
   y: number;
   port: SwitchPort;
   deviceName: string;
+  deviceId?: string;
   vlans?: VlanInfo[];
+  policy?: AccessPolicy | null;
   onClose: () => void;
   onExecuteAction: (action: 'shutdown' | 'no_shutdown' | 'mode_trunk' | 'mode_access' | 'port_sec_enable' | 'port_sec_disable' | 'change_vlan' | 'open_assign_vlan' | 'edit_description', extra?: any) => void;
   onOpenTerminal?: (portId: string) => void;
@@ -34,15 +39,31 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
   y,
   port,
   deviceName,
+  deviceId,
   vlans = [],
+  policy,
   onClose,
   onExecuteAction,
   onOpenTerminal,
 }) => {
   const { t, isEn } = useLanguage();
+  const { effectivePolicy: authEffectivePolicy } = useAuth();
+  const effectivePolicy = policy !== undefined ? policy : authEffectivePolicy;
+
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [showVlanSubmenu, setShowVlanSubmenu] = useState(false);
+
+  // Evaluate fine-grained RBAC action permissions for this specific device
+  const targetDeviceId = deviceId || deviceName;
+  const canPower = isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'port_power');
+  const canMode = isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'port_mode');
+  const canPortSecurity = isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'port_security');
+  const canVlan = isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'port_vlan');
+  const canDescription = isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'port_description');
+  const canTerminal = Boolean(onOpenTerminal && isDeviceActionPermitted(effectivePolicy, targetDeviceId, 'terminal'));
+
+  const hasAnyConfigPermission = canPower || canMode || canPortSecurity || canVlan || canDescription;
 
   const isUp = port.status === 'up' && port.admin_status !== 'disabled';
   const isTrunk = port.mode === 'trunk';
@@ -162,6 +183,12 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
                   isUp ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-rose-500'
                 }`}
               />
+              {!hasAnyConfigPermission && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span>{isEn ? 'Read-Only' : 'فقط‌خواندنی'}</span>
+                </span>
+              )}
             </div>
             <div className="text-[10px] text-slate-400 font-mono">
               {port.connected_device || (isEn ? 'Empty Port' : 'پورت آزاد')} • VLAN {port.vlan}
@@ -181,241 +208,264 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
         </button>
       </div>
 
+      {/* Read-Only Notice if user has no configuration permissions on this port */}
+      {!hasAnyConfigPermission && (
+        <div className="m-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center gap-2 text-amber-300 text-[11px] leading-tight">
+          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>
+            {isEn
+              ? 'Port modifications are restricted by your access policy.'
+              : 'تغییر پیکربندی این پورت توسط پالیسی دسترسی شما مسدود است.'}
+          </span>
+        </div>
+      )}
+
       {/* Cisco Quick Actions Menu */}
       <div className="p-1.5 space-y-1">
-        {/* Action 1A: Shutdown Port */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction('shutdown');
-              onClose();
-            }}
-            className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
-          >
-            <PowerOff className="w-4 h-4 text-rose-400 shrink-0" />
-            <div>
-              <div className="font-bold text-white text-xs flex items-center gap-1.5">
-                <span>{isEn ? 'Shutdown Port' : 'خاموش کردن پورت (shutdown)'}</span>
-                {!isUp && (
-                  <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                    {isEn ? 'Down' : 'خاموش'}
-                  </span>
-                )}
-              </div>
-              <div className="text-[10px] font-mono text-slate-400">
-                Cisco IOS: shutdown
-              </div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => copyCliCommand(getShutdownCli(), e)}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
-            title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
-          >
-            {copiedCmd === getShutdownCli() ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-
-        {/* Action 1B: No Shutdown Port */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction('no_shutdown');
-              onClose();
-            }}
-            className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
-          >
-            <Power className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div>
-              <div className="font-bold text-white text-xs flex items-center gap-1.5">
-                <span>{isEn ? 'No Shutdown (Enable)' : 'روشن کردن پورت (no shutdown)'}</span>
-                {isUp && (
-                  <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    {isEn ? 'Active' : 'روشن'}
-                  </span>
-                )}
-              </div>
-              <div className="text-[10px] font-mono text-slate-400">
-                Cisco IOS: no shutdown
-              </div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => copyCliCommand(getNoShutdownCli(), e)}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
-            title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
-          >
-            {copiedCmd === getNoShutdownCli() ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-
-        {/* Action 2: Switchport Mode Trunk / Access */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction(isTrunk ? 'mode_access' : 'mode_trunk');
-              onClose();
-            }}
-            className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
-          >
-            <Layers className="w-4 h-4 text-purple-400 shrink-0" />
-            <div>
-              <div className="font-bold text-white text-xs">
-                {isTrunk ? (isEn ? 'Set Mode: Access' : 'تغییر مود به Access') : (isEn ? 'Set Mode: Trunk' : 'تغییر مود به Trunk')}
-              </div>
-              <div className="text-[10px] font-mono text-slate-400">
-                {isTrunk ? 'switchport mode access' : 'switchport mode trunk'}
-              </div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => copyCliCommand(getModeCli(), e)}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
-            title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
-          >
-            {copiedCmd === getModeCli() ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-
-        {/* Action 3: Port Security Toggle */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction(isPortSec ? 'port_sec_disable' : 'port_sec_enable');
-              onClose();
-            }}
-            className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
-          >
-            {isPortSec ? (
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
-            ) : (
-              <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
-            )}
-            <div>
-              <div className="font-bold text-white text-xs">
-                {isPortSec
-                  ? (isEn ? 'Disable Port Security' : 'غیرفعال‌سازی Port Security')
-                  : (isEn ? 'Enable Port Security' : 'فعال‌سازی Port Security')}
-              </div>
-              <div className="text-[10px] font-mono text-slate-400">
-                {isPortSec ? 'no switchport port-security' : 'switchport port-security'}
-              </div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={(e) => copyCliCommand(getPortSecCli(), e)}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
-            title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
-          >
-            {copiedCmd === getPortSecCli() ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-
-        {/* Action 4: Assign Access VLAN (Opens dedicated Modal with device VLANs list and custom input) */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction('open_assign_vlan');
-              onClose();
-            }}
-            className="w-full flex items-center justify-between text-left rtl:text-right"
-          >
-            <div className="flex items-center gap-2.5">
-              <span className="w-4 h-4 flex items-center justify-center font-mono font-bold text-indigo-400 text-xs">
-                V#
-              </span>
-              <div>
-                <div className="font-bold text-white text-xs">
-                  {isEn ? 'Assign Access VLAN...' : 'تخصیص ویلن دسترسی (VLAN)...'}
+        {/* Action 1A & 1B: Shutdown / No Shutdown Port (port_power) */}
+        {canPower && (
+          <>
+            <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
+              <button
+                type="button"
+                onClick={() => {
+                  onExecuteAction('shutdown');
+                  onClose();
+                }}
+                className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
+              >
+                <PowerOff className="w-4 h-4 text-rose-400 shrink-0" />
+                <div>
+                  <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <span>{isEn ? 'Shutdown Port' : 'خاموش کردن پورت (shutdown)'}</span>
+                    {!isUp && (
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                        {isEn ? 'Down' : 'خاموش'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    Cisco IOS: shutdown
+                  </div>
                 </div>
-                <div className="text-[10px] font-mono text-slate-400">
-                  {isEn ? `Current: VLAN ${port.vlan}` : `ویلن فعلی: ${port.vlan}`}
-                </div>
-              </div>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-400 transition" />
-          </button>
-        </div>
-
-        {/* Action 5: Set / Edit Description (Opens dedicated Modal) */}
-        <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
-          <button
-            type="button"
-            onClick={() => {
-              onExecuteAction('edit_description');
-              onClose();
-            }}
-            className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
-          >
-            <FileText className="w-4 h-4 text-amber-400 shrink-0" />
-            <div>
-              <div className="font-bold text-white text-xs flex items-center gap-1.5">
-                <span>{isEn ? 'Set Description...' : 'تنظیم توضیحات پورت (Description)...'}</span>
-                {port.description && (
-                  <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    {isEn ? 'Configured' : 'ثبت‌شده'}
-                  </span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => copyCliCommand(getShutdownCli(), e)}
+                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
+                title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
+              >
+                {copiedCmd === getShutdownCli() ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
                 )}
-              </div>
-              <div className="text-[10px] font-mono text-slate-400 truncate max-w-[160px]" title={port.description}>
-                {port.description ? `"${port.description}"` : (isEn ? 'No description' : 'بدون توضیحات')}
-              </div>
+              </button>
             </div>
-          </button>
-          <div className="flex items-center gap-1">
+
+            <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
+              <button
+                type="button"
+                onClick={() => {
+                  onExecuteAction('no_shutdown');
+                  onClose();
+                }}
+                className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
+              >
+                <Power className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <span>{isEn ? 'No Shutdown (Enable)' : 'روشن کردن پورت (no shutdown)'}</span>
+                    {isUp && (
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        {isEn ? 'Active' : 'روشن'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    Cisco IOS: no shutdown
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => copyCliCommand(getNoShutdownCli(), e)}
+                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
+                title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
+              >
+                {copiedCmd === getNoShutdownCli() ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Action 2: Switchport Mode Trunk / Access (port_mode) */}
+        {canMode && (
+          <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
             <button
               type="button"
-              onClick={(e) => copyCliCommand(getDescriptionCli(), e)}
+              onClick={() => {
+                onExecuteAction(isTrunk ? 'mode_access' : 'mode_trunk');
+                onClose();
+              }}
+              className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
+            >
+              <Layers className="w-4 h-4 text-purple-400 shrink-0" />
+              <div>
+                <div className="font-bold text-white text-xs">
+                  {isTrunk ? (isEn ? 'Set Mode: Access' : 'تغییر مود به Access') : (isEn ? 'Set Mode: Trunk' : 'تغییر مود به Trunk')}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400">
+                  {isTrunk ? 'switchport mode access' : 'switchport mode trunk'}
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => copyCliCommand(getModeCli(), e)}
               className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
               title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
             >
-              {copiedCmd === getDescriptionCli() ? (
+              {copiedCmd === getModeCli() ? (
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
               ) : (
                 <Copy className="w-3.5 h-3.5" />
               )}
             </button>
+          </div>
+        )}
+
+        {/* Action 3: Port Security Toggle (port_security) */}
+        {canPortSecurity && (
+          <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
+            <button
+              type="button"
+              onClick={() => {
+                onExecuteAction(isPortSec ? 'port_sec_disable' : 'port_sec_enable');
+                onClose();
+              }}
+              className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
+            >
+              {isPortSec ? (
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
+              )}
+              <div>
+                <div className="font-bold text-white text-xs">
+                  {isPortSec
+                    ? (isEn ? 'Disable Port Security' : 'غیرفعال‌سازی Port Security')
+                    : (isEn ? 'Enable Port Security' : 'فعال‌سازی Port Security')}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400">
+                  {isPortSec ? 'no switchport port-security' : 'switchport port-security'}
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => copyCliCommand(getPortSecCli(), e)}
+              className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
+              title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
+            >
+              {copiedCmd === getPortSecCli() ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Action 4: Assign Access VLAN (port_vlan) */}
+        {canVlan && (
+          <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
+            <button
+              type="button"
+              onClick={() => {
+                onExecuteAction('open_assign_vlan');
+                onClose();
+              }}
+              className="w-full flex items-center justify-between text-left rtl:text-right"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="w-4 h-4 flex items-center justify-center font-mono font-bold text-indigo-400 text-xs">
+                  V#
+                </span>
+                <div>
+                  <div className="font-bold text-white text-xs">
+                    {isEn ? 'Assign Access VLAN...' : 'تخصیص ویلن دسترسی (VLAN)...'}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    {isEn ? `Current: VLAN ${port.vlan}` : `ویلن فعلی: ${port.vlan}`}
+                  </div>
+                </div>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-400 transition" />
+            </button>
+          </div>
+        )}
+
+        {/* Action 5: Set / Edit Description (port_description) */}
+        {canDescription && (
+          <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
             <button
               type="button"
               onClick={() => {
                 onExecuteAction('edit_description');
                 onClose();
               }}
-              className="p-1 text-slate-400 hover:text-amber-400 transition"
-              title={isEn ? 'Open Description Modal' : 'باز کردن مودال دیسکریپشن'}
+              className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+              <div>
+                <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <span>{isEn ? 'Set Description...' : 'تنظیم توضیحات پورت (Description)...'}</span>
+                  {port.description && (
+                    <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {isEn ? 'Configured' : 'ثبت‌شده'}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400 truncate max-w-[160px]" title={port.description}>
+                  {port.description ? `"${port.description}"` : (isEn ? 'No description' : 'بدون توضیحات')}
+                </div>
+              </div>
             </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(e) => copyCliCommand(getDescriptionCli(), e)}
+                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-700 transition"
+                title={isEn ? 'Copy Cisco CLI Command' : 'کپی دستورات سیسکو'}
+              >
+                {copiedCmd === getDescriptionCli() ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onExecuteAction('edit_description');
+                  onClose();
+                }}
+                className="p-1 text-slate-400 hover:text-amber-400 transition"
+                title={isEn ? 'Open Description Modal' : 'باز کردن مودال دیسکریپشن'}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Action 6: Open in Cisco CLI */}
-        {onOpenTerminal && (
+        {/* Action 6: Open in Cisco CLI (terminal) */}
+        {canTerminal && onOpenTerminal && (
           <button
             type="button"
             onClick={() => {
@@ -434,6 +484,19 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
               </div>
             </div>
           </button>
+        )}
+
+        {/* Fully Locked Empty State */}
+        {!hasAnyConfigPermission && !canTerminal && (
+          <div className="p-3 text-center text-slate-400 text-xs">
+            <Lock className="w-6 h-6 mx-auto mb-1.5 text-slate-500" />
+            <div className="font-semibold text-slate-300">
+              {isEn ? 'No Port Actions Available' : 'هیچ عملیات پورت مجازی در دسترس نیست'}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              {isEn ? 'Inspection only under current RBAC policy.' : 'صرفاً امکان مشاهده طبق پالیسی فعال RBAC وجود دارد.'}
+            </div>
+          </div>
         )}
       </div>
 

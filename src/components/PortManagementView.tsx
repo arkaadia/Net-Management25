@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers } from 'lucide-react';
-import { Device, SwitchPort } from '../types';
+import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
@@ -9,6 +9,8 @@ import { AssignVlanModal } from './AssignVlanModal';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
+import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface PortManagementViewProps {
   devices: Device[];
@@ -17,6 +19,7 @@ interface PortManagementViewProps {
 export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
+  const { effectivePolicy } = useAuth();
   const switchesAndRouters = devices.filter((d) => d.type === 'switch' || d.type === 'router');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>(
     switchesAndRouters[0]?.id || devices[0]?.id || ''
@@ -318,6 +321,28 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
   const handleExecuteContextMenuAction = async (action: string, extra?: any) => {
     if (!contextMenu || !currentDevice) return;
     const targetPort = contextMenu.port;
+
+    const actionPermissionMap: Record<string, NetworkDeviceActionKey> = {
+      port_sec_enable: 'port_security',
+      port_sec_disable: 'port_security',
+      open_assign_vlan: 'port_vlan',
+      change_vlan: 'port_vlan',
+      edit_description: 'port_description',
+      shutdown: 'port_power',
+      no_shutdown: 'port_power',
+      mode_trunk: 'port_mode',
+      mode_access: 'port_mode',
+    };
+    const requiredAction = actionPermissionMap[action];
+    if (requiredAction && !isDeviceActionPermitted(effectivePolicy, currentDevice.id, requiredAction)) {
+      alert(
+        isEn
+          ? `Access Denied: You do not have permission to execute '${requiredAction}' on this device under your RBAC policy.`
+          : `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز انجام عملیات «${requiredAction}» روی این تجهیز را ندارید.`
+      );
+      setContextMenu(null);
+      return;
+    }
 
     // 1. Enable Port Security: Open edit mode directly for user configuration
     if (action === 'port_sec_enable') {
@@ -1585,6 +1610,8 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
           y={contextMenu.y}
           port={contextMenu.port}
           deviceName={currentDevice.name}
+          deviceId={currentDevice.id}
+          policy={effectivePolicy}
           onClose={() => setContextMenu(null)}
           onExecuteAction={handleExecuteContextMenuAction}
         />
