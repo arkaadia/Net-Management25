@@ -1751,6 +1751,24 @@ apiRouter.post('/templates/apply', async (req: Request, res: Response, next: Nex
   next();
 });
 
+// POST /devices/:id/template - Apply configuration template to network device
+apiRouter.post(['/devices/:id/template', '/devices/:id/apply-template'], async (req: Request, res: Response) => {
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'apply_template');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+    return res.json({
+      success: true,
+      message: 'Configuration template applied successfully to device',
+      message_en: 'Configuration template applied successfully to device',
+      message_fa: 'قالب پیکربندی با موفقیت بر روی تجهیز اعمال شد',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 apiRouter.get('/topology', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);

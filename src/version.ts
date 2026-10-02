@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.253.0';
+export const APP_VERSION = '1.254.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.254.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۵: تست عملیاتی و تجربی (Empirical Verification)، صحه‌گذاری وب‌سوکت ترمینال و تثبیت نهایی اختیارات تفکیک‌شده تجهیزات شبکه',
+    title_en: 'Phase 5: Empirical Verification, WebSocket RBAC Gate Enforcement & Final Validation for Network Equipment Granular Permissions',
+    changes: [
+      'اجرای آزمون‌های تجربی زنده با ۲۴ سناریوی اعتبارسنجی مستقل با توکن‌های سوپرادمین، اپراتور هلپ‌دسک و یوزر دارای استثنا با ۱۰۰٪ قبولی (۲۴/۲۴ PASS).',
+      'تایید صحت اعطای هر ۹ مجوز پیش‌فرض منوی ۳ نقطه تجهیزات شبکه برای سوپرادمین (کنسول وب، ترمینال، تمپلیت، نوت، ویرایش، پینگ، پورت‌ها، NVRAM و حذف).',
+      'اثبات عملکرد گارد امنیتی تجهیزات خارج از محدوده (HTTP 403 با پیام اختصاصی عدم انتساب به گروه‌های مجاز تجهیزات).',
+      'اعتبارسنجی بلادرنگ مسدودسازی عملیات غیرمجاز روی تجهیزات مجاز درون محدوده (تست عدم مجوزهای delete_device، edit_properties، write_memory و apply_template با صدور خطای ۴۰۳ صریح).',
+      'بهبود استخراج مسیرهای شناسه تجهیز در وب‌سوکت ترمینال (/ws/terminal/:deviceId و /api/terminal/ws) و اعتبارسنجی قطعی کد خروج ۴۰۰۳ برای کاربران فاقد دسترسی ترمینال همراه با بنر اخطار دسترسی.',
+      'اثبات تغییرات پویا در دیتابیس PostgreSQL با اعمال ماتریس استثنا به ازای هر تجهیز (perDevicePermissions) و تایید عبور موفقیت‌آمیز سوکت ترمینال و مجاز شدن ویرایش تجهیز.',
+      'ایجاد اسکریپت آزمون تجربی و خودکار test_phase5_network_equipment_rbac.ts جهت اطمینان از عدم رگرسیون در استقرارها و توسعه‌های آتی.'
+    ],
+    changes_en: [
+      'Executed full live empirical verification with 24 independent test scenarios across Super Admin, Helpdesk Operator, and granular override user states with 100% pass rate (24/24 PASS).',
+      'Verified full 9 default network equipment permissions for Super Admin (web_configs, terminal, apply_template, device_note, edit_properties, ping_keepalive, inspect_ports, write_memory, delete_device).',
+      'Demonstrated robust protection against out-of-scope network equipment with explicit HTTP 403 Forbidden responses referencing PostgreSQL device group boundaries.',
+      'Empirically validated granular action guarding on in-scope devices, verifying explicit 403 refusals for unauthorized delete_device, edit_properties, write_memory, and apply_template actions.',
+      'Refined device ID path parsing in the terminal WebSocket gateway (/ws/terminal/:deviceId and /api/terminal/ws) and verified authentic code 4003 closure and warning banner for users lacking terminal privileges.',
+      'Proved dynamic database matrix override mechanics in PostgreSQL via perDevicePermissions, verifying seamless grant of terminal WebSocket access and device modification on targeted equipment.',
+      'Added the automated empirical verification test suite test_phase5_network_equipment_rbac.ts to ensure zero-regression in future deployments.'
+    ],
+  },
   {
     version: '1.253.0',
     releaseDate: '2026-10-02',

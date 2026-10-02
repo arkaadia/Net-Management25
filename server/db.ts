@@ -2865,8 +2865,12 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       allowedDeviceIds = Array.from(devSet);
       allowedServerIds = Array.from(srvSet);
     } else if (pol.targetScope === 'specific') {
-      allowedDeviceIds = Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [];
-      allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
+      allowedDeviceIds = Array.isArray(pol.targetDeviceIds) && pol.targetDeviceIds.length > 0
+        ? pol.targetDeviceIds
+        : (Array.isArray(pol.allowedDeviceIds) ? pol.allowedDeviceIds : []);
+      allowedServerIds = Array.isArray(pol.targetServerIds) && pol.targetServerIds.length > 0
+        ? pol.targetServerIds
+        : (Array.isArray(pol.allowedServerIds) ? pol.allowedServerIds : []);
     } else {
       allowedDeviceIds = [];
       allowedServerIds = [];

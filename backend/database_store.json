@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-01T23:17:29.030Z"
+      "last_login": "2026-10-02T10:38:35.059Z"
     },
     {
       "id": "user-helpdesk",
@@ -32,7 +32,7 @@
       ],
       "is_builtin": false,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-01T23:17:31.202Z"
+      "last_login": "2026-10-02T10:38:40.545Z"
     },
     {
       "id": "user-noc",
@@ -173,7 +173,19 @@
         "edit_properties": false,
         "delete_server": false
       },
-      "perServerPermissions": {}
+      "perServerPermissions": {},
+      "defaultDevicePermissions": {
+        "web_configs": true,
+        "terminal": false,
+        "apply_template": false,
+        "device_note": true,
+        "edit_properties": false,
+        "ping_keepalive": true,
+        "inspect_ports": true,
+        "write_memory": false,
+        "delete_device": false
+      },
+      "perDevicePermissions": {}
     },
     {
       "id": "policy-noc-observer",
@@ -231,7 +243,19 @@
         "edit_properties": false,
         "delete_server": false
       },
-      "perServerPermissions": {}
+      "perServerPermissions": {},
+      "defaultDevicePermissions": {
+        "web_configs": true,
+        "terminal": false,
+        "apply_template": false,
+        "device_note": true,
+        "edit_properties": false,
+        "ping_keepalive": true,
+        "inspect_ports": true,
+        "write_memory": false,
+        "delete_device": false
+      },
+      "perDevicePermissions": {}
     },
     {
       "id": "policy-super-admin",
@@ -289,7 +313,19 @@
         "edit_properties": true,
         "delete_server": true
       },
-      "perServerPermissions": {}
+      "perServerPermissions": {},
+      "defaultDevicePermissions": {
+        "web_configs": true,
+        "terminal": true,
+        "apply_template": true,
+        "device_note": true,
+        "edit_properties": true,
+        "ping_keepalive": true,
+        "inspect_ports": true,
+        "write_memory": true,
+        "delete_device": true
+      },
+      "perDevicePermissions": {}
     },
     {
       "id": "policy_branch_test",
@@ -335,7 +371,21 @@
         "edit_properties": false,
         "delete_server": false
       },
-      "perServerPermissions": {}
+      "perServerPermissions": {},
+      "canCheckUpdate": false,
+      "canPerformUpdate": false,
+      "defaultDevicePermissions": {
+        "web_configs": true,
+        "terminal": false,
+        "apply_template": false,
+        "device_note": true,
+        "edit_properties": false,
+        "ping_keepalive": true,
+        "inspect_ports": true,
+        "write_memory": false,
+        "delete_device": false
+      },
+      "perDevicePermissions": {}
     }
   ],
   "device_groups": [
@@ -1157,6 +1207,114 @@
       "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
       "ip_address": "127.0.0.1",
       "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937332235-svzg7",
+      "timestamp": "2026-10-02T10:35:32.235Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937334608-9q1uq",
+      "timestamp": "2026-10-02T10:35:34.608Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937337671-w9rjo",
+      "timestamp": "2026-10-02T10:35:37.671Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937390759-n6om3",
+      "timestamp": "2026-10-02T10:36:30.759Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937393096-qsq3y",
+      "timestamp": "2026-10-02T10:36:33.096Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937396160-tya4i",
+      "timestamp": "2026-10-02T10:36:36.160Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937515740-mhm3b",
+      "timestamp": "2026-10-02T10:38:35.740Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937518226-7qeyq",
+      "timestamp": "2026-10-02T10:38:38.226Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790937521241-fn4ga",
+      "timestamp": "2026-10-02T10:38:41.241Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
     }
   ],
   "ad_config": {
@@ -1216,7 +1374,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9mYSveEZ33gXlwFSNZcGs5hf2rhmR8K_1KAlXpy8ggUIR0n8BK1f62l8Xan-WJl3r6RqNo6_FPlYiYhppMFBt6A=="
-      }
+      },
+      "location": "Rack 01 - Shelf B"
     },
     {
       "id": "dev-router-gw",

@@ -35,13 +35,15 @@ export function setupTerminalWebSocket(
     const hostHeader = req.headers.host || '127.0.0.1:3000';
     const parsedUrl = new URL(req.url || '', `http://${hostHeader}`);
 
-    // Extract device_id from path /ws/ssh/:deviceId or query params
+    // Extract device_id from path /ws/ssh/:deviceId, /ws/terminal/:deviceId, /ssh/:deviceId or query params
     let deviceId = '';
     const cleanPath = parsedUrl.pathname.replace(/^\/+/, '');
     const parts = cleanPath.split('/');
-    if (parts.length >= 3 && parts[0] === 'ws' && parts[1] === 'ssh') {
+    if (parts.length >= 3 && parts[0] === 'ws' && (parts[1] === 'ssh' || parts[1] === 'terminal')) {
       deviceId = parts[2];
-    } else if (parts.length >= 2 && parts[0] === 'ssh') {
+    } else if (parts.length >= 4 && parts[0] === 'api' && parts[1] === 'terminal' && parts[2] === 'ws') {
+      deviceId = parts[3];
+    } else if (parts.length >= 2 && (parts[0] === 'ssh' || parts[0] === 'terminal')) {
       deviceId = parts[1];
     }
 
