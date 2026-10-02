@@ -12,6 +12,8 @@ import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModa
 import { CiscoSystemResourcesTab } from './CiscoSystemResourcesTab';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
+import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface PortInspectorModalProps {
   device: Device | null;
@@ -34,6 +36,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 }) => {
   const { t, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
+  const { effectivePolicy } = useAuth();
+
+  const canTerminal = Boolean(
+    device &&
+    onConnectTerminal &&
+    isDeviceActionPermitted(effectivePolicy, device.id, 'terminal')
+  );
+
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -845,9 +855,9 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             )}
 
             {/* Direct Connect to Cisco Terminal */}
-            {onConnectTerminal && (
+            {canTerminal && (
               <button
-                onClick={() => onConnectTerminal(device)}
+                onClick={() => onConnectTerminal && onConnectTerminal(device)}
                 className="cisco-terminal-header-btn flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer"
                 title={isEn ? 'Direct connection to Cisco CLI Terminal' : 'اتصال مستقیم به خط فرمان ترمینال سیسکو (CLI)'}
               >
@@ -945,7 +955,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               device={device}
               ports={ports}
               isEn={isEn}
-              onConnectTerminal={onConnectTerminal}
+              onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
             />
           ) : (
             <>
@@ -1969,7 +1979,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             deviceName={device.name}
             onClose={() => setContextMenu(null)}
             onExecuteAction={handleExecuteContextMenuAction}
-            onOpenTerminal={onConnectTerminal ? () => onConnectTerminal(device) : undefined}
+            onOpenTerminal={canTerminal && onConnectTerminal ? () => onConnectTerminal(device) : undefined}
           />
         )}
 

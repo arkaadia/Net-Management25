@@ -74,6 +74,7 @@ import {
 } from '../types';
 import { useLanguage } from '../i18n';
 import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 import { updateDevice } from '../services/api';
 import {
   persistDeviceNoteToDatabase,
@@ -365,9 +366,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const { t, isEn, isRtl } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
   let currentUser: any = null;
+  let effectivePolicy: any = null;
   try {
     const auth = useAuth();
     currentUser = auth.user;
+    effectivePolicy = auth.effectivePolicy;
   } catch (e) {}
   const isLightMode = propPanelTheme === 'light' || (typeof document !== 'undefined' && (
     document.querySelector('.theme-light') !== null ||
@@ -2033,10 +2036,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     (dev: MountedHardwareDevice, rack: CustomTopologyRack) => {
       if (onConnectTerminal) {
         const resolved = resolveDeviceFromMounted(dev, rack);
-        onConnectTerminal(resolved);
+        if (resolved && isDeviceActionPermitted(effectivePolicy, resolved.id, 'terminal')) {
+          onConnectTerminal(resolved);
+        }
       }
     },
-    [onConnectTerminal, resolveDeviceFromMounted]
+    [onConnectTerminal, resolveDeviceFromMounted, effectivePolicy]
   );
 
   const handleInspectPortsFromRack = useCallback(
@@ -6853,7 +6858,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                               <span>{isEn ? 'Cable' : 'کابل'}</span>
                             </button>
                           )}
-                          {onConnectTerminal && (node.type === 'switch' || node.type === 'router') && (
+                          {onConnectTerminal && (node.type === 'switch' || node.type === 'router') && isDeviceActionPermitted(effectivePolicy, node.id, 'terminal') && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -7832,7 +7837,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             {/* Action Buttons */}
             <div className="mt-auto pt-3 space-y-2">
-              {onConnectTerminal && (selectedNode.type === 'switch' || selectedNode.type === 'router') && (
+              {onConnectTerminal && (selectedNode.type === 'switch' || selectedNode.type === 'router') && isDeviceActionPermitted(effectivePolicy, selectedNode.id, 'terminal') && (
                 <button
                   onClick={() => onConnectTerminal(selectedNode as unknown as Device)}
                   className={`w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-medium text-xs border transition active:scale-98 ${

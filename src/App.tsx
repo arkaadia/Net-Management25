@@ -71,6 +71,7 @@ import {
   loadSimulatedRoleId,
 } from './services/settingsStorage';
 import { AccessPolicy, LocalGroup, DeviceGroup } from './types';
+import { isDeviceActionPermitted } from './utils/rbac';
 
 export default function App() {
   const { t, isRtl, isEn } = useLanguage();
@@ -492,6 +493,16 @@ export default function App() {
       setActiveTerminals([]);
       return;
     }
+    // Strict RBAC check: verify whether user is permitted to open CLI terminal on this device
+    const canTerminal = isDeviceActionPermitted(authEffectivePolicy, dev.id, 'terminal');
+    if (!canTerminal) {
+      showToast(
+        isEn
+          ? `Access Denied: You do not have permission to access terminal on ${dev.name || dev.ip || 'this device'}.`
+          : `عدم دسترسی: شما مجوز دسترسی به ترمینال خط فرمان در تجهیز ${dev.name || dev.ip || 'این دستگاه'} را ندارید.`
+      );
+      return;
+    }
     if (isModalMinimized('terminal')) {
       triggerDockAttention(
         'terminal',
@@ -501,7 +512,7 @@ export default function App() {
       return;
     }
     setActiveTerminals([dev]);
-  }, [isModalMinimized, triggerDockAttention]);
+  }, [isModalMinimized, triggerDockAttention, authEffectivePolicy, isEn, showToast]);
 
   const handleOpenApplyTemplate = useCallback((dev: Device, templateId?: string) => {
     if (isModalMinimized('apply_template')) {
@@ -1110,7 +1121,11 @@ export default function App() {
           })
         }
         onPortUpdated={loadData}
-        onConnectTerminal={(dev) => openTerminal(dev)}
+        onConnectTerminal={
+          portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
+            ? (dev) => openTerminal(dev)
+            : undefined
+        }
         onWriteMemory={handleWriteMemory}
       />
 
@@ -1129,7 +1144,11 @@ export default function App() {
           })
         }
         onPortUpdated={loadData}
-        onConnectTerminal={(dev) => openTerminal(dev)}
+        onConnectTerminal={
+          portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
+            ? (dev) => openTerminal(dev)
+            : undefined
+        }
         onDeviceUpdated={loadData}
         isLightMode={panelTheme === 'light'}
       />

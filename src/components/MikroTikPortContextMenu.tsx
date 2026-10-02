@@ -363,21 +363,23 @@ export const MikroTikPortContextMenu: React.FC<MikroTikPortContextMenuProps> = (
           </div>
         </button>
 
-        {/* Divider */}
-        <div className="border-t border-slate-800 my-1" />
-
         {/* Launch MikroTik RouterOS Terminal */}
-        <button
-          type="button"
-          onClick={() => {
-            onOpenTerminal?.(port.port_id);
-            onClose();
-          }}
-          className="w-full px-3 py-2 text-left bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 flex items-center gap-2 transition-colors font-medium"
-        >
-          <Terminal className="w-4 h-4 text-cyan-400" />
-          <span>{isEn ? `Open RouterOS CLI (${port.port_id})` : `ترمینال خط فرمان میکروتیک (${port.port_id})`}</span>
-        </button>
+        {onOpenTerminal && (
+          <>
+            <div className="border-t border-slate-800 my-1" />
+            <button
+              type="button"
+              onClick={() => {
+                onOpenTerminal(port.port_id);
+                onClose();
+              }}
+              className="w-full px-3 py-2 text-left bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 flex items-center gap-2 transition-colors font-medium cursor-pointer"
+            >
+              <Terminal className="w-4 h-4 text-cyan-400" />
+              <span>{isEn ? `Open RouterOS CLI (${port.port_id})` : `ترمینال خط فرمان میکروتیک (${port.port_id})`}</span>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

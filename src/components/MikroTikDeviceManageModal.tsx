@@ -39,6 +39,8 @@ import { MikroTikVPNSuite } from './vpn/MikroTikVPNSuite';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { MikroTikSystemResourcesTab } from './MikroTikSystemResourcesTab';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 export interface MikroTikDeviceManageModalProps {
   device: Device | null;
@@ -64,6 +66,14 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   userRole = 'Super Admin',
 }) => {
   const { t, isEn } = useLanguage();
+  const { effectivePolicy } = useAuth();
+
+  const canTerminal = Boolean(
+    device &&
+    onConnectTerminal &&
+    isDeviceActionPermitted(effectivePolicy, device.id, 'terminal')
+  );
+
   const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
@@ -394,22 +404,24 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             </button>
 
             {/* Open CLI Terminal Button */}
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onConnectTerminal?.(device);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
-                isLightMode
-                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-300'
-                  : 'bg-cyan-950 hover:bg-cyan-900 border-cyan-500/50 text-cyan-300'
-              }`}
-              title={isEn ? 'Open RouterOS CLI Terminal' : 'باز کردن ترمینال خط فرمان میکروتیک'}
-            >
-              <Terminal className={`w-4 h-4 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
-              <span>{isEn ? 'CLI Terminal' : 'کنسول ترمینال'}</span>
-            </button>
+            {canTerminal && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onConnectTerminal?.(device);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
+                  isLightMode
+                    ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-300'
+                    : 'bg-cyan-950 hover:bg-cyan-900 border-cyan-500/50 text-cyan-300'
+                }`}
+                title={isEn ? 'Open RouterOS CLI Terminal' : 'باز کردن ترمینال خط فرمان میکروتیک'}
+              >
+                <Terminal className={`w-4 h-4 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
+                <span>{isEn ? 'CLI Terminal' : 'کنسول ترمینال'}</span>
+              </button>
+            )}
 
             {/* Fullscreen / Exit Fullscreen Toggle */}
             <button
@@ -1077,7 +1089,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
               ports={ports}
               isLightMode={isLightMode}
               isEn={isEn}
-              onConnectTerminal={onConnectTerminal}
+              onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
             />
           )}
 
@@ -1206,10 +1218,10 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
                 );
               }
             }}
-            onOpenTerminal={(portId) => {
+            onOpenTerminal={canTerminal && onConnectTerminal ? (portId) => {
               onClose();
               onConnectTerminal?.(device);
-            }}
+            } : undefined}
           />
         )}
 

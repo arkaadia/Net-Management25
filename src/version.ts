@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.254.0';
+export const APP_VERSION = '1.254.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.254.1',
+    releaseDate: '2026-10-02',
+    type: 'patch',
+    title: 'اصلاح و بستن راه نفوذ دسترسی به ترمینال از طریق مودال پورت‌ها و سایر بخش‌های پنل (Network Terminal RBAC Leak Fix)',
+    title_en: 'Fix & Complete Terminal Access Control Enforcement Across Port Modals & System Views',
+    changes: [
+      'اصلاح منطق دسترسی در مودال پورت سیسکو (PortInspectorModal): عدم نمایش دکمه «ترمینال سیسکو» در هدر مودال در صورت عدم وجود مجوز ترمینال برای کاربر.',
+      'اصلاح منطق دسترسی در مودال پورت و مدیریت میکروتیک (MikroTikDeviceManageModal): عدم نمایش دکمه «کنسول ترمینال CLI» در هدر مودال هنگامی که کاربر فاقد مجوز ترمینال است.',
+      'اعمال گارد امنیتی در منوی راست‌کلیک پورت‌های میکروتیک و سیسکو (CiscoPortContextMenu و MikroTikPortContextMenu) و حذف گزینه باز کردن ترمینال خط فرمان در صورت عدم دسترسی.',
+      'ایمن‌سازی تب منابع و فرامین تشخیصی تجهیزات (CiscoSystemResourcesTab و MikroTikSystemResourcesTab) و قطع فراخوانی ترمینال برای کاربران فاقد دسترسی.',
+      'افزودن کنترل امنیتی سطح هسته در متد openTerminal در فایل App.tsx: اعتبارسنجی بلادرنگ مجوز ترمینال و ممانعت قطعی از باز شدن ورک‌اسپیس ترمینال همراه با صدور اعلان هشدار عدم دسترسی (Access Denied Toast).',
+      'پوشش امنیتی دکمه‌های ترمینال در نقشه شماتیک و نمای رک (SchematicTopologyView) و انطباق کامل با ماتریس دسترسی RBAC در PostgreSQL.'
+    ],
+    changes_en: [
+      'Fixed access control logic in Cisco Port Modal (PortInspectorModal): hidden the "Cisco Terminal" header button whenever terminal permission is not granted.',
+      'Fixed access control logic in MikroTik Device & Port Modal (MikroTikDeviceManageModal): hidden the "CLI Terminal" header button for users without terminal privileges.',
+      'Enforced RBAC guards across port right-click context menus (CiscoPortContextMenu and MikroTikPortContextMenu), removing the CLI Terminal launch item when unauthorized.',
+      'Hardened system resources diagnostic tabs (CiscoSystemResourcesTab and MikroTikSystemResourcesTab) to suppress terminal invocation if unauthorized.',
+      'Added core defense-in-depth authorization check inside openTerminal in App.tsx: rejects terminal workspace initialization with an explicit access denied toast if the user lacks terminal rights on target equipment.',
+      'Hardened terminal launch buttons across the schematic topology canvas and rack elevations (SchematicTopologyView) to fully enforce PostgreSQL RBAC policies.'
+    ],
+  },
   {
     version: '1.254.0',
     releaseDate: '2026-10-02',
