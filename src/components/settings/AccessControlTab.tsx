@@ -194,6 +194,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canViewTemplates: false,
       canViewLogs: false,
       canViewSettings: false,
+      canCheckUpdate: false,
+      canPerformUpdate: false,
       // Cisco capabilities
       terminalAccess: 'none',
       canToggleAdminStatus: false,
@@ -1181,6 +1183,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      const isSuper = editingPolicy.id === 'policy-super-admin' || (editingPolicy.priority || 0) >= 100;
                       setEditingPolicy({
                         ...editingPolicy,
                         canViewDashboard: true,
@@ -1192,6 +1195,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                         canViewTemplates: true,
                         canViewLogs: true,
                         canViewSettings: true,
+                        canCheckUpdate: isSuper,
+                        canPerformUpdate: isSuper,
                       });
                     }}
                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 cursor-pointer"
@@ -1212,6 +1217,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                         canViewTemplates: false,
                         canViewLogs: false,
                         canViewSettings: false,
+                        canCheckUpdate: false,
+                        canPerformUpdate: false,
                       });
                     }}
                     className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
@@ -1232,25 +1239,37 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   { key: 'canViewTemplates', label: isEn ? 'Templates' : 'الگوهای کانفیگ', icon: FileText },
                   { key: 'canViewLogs', label: isEn ? 'Audit & System Logs' : 'لاگ‌ها و رویدادها', icon: FileText },
                   { key: 'canViewSettings', label: isEn ? 'Settings & Security' : 'تنظیمات و دسترسی', icon: Lock },
-                ].map(({ key, label, icon: ModuleIcon }) => {
-                  const checked = Boolean((editingPolicy as any)[key]);
+                  { key: 'canCheckUpdate', label: isEn ? 'Check Updates (Super Admin Only)' : 'بررسی آپدیت (فقط سوپر ادمین)', icon: RefreshCw, isSuperAdminRestricted: true },
+                  { key: 'canPerformUpdate', label: isEn ? 'Apply Updates (Super Admin Only)' : 'اعمال آپدیت (فقط سوپر ادمین)', icon: DownloadCloud, isSuperAdminRestricted: true },
+                ].map(({ key, label, icon: ModuleIcon, isSuperAdminRestricted }: any) => {
+                  const isPolicySuperAdmin = editingPolicy.id === 'policy-super-admin' || (editingPolicy.priority || 0) >= 100;
+                  const isLocked = isSuperAdminRestricted && !isPolicySuperAdmin;
+                  const checked = isLocked ? false : Boolean((editingPolicy as any)[key]);
                   return (
                     <label
                       key={key}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition select-none ${
-                        checked
-                          ? 'bg-indigo-500/15 border-indigo-500/40 text-white shadow-xs'
-                          : 'bg-slate-800/60 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border select-none ${
+                        isLocked
+                          ? 'opacity-60 bg-slate-900/40 border-white/5 cursor-not-allowed text-slate-500'
+                          : checked
+                          ? 'bg-indigo-500/15 border-indigo-500/40 text-white shadow-xs cursor-pointer'
+                          : 'bg-slate-800/60 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer'
                       }`}
+                      title={isLocked ? (isEn ? 'This capability is strictly reserved for the Super Administrator profile only.' : 'این دسترسی منحصراً مختص پروفایل مدیر ارشد سیستم (Super Admin) است.') : undefined}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={(e) => setEditingPolicy({ ...editingPolicy, [key]: e.target.checked })}
-                        className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                        disabled={isLocked}
+                        onChange={(e) => {
+                          if (isLocked) return;
+                          setEditingPolicy({ ...editingPolicy, [key]: e.target.checked });
+                        }}
+                        className="w-4 h-4 accent-indigo-500 rounded cursor-pointer disabled:cursor-not-allowed"
                       />
-                      <ModuleIcon className={`w-3.5 h-3.5 shrink-0 ${checked ? 'text-indigo-400' : 'text-slate-500'}`} />
+                      <ModuleIcon className={`w-3.5 h-3.5 shrink-0 ${isLocked ? 'text-slate-600' : checked ? 'text-indigo-400' : 'text-slate-500'}`} />
                       <span className="text-[11px] font-semibold truncate">{label}</span>
+                      {isLocked && <Lock className="w-3 h-3 text-amber-500/80 ml-auto shrink-0" />}
                     </label>
                   );
                 })}

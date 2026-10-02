@@ -35,7 +35,8 @@ for (const envPath of candidateEnvPaths) {
 }
 dotenv.config();
 
-import { initDatabase } from './server/db';
+import { initDatabase, findUserById, findUserByUsername, getEffectivePolicyForUser, getAccessPolicies } from './server/db';
+import { verifyToken } from './server/auth';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
@@ -233,11 +234,106 @@ app.get('/api/status/bridge', (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Authoritative security guard for system update operations.
+ * Verifies that the requester possesses a valid authenticated session
+ * and that their database-authoritative RBAC policy permits the requested action.
+ * By default and by strict system mandate, only Super Administrators are authorized.
+ * Simulated or mock access is strictly prohibited.
+ */
+async function assertUpdateAccess(
+  req: Request,
+  requiredAction: 'check' | 'perform'
+): Promise<{ allowed: boolean; user?: any; error?: string; status?: number }> {
+  const authHeader = req.headers.authorization || '';
+  let token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token && typeof req.query.token === 'string') {
+    token = req.query.token.trim();
+  }
+
+  if (!token) {
+    return {
+      allowed: false,
+      status: 401,
+      error: 'Authentication required: You must be logged in as Super Administrator to access system updates.'
+    };
+  }
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    return {
+      allowed: false,
+      status: 401,
+      error: 'Invalid or expired session token. Please re-authenticate as Super Administrator.'
+    };
+  }
+
+  const user = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (user && user.status === 'disabled') {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Account is disabled. Access denied.'
+    };
+  }
+
+  const effectivePolicy = await getEffectivePolicyForUser(user || payload);
+  const cleanUsername = (user?.username || payload.username || '').toLowerCase();
+  const cleanRole = (user?.role || payload.role || '').toLowerCase();
+  const isSuperAdmin =
+    cleanUsername === 'admin' ||
+    cleanRole.includes('super admin') ||
+    cleanRole.includes('administrator') ||
+    effectivePolicy?.id === 'policy-super-admin';
+
+  if (!isSuperAdmin) {
+    return {
+      allowed: false,
+      status: 403,
+      error: `Access denied: Only Super Administrator is authorized to ${requiredAction === 'check' ? 'check for' : 'execute'} system updates. Non-admin profiles cannot trigger this action.`
+    };
+  }
+
+  // Strict check on database policy: Super Administrator policy must have update flag
+  const hasDbPermission = requiredAction === 'check'
+    ? (effectivePolicy?.canCheckUpdate !== false)
+    : (effectivePolicy?.canPerformUpdate !== false);
+
+  if (!hasDbPermission) {
+    return {
+      allowed: false,
+      status: 403,
+      error: `Access denied: Database policy for this account does not authorize system ${requiredAction === 'check' ? 'update checking' : 'update execution'}.`
+    };
+  }
+
+  // Role simulation check: Any simulated non-admin profile or active role simulation cannot perform system updates ("دسترسی شبیه سازی نباشه")
+  const simulatedHeader = (req.headers['x-simulated-role'] as string) || '';
+  if (simulatedHeader && simulatedHeader !== 'actual-user' && simulatedHeader !== 'policy-super-admin') {
+    return {
+      allowed: false,
+      status: 403,
+      error: `Access denied: Active profile simulation cannot perform system updates. You must operate as the authentic Super Administrator.`
+    };
+  }
+
+  return { allowed: true, user: user || payload };
+}
+
 // Check repository for newer releases (Net-Management GitHub)
 app.get('/api/system/check-update', async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+
+  const authCheck = await assertUpdateAccess(req, 'check');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+      hasUpdate: false
+    });
+  }
 
   try {
     const pkgPath = path.join(projectRoot, 'package.json');
@@ -438,6 +534,15 @@ app.get('/api/system/check-update', async (req: Request, res: Response) => {
 
 // Perform in-place software update to latest repository version
 app.post('/api/system/perform-update', async (req: Request, res: Response) => {
+  const authCheck = await assertUpdateAccess(req, 'perform');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+      logs: [`[Security Denial] ${authCheck.error}`]
+    });
+  }
+
   try {
     const isCleanMode = req.body?.clean === true;
     const logs: string[] = [];

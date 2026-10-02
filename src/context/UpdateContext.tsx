@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { APP_VERSION, ReleaseNote } from '../version';
+import { useAuth } from './AuthContext';
+import { canUserCheckUpdate, canUserPerformUpdate } from '../utils/rbac';
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -48,6 +50,7 @@ interface UpdateContextType {
 const UpdateContext = createContext<UpdateContextType | undefined>(undefined);
 
 export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, token, effectivePolicy, isAuthenticated } = useAuth();
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState<boolean>(false);
   const [updating, setUpdating] = useState<boolean>(false);
@@ -65,6 +68,27 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const checkUpdate = useCallback(async (simulate: boolean = false, forceFresh: boolean = true): Promise<CheckUpdateResult> => {
+    // 1. Strict RBAC Gate: Only Super Administrator is authorized to trigger check update
+    if (!isAuthenticated || !canUserCheckUpdate(user, effectivePolicy)) {
+      const deniedMsg = 'تنها مدیر ارشد سیستم (Super Admin) مجاز به بررسی نسخه جدید است.';
+      const deniedMsgEn = 'Access denied: Only Super Administrator is authorized to check for updates.';
+      setChecking(false);
+      setCheckFeedback({
+        type: 'error',
+        message: deniedMsg,
+        message_en: deniedMsgEn,
+        timestamp: Date.now()
+      });
+      return {
+        success: false,
+        hasUpdate: false,
+        latestVersion: APP_VERSION,
+        currentVersion: APP_VERSION,
+        releaseNote: null,
+        error: deniedMsgEn
+      };
+    }
+
     setChecking(true);
     setError(null);
     setCheckFeedback({
@@ -79,16 +103,23 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const cacheBuster = forceFresh ? `${sep}_t=${Date.now()}` : '';
       const url = `/api/system/check-update${simulate ? '?simulate=true' : ''}${cacheBuster}`;
       
+      const storedToken = token || (typeof window !== 'undefined' ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1') : null);
+      const headers: Record<string, string> = {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      };
+      if (storedToken) {
+        headers['Authorization'] = `Bearer ${storedToken}`;
+      }
+
       const res = await fetch(url, {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
+        headers
       });
 
       if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || `Server returned HTTP ${res.status}`);
       }
 
       const data: UpdateInfo = await res.json();
@@ -141,15 +172,27 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [isAuthenticated, user, token, effectivePolicy]);
 
   const performUpdate = useCallback(async (options?: { clean?: boolean }): Promise<boolean> => {
+    // 1. Strict RBAC Gate: Only Super Administrator is authorized to perform system update
+    const currentLang = typeof window !== 'undefined' ? localStorage.getItem('nettopology_lang') || 'en' : 'en';
+    const isPersian = currentLang === 'fa';
+
+    if (!isAuthenticated || !canUserPerformUpdate(user, effectivePolicy)) {
+      const deniedMsg = isPersian
+        ? 'دسترسی غیرمجاز: تنها مدیر ارشد سیستم (Super Admin) مجاز به ارتقا و به‌روزرسانی سیستم است.'
+        : 'Access denied: Only Super Administrator is authorized to perform system updates.';
+      setError(deniedMsg);
+      setUpdateLogs([`[Security Denial] ${deniedMsg}`]);
+      setUpdating(false);
+      return false;
+    }
+
     setUpdating(true);
     setError(null);
     setUpdateSuccess(false);
     const isCleanMode = options?.clean === true;
-    const currentLang = typeof window !== 'undefined' ? localStorage.getItem('nettopology_lang') || 'en' : 'en';
-    const isPersian = currentLang === 'fa';
 
     setUpdateLogs([
       isPersian
@@ -160,49 +203,6 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let progressInterval: any = null;
 
     try {
-      // If in simulated test mode, simulate real steps for demonstration
-      if (isSimulated) {
-        await new Promise((r) => setTimeout(r, 700));
-        setUpdateLogs((prev) => [
-          ...prev,
-          isPersian
-            ? '[گام ۲/۶] همگام‌سازی کامل کدهای مخزن با گیت‌هاب (master)...'
-            : '[Phase 2/6] Synchronizing repository files with GitHub (master)...'
-        ]);
-        await new Promise((r) => setTimeout(r, 700));
-        setUpdateLogs((prev) => [
-          ...prev,
-          isPersian
-            ? '[گام ۳/۶] بررسی و نصب تمام وابستگی‌های NPM و ماژول‌های سیستمی...'
-            : '[Phase 3/6] Installing and verifying all NPM and system packages...'
-        ]);
-        await new Promise((r) => setTimeout(r, 700));
-        setUpdateLogs((prev) => [
-          ...prev,
-          isPersian
-            ? '[گام ۴/۶] بررسی و نصب پیش‌نیازهای پایتون (paramiko, cryptography, websockets)...'
-            : '[Phase 4/6] Verifying Python backend requirements (paramiko, cryptography, websockets)...'
-        ]);
-        await new Promise((r) => setTimeout(r, 700));
-        setUpdateLogs((prev) => [
-          ...prev,
-          isPersian
-            ? '[گام ۵/۶] ساخت و کامپایل مجدد باندل اجرایی فرانت‌اند و بک‌اند...'
-            : '[Phase 5/6] Compiling production frontend and backend bundles...'
-        ]);
-        await new Promise((r) => setTimeout(r, 700));
-        setUpdateLogs((prev) => [
-          ...prev,
-          isPersian
-            ? '[گام ۶/۶] به‌روزرسانی با موفقیت کامل انجام شد! راه‌اندازی مجدد در ۳ ثانیه...'
-            : '[Phase 6/6] Full update completed successfully! Reloading in 3 seconds...'
-        ]);
-        setUpdateSuccess(true);
-        setUpdating(false);
-        setCountdown(3);
-        return true;
-      }
-
       // Provide live progressive UI logs during server operations
       const simulatedSteps = isPersian ? [
         '[گام ۲/۶] همگام‌سازی کدهای مخزن، پشتیبان‌گیری و ادغام پایدار دیتابیس و دیوایس‌ها...',
@@ -227,9 +227,17 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }, 5000);
 
+      const storedToken = token || (typeof window !== 'undefined' ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1') : null);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (storedToken) {
+        headers['Authorization'] = `Bearer ${storedToken}`;
+      }
+
       const res = await fetch('/api/system/perform-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ clean: isCleanMode })
       });
 
@@ -260,7 +268,7 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       setUpdating(false);
     }
-  }, [isSimulated]);
+  }, [isSimulated, isAuthenticated, user, token, effectivePolicy]);
 
   const toggleSimulatedUpdate = useCallback(() => {
     if (isSimulated) {
@@ -288,15 +296,19 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // Initial update check on application load
+  // Initial update check on application load - strictly limited to Super Administrator
   useEffect(() => {
-    checkUpdate(false, true);
-    // Periodically re-check every 15 minutes
-    const interval = setInterval(() => {
+    if (isAuthenticated && canUserCheckUpdate(user, effectivePolicy)) {
       checkUpdate(false, true);
+    }
+    // Periodically re-check every 15 minutes ONLY if authorized
+    const interval = setInterval(() => {
+      if (isAuthenticated && canUserCheckUpdate(user, effectivePolicy)) {
+        checkUpdate(false, true);
+      }
     }, 15 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [checkUpdate]);
+  }, [isAuthenticated, user, effectivePolicy, checkUpdate]);
 
   return (
     <UpdateContext.Provider

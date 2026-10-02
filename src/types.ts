@@ -619,6 +619,8 @@ export interface AccessPolicy {
   canViewSettings: boolean;
   canViewServers?: boolean;
   canViewLogs?: boolean;
+  canCheckUpdate?: boolean;
+  canPerformUpdate?: boolean;
 
   // 1. Cisco IOS / IOS-XE Granular Capabilities
   terminalAccess: 'none' | 'view_only' | 'full';

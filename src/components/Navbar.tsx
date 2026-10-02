@@ -4,6 +4,7 @@ import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
 import { useUpdate } from '../context/UpdateContext';
 import { useAuth } from '../context/AuthContext';
+import { canUserCheckUpdate } from '../utils/rbac';
 
 export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
 
@@ -36,8 +37,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { t, language, setLanguage, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
-  const { user, logout } = useAuth();
+  const { user, logout, effectivePolicy } = useAuth();
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
+  const canCheck = canUserCheckUpdate(user, effectivePolicy);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -401,27 +403,37 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
                   </div>
 
-                  {/* Prominent Direct GitHub Check Button */}
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      const result = await checkUpdate(false, true);
-                      if (result.hasUpdate && onOpenReleaseNotes) {
-                        setProfileOpen(false);
-                        onOpenReleaseNotes();
-                      }
-                    }}
-                    disabled={checking}
-                    className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-100 border border-cyan-500/25 hover:border-cyan-500/40 text-xs font-semibold transition cursor-pointer active:scale-98 disabled:opacity-50"
-                    title={t('update_btn_check_now')}
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
-                    <span>
-                      {checking
-                        ? (isEn ? 'Checking GitHub...' : 'در حال بررسی گیت‌هاب...')
-                        : (isEn ? 'Check for Updates' : 'بررسی نسخه جدید (GitHub)')}
-                    </span>
-                  </button>
+                  {/* Prominent Direct GitHub Check Button (Super Administrator Exclusive) */}
+                  {canCheck ? (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const result = await checkUpdate(false, true);
+                        if (result.hasUpdate && onOpenReleaseNotes) {
+                          setProfileOpen(false);
+                          onOpenReleaseNotes();
+                        }
+                      }}
+                      disabled={checking}
+                      className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-100 border border-cyan-500/25 hover:border-cyan-500/40 text-xs font-semibold transition cursor-pointer active:scale-98 disabled:opacity-50"
+                      title={t('update_btn_check_now')}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
+                      <span>
+                        {checking
+                          ? (isEn ? 'Checking GitHub...' : 'در حال بررسی گیت‌هاب...')
+                          : (isEn ? 'Check for Updates' : 'بررسی نسخه جدید (GitHub)')}
+                      </span>
+                    </button>
+                  ) : (
+                    <div
+                      className="w-full flex items-center justify-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-800/40 border border-white/5 text-[11px] text-slate-400 select-none"
+                      title={isEn ? 'Update operations are restricted to Super Administrator' : 'بررسی و ارتقای سیستم تنها برای مدیر ارشد مجاز است'}
+                    >
+                      <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{isEn ? 'Updates Managed by Super Admin' : 'مدیریت ارتقا مختص مدیر ارشد'}</span>
+                    </div>
+                  )}
 
                   {/* Live Status / Toast Feedback */}
                   {checkFeedback && checkFeedback.type !== 'update_available' && (

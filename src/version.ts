@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.248.1';
+export const APP_VERSION = '1.249.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.249.0',
+    releaseDate: '2026-10-01',
+    type: 'minor',
+    title: 'انحصار قطعی بررسی و اعمال به‌روزرسانی سیستم برای مدیر ارشد در دیتابیس (Strict Super Admin Update Authority & Database RBAC Enforcement)',
+    title_en: 'Strict Super Admin Update Authority & Database RBAC Enforcement',
+    changes: [
+      'انحصار کامل و قطعی دسترسی بررسی نگارش جدید و اعمال آپدیت سیستم منحصراً برای مدیر ارشد (Super Administrator) در کلیه اندپوینت‌های بک‌اند (/api/system/check-update و /api/system/perform-update).',
+      'حذف کامل هرگونه دسترسی شبیه‌سازی‌شده یا موک، و ممانعت قطعی از اجرای بررسی یا نصب آپدیت در زمان شبیه‌سازی نقش‌های دیگر (Role Simulation Denial) جهت تضمین امنیت حداکثری.',
+      'پیوند و ذخیره‌سازی مقتدرانه مجوزهای canCheckUpdate و canPerformUpdate به صورت دیفالت در دیتابیس PostgreSQL و پالیسی پیش‌فرض سوپر ادمین (policy-super-admin) و عدم اعطای آن به سایر گروه‌ها و کاربران.',
+      'افزودن گزینه‌های کنترلی بررسی و اجرای آپدیت به ماتریس اختیارات ماژول‌ها در تب Access Control با وضعیت قفل امنیتی برای پروفایل‌های غیر ادمین.',
+      'اصلاح رابط کاربری در نوار ناوبری (Navbar) و پنجره نگارش‌ها (ReleaseNotesModal) جهت نمایش پیام‌های آگاهی‌بخشی امنیتی دوزبانه و حذف حالت دمو یا شبیه‌ساز آپدیت.'
+    ],
+    changes_en: [
+      'Strictly restricted system update check and execution capabilities exclusively to Super Administrator accounts across all backend routes (/api/system/check-update and /api/system/perform-update).',
+      'Eliminated all simulated or mock permission states, unconditionally denying update actions during role simulation to guarantee authentic governance.',
+      'Persisted canCheckUpdate and canPerformUpdate authoritative grants directly inside PostgreSQL database and policy-super-admin by default, ensuring non-admin roles cannot trigger updates.',
+      'Integrated update permissions into the Access Control Policy Editor module matrix with dedicated security lock indicators for non-admin profiles.',
+      'Refined Navbar profile menu and ReleaseNotesModal UI to show clear bilingual security notices for non-super-admin users and eliminated simulated demo buttons.'
+    ],
+  },
   {
     version: '1.248.1',
     releaseDate: '2026-10-01',

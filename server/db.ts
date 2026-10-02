@@ -291,6 +291,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewSettings: false,
     canViewServers: false,
     canViewLogs: false,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -339,6 +341,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewSettings: false,
     canViewServers: true,
     canViewLogs: true,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -387,6 +391,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewSettings: true,
     canViewServers: true,
     canViewLogs: true,
+    canCheckUpdate: true,
+    canPerformUpdate: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1108,11 +1114,13 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         ? initialData.access_policies
         : DEFAULT_ACCESS_POLICIES;
       for (const p of policiesToSeed) {
+        const { id, name, description, priority, isBuiltin, is_builtin, created_at, policyData, policy_data, ...rest } = p;
+        const pData = policyData || policy_data || rest;
         await client.query(
           `INSERT INTO access_policies (id, name, description, priority, is_builtin, policy_data, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (id) DO NOTHING`,
-          [p.id, p.name, p.description, p.priority || 100, p.isBuiltin ?? p.is_builtin ?? false, JSON.stringify(p.policyData || p.policy_data || {}), p.created_at || new Date().toISOString()]
+          [p.id, p.name, p.description, p.priority || 100, p.isBuiltin ?? p.is_builtin ?? false, JSON.stringify(pData), created_at || p.created_at || new Date().toISOString()]
         );
       }
     }
@@ -2543,6 +2551,9 @@ export async function getAccessPolicies(): Promise<any[]> {
             ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
             : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
         );
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const canCheck = pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper;
+        const canPerform = pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper;
         return {
           id: r.id,
           name: r.name,
@@ -2550,6 +2561,8 @@ export async function getAccessPolicies(): Promise<any[]> {
           priority: r.priority,
           isBuiltin: r.is_builtin,
           ...pData,
+          canCheckUpdate: canCheck,
+          canPerformUpdate: canPerform,
           defaultServerPermissions: defaultPerms,
           perServerPermissions: pData.perServerPermissions || {},
         };
@@ -2568,9 +2581,14 @@ export async function getAccessPolicies(): Promise<any[]> {
         ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
         : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
     );
+    const isSuper = p.id === 'policy-super-admin' || (p.priority || 0) >= 100;
+    const canCheck = p.canCheckUpdate !== undefined ? Boolean(p.canCheckUpdate) : (pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper);
+    const canPerform = p.canPerformUpdate !== undefined ? Boolean(p.canPerformUpdate) : (pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper);
     return {
       ...p,
       ...pData,
+      canCheckUpdate: canCheck,
+      canPerformUpdate: canPerform,
       defaultServerPermissions: defaultPerms,
       perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
     };
@@ -2637,6 +2655,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewSettings: false,
       canViewServers: false,
       canViewLogs: false,
+      canCheckUpdate: false,
+      canPerformUpdate: false,
       terminalAccess: 'none',
       canToggleAdminStatus: false,
       canChangeVlan: false,
@@ -2812,6 +2832,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewSettings: true,
       canViewServers: true,
       canViewLogs: true,
+      canCheckUpdate: true,
+      canPerformUpdate: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -2869,6 +2891,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canViewSettings: false,
     canViewServers: false,
     canViewLogs: false,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,

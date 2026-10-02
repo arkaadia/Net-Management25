@@ -177,3 +177,47 @@ export function isServerActionAllowed(
   const serverId = typeof server === 'string' ? server : server.id;
   return isServerActionPermitted(policy, serverId, actionKey);
 }
+
+/**
+ * Evaluates whether a user or active policy is authorized to check for software updates.
+ * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to check for software updates.
+ * Access is authoritative and linked to the Super Admin policy in the database.
+ */
+export function canUserCheckUpdate(
+  user: { username?: string; role?: string } | null | undefined,
+  policy: AccessPolicy | any | null | undefined
+): boolean {
+  if (!user && !policy) return false;
+  const username = (user?.username || '').toLowerCase();
+  const role = (user?.role || '').toLowerCase();
+  const isSuperAdmin =
+    username === 'admin' ||
+    role.includes('super admin') ||
+    role.includes('administrator') ||
+    policy?.id === 'policy-super-admin' ||
+    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all');
+  if (!isSuperAdmin) return false;
+  return policy?.canCheckUpdate !== false;
+}
+
+/**
+ * Evaluates whether a user or active policy is authorized to trigger software updates.
+ * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to execute system upgrades or rebuilds.
+ * Access is authoritative and linked to the Super Admin policy in the database.
+ */
+export function canUserPerformUpdate(
+  user: { username?: string; role?: string } | null | undefined,
+  policy: AccessPolicy | any | null | undefined
+): boolean {
+  if (!user && !policy) return false;
+  const username = (user?.username || '').toLowerCase();
+  const role = (user?.role || '').toLowerCase();
+  const isSuperAdmin =
+    username === 'admin' ||
+    role.includes('super admin') ||
+    role.includes('administrator') ||
+    policy?.id === 'policy-super-admin' ||
+    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all');
+  if (!isSuperAdmin) return false;
+  return policy?.canPerformUpdate !== false;
+}

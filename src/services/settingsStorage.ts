@@ -261,6 +261,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewScanner: false,
     canViewTemplates: false,
     canViewSettings: false,
+    canViewServers: false,
+    canViewLogs: false,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     // Device & Port Actions (Cisco)
     terminalAccess: 'none',            // No CLI access
     canToggleAdminStatus: false,        // Cannot shutdown core ports
@@ -309,6 +313,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewScanner: true,
     canViewTemplates: true,
     canViewSettings: false,
+    canViewServers: true,
+    canViewLogs: true,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     // Device & Port Actions (Cisco)
     terminalAccess: 'view_only',        // View logs only
     canToggleAdminStatus: false,
@@ -357,6 +365,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewScanner: true,
     canViewTemplates: true,
     canViewSettings: true,
+    canViewServers: true,
+    canViewLogs: true,
+    canCheckUpdate: true,
+    canPerformUpdate: true,
     // Device & Port Actions (Cisco)
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -857,6 +869,8 @@ export function getEffectiveUserPolicy(
       canViewSettings: false,
       canViewServers: false,
       canViewLogs: false,
+      canCheckUpdate: false,
+      canPerformUpdate: false,
       terminalAccess: 'none',
       canToggleAdminStatus: false,
       canChangeVlan: false,
@@ -941,6 +955,8 @@ export function getEffectiveUserPolicy(
         canViewSettings: true,
         canViewServers: true,
         canViewLogs: true,
+        canCheckUpdate: true,
+        canPerformUpdate: true,
         terminalAccess: 'full',
         canToggleAdminStatus: true,
         canChangeVlan: true,
@@ -975,6 +991,8 @@ export function getEffectiveUserPolicy(
     canViewSettings: false,
     canViewServers: false,
     canViewLogs: false,
+    canCheckUpdate: false,
+    canPerformUpdate: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,

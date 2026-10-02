@@ -11,15 +11,15 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <LanguageProvider>
-      <UpdateProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <UpdateProvider>
           <ModalDockProvider>
             <ErrorBoundary>
               <App />
             </ErrorBoundary>
           </ModalDockProvider>
-        </AuthProvider>
-      </UpdateProvider>
+        </UpdateProvider>
+      </AuthProvider>
     </LanguageProvider>
   </StrictMode>,
 );
