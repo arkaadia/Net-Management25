@@ -592,6 +592,29 @@ export interface ServerActionPermissions {
   delete_server?: boolean;
 }
 
+export type NetworkDeviceActionKey =
+  | 'web_configs'      // Web Config & Consoles (WebFig, iLO, Web GUI)
+  | 'terminal'         // SSH Console Direct / CLI Terminal
+  | 'apply_template'   // Apply Config Template (Variables & Deploy)
+  | 'device_note'      // Add / Edit / View Sticky Note
+  | 'edit_properties'  // Edit Device Properties (Hostname, IP, Role, Location)
+  | 'ping_keepalive'   // Ping & Keepalive Telemetry Check
+  | 'inspect_ports'    // Inspect Interfaces & VLANs
+  | 'write_memory'     // Save to NVRAM (Write Memory)
+  | 'delete_device';   // Delete Device from System
+
+export interface NetworkDeviceActionPermissions {
+  web_configs?: boolean;
+  terminal?: boolean;
+  apply_template?: boolean;
+  device_note?: boolean;
+  edit_properties?: boolean;
+  ping_keepalive?: boolean;
+  inspect_ports?: boolean;
+  write_memory?: boolean;
+  delete_device?: boolean;
+}
+
 export interface AccessPolicy {
   id: string;
   name: string;
@@ -658,6 +681,10 @@ export interface AccessPolicy {
   // 6. Server Fleet Granular Capabilities & Per-Server Override Matrix
   defaultServerPermissions?: ServerActionPermissions;
   perServerPermissions?: Record<string /* serverId */, ServerActionPermissions>;
+
+  // 7. Network Equipment Granular Capabilities & Per-Device Override Matrix
+  defaultDevicePermissions?: NetworkDeviceActionPermissions;
+  perDevicePermissions?: Record<string /* deviceId */, NetworkDeviceActionPermissions>;
 
   permissions?: any;
 }

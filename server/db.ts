@@ -316,6 +316,18 @@ export const DEFAULT_ACCESS_POLICIES = [
       delete_server: false,
     },
     perServerPermissions: {},
+    defaultDevicePermissions: {
+      web_configs: true,
+      terminal: false,
+      apply_template: false,
+      device_note: true,
+      edit_properties: false,
+      ping_keepalive: true,
+      inspect_ports: true,
+      write_memory: false,
+      delete_device: false,
+    },
+    perDevicePermissions: {},
     created_at: new Date().toISOString(),
   },
   {
@@ -366,6 +378,18 @@ export const DEFAULT_ACCESS_POLICIES = [
       delete_server: false,
     },
     perServerPermissions: {},
+    defaultDevicePermissions: {
+      web_configs: true,
+      terminal: false,
+      apply_template: false,
+      device_note: true,
+      edit_properties: false,
+      ping_keepalive: true,
+      inspect_ports: true,
+      write_memory: false,
+      delete_device: false,
+    },
+    perDevicePermissions: {},
     created_at: new Date().toISOString(),
   },
   {
@@ -416,6 +440,18 @@ export const DEFAULT_ACCESS_POLICIES = [
       delete_server: true,
     },
     perServerPermissions: {},
+    defaultDevicePermissions: {
+      web_configs: true,
+      terminal: true,
+      apply_template: true,
+      device_note: true,
+      edit_properties: true,
+      ping_keepalive: true,
+      inspect_ports: true,
+      write_memory: true,
+      delete_device: true,
+    },
+    perDevicePermissions: {},
     created_at: new Date().toISOString(),
   },
 ];
@@ -1122,6 +1158,29 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
            ON CONFLICT (id) DO NOTHING`,
           [p.id, p.name, p.description, p.priority || 100, p.isBuiltin ?? p.is_builtin ?? false, JSON.stringify(pData), created_at || p.created_at || new Date().toISOString()]
         );
+      }
+    }
+
+    // Ensure all existing policies in PostgreSQL have defaultDevicePermissions and perDevicePermissions
+    const existingPoliciesRes = await client.query('SELECT id, priority, policy_data FROM access_policies');
+    for (const r of existingPoliciesRes.rows) {
+      const pData = typeof r.policy_data === 'string' ? JSON.parse(r.policy_data) : (r.policy_data || {});
+      let changed = false;
+      if (!pData.defaultDevicePermissions) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.defaultDevicePermissions = isSuper
+          ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+          : r.id === 'policy-noc-observer'
+          ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+          : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false };
+        changed = true;
+      }
+      if (!pData.perDevicePermissions) {
+        pData.perDevicePermissions = {};
+        changed = true;
+      }
+      if (changed) {
+        await client.query('UPDATE access_policies SET policy_data = $1 WHERE id = $2', [JSON.stringify(pData), r.id]);
       }
     }
   } catch (err: any) {
@@ -2551,6 +2610,13 @@ export async function getAccessPolicies(): Promise<any[]> {
             ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
             : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
         );
+        const defaultDevicePerms = pData.defaultDevicePermissions || (
+          r.id === 'policy-super-admin' || (r.priority || 0) >= 100
+            ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+            : r.id === 'policy-noc-observer'
+            ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+            : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+        );
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         const canCheck = pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper;
         const canPerform = pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper;
@@ -2565,6 +2631,8 @@ export async function getAccessPolicies(): Promise<any[]> {
           canPerformUpdate: canPerform,
           defaultServerPermissions: defaultPerms,
           perServerPermissions: pData.perServerPermissions || {},
+          defaultDevicePermissions: defaultDevicePerms,
+          perDevicePermissions: pData.perDevicePermissions || {},
         };
       });
     } catch (e) {
@@ -2581,6 +2649,13 @@ export async function getAccessPolicies(): Promise<any[]> {
         ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
         : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
     );
+    const defaultDevicePerms = p.defaultDevicePermissions || pData.defaultDevicePermissions || (
+      p.id === 'policy-super-admin' || (p.priority || 0) >= 100
+        ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+        : p.id === 'policy-noc-observer'
+        ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+        : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+    );
     const isSuper = p.id === 'policy-super-admin' || (p.priority || 0) >= 100;
     const canCheck = p.canCheckUpdate !== undefined ? Boolean(p.canCheckUpdate) : (pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper);
     const canPerform = p.canPerformUpdate !== undefined ? Boolean(p.canPerformUpdate) : (pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper);
@@ -2591,6 +2666,8 @@ export async function getAccessPolicies(): Promise<any[]> {
       canPerformUpdate: canPerform,
       defaultServerPermissions: defaultPerms,
       perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
+      defaultDevicePermissions: defaultDevicePerms,
+      perDevicePermissions: p.perDevicePermissions || pData.perDevicePermissions || {},
     };
   });
 }
@@ -2856,6 +2933,18 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         delete_server: true,
       },
       perServerPermissions: {},
+      defaultDevicePermissions: {
+        web_configs: true,
+        terminal: true,
+        apply_template: true,
+        device_note: true,
+        edit_properties: true,
+        ping_keepalive: true,
+        inspect_ports: true,
+        write_memory: true,
+        delete_device: true,
+      },
+      perDevicePermissions: {},
     });
   }
 
@@ -2915,6 +3004,18 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       delete_server: false,
     },
     perServerPermissions: {},
+    defaultDevicePermissions: {
+      web_configs: false,
+      terminal: false,
+      apply_template: false,
+      device_note: false,
+      edit_properties: false,
+      ping_keepalive: false,
+      inspect_ports: false,
+      write_memory: false,
+      delete_device: false,
+    },
+    perDevicePermissions: {},
   });
 }
 
@@ -2975,6 +3076,70 @@ export function isServerActionPermitted(
     return false;
   }
 
+  return true;
+}
+
+/**
+ * Universally evaluates whether a specific network equipment action is permitted
+ * under a database-authoritative AccessPolicy for a given network device.
+ */
+export function isDeviceActionPermitted(
+  policy: any | null | undefined,
+  deviceId: string,
+  action: string
+): boolean {
+  if (!policy) return true;
+
+  // 1. If user has no permission to view/manage devices at all
+  if (policy.canViewDevices === false) {
+    return false;
+  }
+
+  // 2. If policy targets specific groups or devices, ensure target device is in allowed scope
+  if (Array.isArray(policy.allowedDeviceIds) && !policy.allowedDeviceIds.includes(deviceId)) {
+    return false;
+  }
+
+  // 3. Highest Priority: Granular Per-Device Override Matrix
+  if (policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
+    const deviceOverrides = policy.perDevicePermissions[deviceId];
+    if (deviceOverrides && typeof deviceOverrides === 'object') {
+      if (typeof deviceOverrides[action] === 'boolean') {
+        return deviceOverrides[action];
+      }
+    }
+  }
+
+  // 4. Default Device Permissions defined in the policy
+  if (policy.defaultDevicePermissions && typeof policy.defaultDevicePermissions === 'object') {
+    if (typeof policy.defaultDevicePermissions[action] === 'boolean') {
+      return policy.defaultDevicePermissions[action];
+    }
+  }
+
+  // 5. Global Policy Scope Fallback (Super Administrator unconstrained access)
+  const isSuperAdmin =
+    policy.id === 'policy-super-admin' ||
+    (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
+  if (isSuperAdmin) {
+    return true;
+  }
+
+  // 6. Safe backward-compatible fallback mapping from general policy flags:
+  if (action === 'terminal') {
+    return policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only';
+  }
+  if (action === 'apply_template') {
+    return Boolean(policy.canApplyTemplates);
+  }
+  if (action === 'write_memory') {
+    return Boolean(policy.canWriteMemory);
+  }
+  if (action === 'delete_device' || action === 'edit_properties') {
+    return Boolean(policy.canManageDevices);
+  }
+
+  // Non-destructive actions (web_configs, ping_keepalive, inspect_ports, device_note)
   return true;
 }
 

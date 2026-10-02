@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.249.1';
+export const APP_VERSION = '1.250.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.250.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۱: معماری مدل‌های داده، تایپ‌ها و ذخیره‌سازی اختیارات تفکیک‌شده تجهیزات شبکه در PostgreSQL (Network Equipment Granular RBAC Architecture)',
+    title_en: 'Phase 1: Network Equipment Granular Permissions Architecture & PostgreSQL Database RBAC',
+    changes: [
+      'تعریف کلیدهای ۹ گانه منوی ۳ نقطه تجهیزات شبکه (NetworkDeviceActionKey): کنسول‌های وب (web_configs)، ترمینال شل تعاملی (terminal)، اعمال تمپلیت کانفیگ (apply_template)، یادداشت چسبان (device_note)، ویرایش مشخصات (edit_properties)، تست پینگ لحظه‌ای (ping_keepalive)، بررسی پورت‌ها و VLAN (inspect_ports)، ذخیره در NVRAM (write_memory)، و حذف تجهیز (delete_device).',
+      'ایجاد اینترفیس NetworkDeviceActionPermissions و افزودن فیلدهای defaultDevicePermissions (مجوزهای پیش‌فرض سراسری) و perDevicePermissions (ماتریس استثنا به ازای هر دیوایس) به ساختار مدل AccessPolicy.',
+      'به‌روزرسانی و همگام‌سازی مقتدرانه پایگاه داده PostgreSQL و جدول access_policies با مقادیر تفکیک‌شده پیش‌فرض برای کلیه سطوح دسترسی (Super Admin با دسترسی کامل به کلیه عملیات، تیم هلپ‌دسک و NOC با دسترسی به ابزارهای پایش و عدم دسترسی به عملیات مخرب یا کنسول‌های شل حساس).',
+      'پیاده‌سازی توابع ارزیابی امنیتی سمت سرور و کلاینت (isDeviceActionPermitted و isDeviceActionAllowed) با پشتیبانی کامل از سلسله‌مراتب اولویت (ماتریس اختصاصی تجهیز > پیش‌فرض‌های سراسری دیوایس > فالبک‌های عمومی).',
+      'طراحی کاتالوگ جامع اطلاعات و دیسکریپتورهای دوزبانه تجهیزات (DEVICE_ACTIONS_CATALOG) و تعیین برچسب‌های ریسک بالا (HIGH RISK).'
+    ],
+    changes_en: [
+      'Defined the complete 9-key action matrix for network equipment (NetworkDeviceActionKey): Web Consoles (web_configs), Direct SSH Terminal (terminal), Apply Config Template (apply_template), Sticky Notes (device_note), Edit Device Properties (edit_properties), Ping & Keepalive Telemetry (ping_keepalive), Inspect Interfaces & VLANs (inspect_ports), Save to NVRAM (write_memory), and Delete Device (delete_device).',
+      'Created NetworkDeviceActionPermissions interface and extended AccessPolicy with defaultDevicePermissions (baseline defaults) and perDevicePermissions (granular per-device override matrix).',
+      'Synchronized PostgreSQL access_policies database table with native JSONB policy_data schemas, seeding authoritative defaults for Super Admin (all permitted) and restricted operator roles (monitoring permitted, high-risk mutation/terminal blocked).',
+      'Implemented robust client and server permission evaluators (isDeviceActionPermitted and isDeviceActionAllowed) with strict priority resolution (per-device override > baseline default > global policy fallback).',
+      'Established DEVICE_ACTIONS_CATALOG with complete bilingual metadata, category classification, and high-risk hazard flags.'
+    ],
+  },
   {
     version: '1.249.1',
     releaseDate: '2026-10-02',

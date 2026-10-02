@@ -57,13 +57,19 @@ import {
   LocalGroup,
   RemoteServer,
   ServerActionKey,
-  ServerActionPermissions
+  ServerActionPermissions,
+  NetworkDeviceActionKey,
+  NetworkDeviceActionPermissions,
 } from '../../types';
 import {
   SERVER_ACTIONS_CATALOG,
   FULL_SERVER_PERMISSIONS,
   RESTRICTED_SERVER_PERMISSIONS,
-  isServerActionPermitted
+  isServerActionPermitted,
+  DEVICE_ACTIONS_CATALOG,
+  FULL_DEVICE_PERMISSIONS,
+  RESTRICTED_DEVICE_PERMISSIONS,
+  isDeviceActionPermitted,
 } from '../../utils/rbac';
 import { fetchRemoteServers } from '../../services/api';
 import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
@@ -236,6 +242,19 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         delete_server: false,
       },
       perServerPermissions: {},
+      // Network Equipment & 3-Dots Action Permissions
+      defaultDevicePermissions: {
+        web_configs: true,
+        terminal: false,
+        apply_template: false,
+        device_note: true,
+        edit_properties: false,
+        ping_keepalive: true,
+        inspect_ports: true,
+        write_memory: false,
+        delete_device: false,
+      },
+      perDevicePermissions: {},
     };
   };
 
@@ -257,6 +276,12 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           : { ...RESTRICTED_SERVER_PERMISSIONS }
       ),
       perServerPermissions: policy.perServerPermissions || {},
+      defaultDevicePermissions: policy.defaultDevicePermissions || (
+        policy.id === 'policy-super-admin'
+          ? { ...FULL_DEVICE_PERMISSIONS }
+          : { ...RESTRICTED_DEVICE_PERMISSIONS }
+      ),
+      perDevicePermissions: policy.perDevicePermissions || {},
     });
     setIsCreating(false);
     setVendorFilter('all');

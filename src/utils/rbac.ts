@@ -1,4 +1,10 @@
-import { AccessPolicy, ServerActionKey, ServerActionPermissions } from '../types';
+import {
+  AccessPolicy,
+  ServerActionKey,
+  ServerActionPermissions,
+  NetworkDeviceActionKey,
+  NetworkDeviceActionPermissions,
+} from '../types';
 
 export interface ServerActionDescriptor {
   key: ServerActionKey;
@@ -9,6 +15,136 @@ export interface ServerActionDescriptor {
   category: 'remote' | 'management' | 'power' | 'config';
   danger?: boolean;
 }
+
+export interface NetworkDeviceActionDescriptor {
+  key: NetworkDeviceActionKey;
+  labelEn: string;
+  labelFa: string;
+  descriptionEn: string;
+  descriptionFa: string;
+  category: 'remote' | 'management' | 'config' | 'danger';
+  danger?: boolean;
+}
+
+export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
+  {
+    key: 'web_configs',
+    labelEn: 'Web Consoles & GUI Management',
+    labelFa: 'کنسول‌های وب و مدیریت (WebFig, iLO, Web GUI)',
+    descriptionEn: 'Access external and in-browser HTTP/HTTPS device web consoles and out-of-band management.',
+    descriptionFa: 'دسترسی به کنسول‌ها و رابط‌های وب مدیریتی تجهیزات نظیر WebFig میکروتیک، iLO، ESXi و پنل وب سوییچ‌ها.',
+    category: 'remote',
+    danger: false,
+  },
+  {
+    key: 'terminal',
+    labelEn: 'SSH Direct Console (CLI Terminal)',
+    labelFa: 'ترمینال شل تعاملی (کنسول مستقیم SSH)',
+    descriptionEn: 'Interactive direct SSH terminal console session into Cisco IOS, MikroTik, or network appliances.',
+    descriptionFa: 'برقراری اتصال مستقیم و تعاملی خط فرمان (CLI Terminal) به تجهیز جهت مدیریت مستقیم و صدور دستورات.',
+    category: 'remote',
+    danger: true,
+  },
+  {
+    key: 'apply_template',
+    labelEn: 'Apply Config Template',
+    labelFa: 'اعمال تمپلیت و الگوی کانفیگ',
+    descriptionEn: 'Deploy structured configuration templates with dynamic variable substitutions to the device.',
+    descriptionFa: 'اجرا و اعمال الگوهای پیکربندی، جایگذاری متغیرها و استقرار خودکار دستورات بر روی تجهیز شبکه.',
+    category: 'config',
+    danger: true,
+  },
+  {
+    key: 'device_note',
+    labelEn: 'Sticky Notes & Operational Memos',
+    labelFa: 'یادداشت‌های چسبان و نکات عملیاتی',
+    descriptionEn: 'Create, view, and modify persistent operational notes and handover comments attached to this device.',
+    descriptionFa: 'ثبت، مشاهده و ویرایش یادداشت‌های چسبان و نکات فنی پیوست‌شده به این تجهیز در سیستم.',
+    category: 'management',
+    danger: false,
+  },
+  {
+    key: 'edit_properties',
+    labelEn: 'Edit Device Properties',
+    labelFa: 'ویرایش مشخصات و اطلاعات تجهیز',
+    descriptionEn: 'Update device hostname, management IP address, role, physical location, credentials, and tags.',
+    descriptionFa: 'ویرایش نام میزبان، آدرس IP مدیریتی، نقش، مکان فیزیکی، اطلاعات کاربری اتصال و برچسب‌های دستگاه.',
+    category: 'config',
+    danger: true,
+  },
+  {
+    key: 'ping_keepalive',
+    labelEn: 'Ping & Keepalive Telemetry',
+    labelFa: 'تست پینگ و تاخیر لحظه‌ای (ICMP)',
+    descriptionEn: 'Trigger real-time ICMP ping echo, round-trip latency measurement, and reachability validation.',
+    descriptionFa: 'ارسال درخواست‌های تست پینگ ICMP، سنجش تاخیر رفت و برگشت (Latency) و پایش سلامت اتصال آنلاین تجهیز.',
+    category: 'management',
+    danger: false,
+  },
+  {
+    key: 'inspect_ports',
+    labelEn: 'Inspect Interfaces & VLANs',
+    labelFa: 'مشاهده وضعیت پورت‌ها و VLAN',
+    descriptionEn: 'Inspect port interface telemetry, operational link states, duplex, and assigned VLAN memberships.',
+    descriptionFa: 'مشاهده و بررسی وضعیت پورت‌های فیزیکی، لینک‌های فعال، تخصیص VLAN و مشخصات تلمتری اینترفیس‌ها.',
+    category: 'management',
+    danger: false,
+  },
+  {
+    key: 'write_memory',
+    labelEn: 'Save to NVRAM (Write Memory)',
+    labelFa: 'ذخیره در حافظه پایدار (Write Memory)',
+    descriptionEn: 'Commit running configuration to non-volatile startup storage (copy running-config startup-config).',
+    descriptionFa: 'ذخیره‌سازی و تثبیت پیکربندی جاری در حافظه پایدار تجهیز جهت حفظ تنظیمات پس از راه‌اندازی مجدد.',
+    category: 'config',
+    danger: true,
+  },
+  {
+    key: 'delete_device',
+    labelEn: 'Delete Device from System',
+    labelFa: 'حذف تجهیز از سیستم و شبکه',
+    descriptionEn: 'Permanently remove this device, linked port connections, and topology map references from the system.',
+    descriptionFa: 'حذف کامل و دائمی این تجهیز، اتصالات پورت‌ها و رکوردهای پایگاه داده از کل پنل مدیریت شبکه.',
+    category: 'danger',
+    danger: true,
+  },
+];
+
+export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
+  web_configs: true,
+  terminal: true,
+  apply_template: true,
+  device_note: true,
+  edit_properties: true,
+  ping_keepalive: true,
+  inspect_ports: true,
+  write_memory: true,
+  delete_device: true,
+};
+
+export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
+  web_configs: true,
+  terminal: false,
+  apply_template: false,
+  device_note: true,
+  edit_properties: false,
+  ping_keepalive: true,
+  inspect_ports: true,
+  write_memory: false,
+  delete_device: false,
+};
+
+export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
+  web_configs: false,
+  terminal: false,
+  apply_template: false,
+  device_note: false,
+  edit_properties: false,
+  ping_keepalive: false,
+  inspect_ports: false,
+  write_memory: false,
+  delete_device: false,
+};
 
 export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
   {
@@ -176,6 +312,85 @@ export function isServerActionAllowed(
   if (!server) return false;
   const serverId = typeof server === 'string' ? server : server.id;
   return isServerActionPermitted(policy, serverId, actionKey);
+}
+
+/**
+ * Universally evaluates whether a specific network equipment action is permitted
+ * under a database-authoritative AccessPolicy for a given network device.
+ */
+export function isDeviceActionPermitted(
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  action: NetworkDeviceActionKey
+): boolean {
+  // If no policy is provided (unauthenticated/standalone fallback), permit action
+  if (!policy) return true;
+
+  // 1. If user has no permission to view/manage devices at all
+  if (policy.canViewDevices === false) {
+    return false;
+  }
+
+  // 2. If policy targets specific groups or devices, ensure target device is in allowed scope
+  if (Array.isArray(policy.allowedDeviceIds) && !policy.allowedDeviceIds.includes(deviceId)) {
+    return false;
+  }
+
+  // 3. Highest Priority: Granular Per-Device Override Matrix
+  if (policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
+    const deviceOverrides = policy.perDevicePermissions[deviceId];
+    if (deviceOverrides && typeof deviceOverrides === 'object') {
+      if (typeof deviceOverrides[action] === 'boolean') {
+        return deviceOverrides[action];
+      }
+    }
+  }
+
+  // 4. Default Device Permissions defined in the policy
+  if (policy.defaultDevicePermissions && typeof policy.defaultDevicePermissions === 'object') {
+    if (typeof policy.defaultDevicePermissions[action] === 'boolean') {
+      return policy.defaultDevicePermissions[action];
+    }
+  }
+
+  // 5. Global Policy Scope Fallback (Super Administrator unconstrained access)
+  const isSuperAdmin =
+    policy.id === 'policy-super-admin' ||
+    (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
+  if (isSuperAdmin) {
+    return true;
+  }
+
+  // 6. Safe backward-compatible fallback mapping from general policy flags:
+  if (action === 'terminal') {
+    return policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only';
+  }
+  if (action === 'apply_template') {
+    return Boolean(policy.canApplyTemplates);
+  }
+  if (action === 'write_memory') {
+    return Boolean(policy.canWriteMemory);
+  }
+  if (action === 'delete_device' || action === 'edit_properties') {
+    return Boolean(policy.canManageDevices);
+  }
+
+  // Operational telemetry and memos are enabled by default for authorized equipment
+  return true;
+}
+
+/**
+ * Client-side evaluation helper to test whether a given action is permitted on a target network device.
+ * Accepts either the device object or its string ID, along with the action key and effective policy.
+ */
+export function isDeviceActionAllowed(
+  device: { id: string } | string | null | undefined,
+  actionKey: NetworkDeviceActionKey,
+  policy: AccessPolicy | any | null | undefined
+): boolean {
+  if (!device) return false;
+  const deviceId = typeof device === 'string' ? device : device.id;
+  return isDeviceActionPermitted(policy, deviceId, actionKey);
 }
 
 /**
