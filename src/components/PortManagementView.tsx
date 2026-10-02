@@ -543,13 +543,13 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
     if (filterMode === 'access' && p.mode !== 'access') return false;
     if (filterMode === 'port_sec' && !p.port_security_enabled) return false;
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.trim().toLowerCase();
       return (
-        p.port_id.toLowerCase().includes(q) ||
-        p.connected_device.toLowerCase().includes(q) ||
-        String(p.vlan).includes(q) ||
-        p.mode.toLowerCase().includes(q) ||
-        (p.port_security_configured_mac && p.port_security_configured_mac.toLowerCase().includes(q))
+        (p.port_id || '').toLowerCase().includes(q) ||
+        (p.connected_device || '').toLowerCase().includes(q) ||
+        String(p.vlan ?? '').includes(q) ||
+        (p.mode || '').toLowerCase().includes(q) ||
+        ((p.port_security_configured_mac || '').toLowerCase().includes(q))
       );
     }
     return true;

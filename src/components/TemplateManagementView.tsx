@@ -98,11 +98,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   // Filtered list
   const filteredTemplates = useMemo(() => {
     return templates.filter((t) => {
+      const q = (searchTerm || '').trim().toLowerCase();
       const matchSearch =
-        t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.commands.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.role.toLowerCase().includes(searchTerm.toLowerCase());
+        !q ||
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q) ||
+        (t.commands || '').toLowerCase().includes(q) ||
+        (t.role || '').toLowerCase().includes(q);
 
       const matchVendor = vendorFilter === 'all' || t.vendor === vendorFilter;
       const matchType = typeFilter === 'all' || t.target_type === typeFilter || t.target_type === 'all';

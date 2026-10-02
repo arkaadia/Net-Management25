@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.262.0';
+export const APP_VERSION = '1.262.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.262.1',
+    releaseDate: '2026-10-02',
+    type: 'patch',
+    title: 'رفع خطای توقف رندر هنگام جستجو در لیست تجهیزات شبکه (Null-Safe Inventory Search Fix)',
+    title_en: 'Fix Component Rendering Crash During Inventory Search (Null-Safe Search Filter)',
+    changes: [
+      'رفع خطای کرش کامپوننت (TypeError: Cannot read properties of undefined (reading toLowerCase)) هنگام تایپ در نوار جستجوی صفحه موجودی تجهیزات (DeviceListView).',
+      'ایمن‌سازی کامل فیلتر جستجو با بررسی عدم تهی بودن تمامی فیلدهای تجهیزات (name, ip, model, building, floor, unit, role, platform, mac, rack).',
+      'اعمال رفتارهای محافظت‌شده null-safe در تمامی فیلترهای جستجوی بخش تمپلیت‌ها (TemplateManagementView) و مدیریت پورت‌ها (PortManagementView) جهت جلوگیری از خطاهای مشابه.'
+    ],
+    changes_en: [
+      'Fixed React Component Rendering crash (TypeError: Cannot read properties of undefined reading toLowerCase) occurring when typing in the search bar of Network Equipment Inventory (DeviceListView).',
+      'Engineered complete null-safe access guards across all device attributes in search queries (name, ip, model, building, floor, unit, role, platform, mac, rack).',
+      'Applied uniform null-safe search protection across Template Management and Port Management views preventing adjacent filter regressions.'
+    ],
+  },
   {
     version: '1.262.0',
     releaseDate: '2026-10-02',

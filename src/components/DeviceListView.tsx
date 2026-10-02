@@ -463,14 +463,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     if (statusFilter === 'unsaved' && !d.has_unsaved_changes) return false;
     if (buildingFilter !== 'all' && d.building !== buildingFilter) return false;
     if (search) {
-      const q = search.toLowerCase();
+      const q = search.trim().toLowerCase();
       return (
-        d.name.toLowerCase().includes(q) ||
-        d.ip.toLowerCase().includes(q) ||
-        d.model.toLowerCase().includes(q) ||
-        d.building.toLowerCase().includes(q) ||
-        d.floor.toLowerCase().includes(q) ||
-        d.unit.toLowerCase().includes(q)
+        (d.name || '').toLowerCase().includes(q) ||
+        (d.ip || '').toLowerCase().includes(q) ||
+        (d.model || '').toLowerCase().includes(q) ||
+        (d.building || '').toLowerCase().includes(q) ||
+        (d.floor || '').toLowerCase().includes(q) ||
+        (d.unit || '').toLowerCase().includes(q) ||
+        (d.role || '').toLowerCase().includes(q) ||
+        (d.platform || '').toLowerCase().includes(q) ||
+        (d.mac || d.mac_address || '').toLowerCase().includes(q) ||
+        (d.rack || '').toLowerCase().includes(q)
       );
     }
     return true;
