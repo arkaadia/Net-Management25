@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.251.0';
+export const APP_VERSION = '1.252.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.252.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۳: اتصال و اعمال اختیارات تفکیک‌شده تجهیزات شبکه به منوی ۳ نقطه در فرانت‌اند (DeviceListView Granular RBAC Enforcement)',
+    title_en: 'Phase 3: Network Equipment Inventory 3-Dots Granular Access Control Enforcement in DeviceListView',
+    changes: [
+      'پیاده‌سازی تابع ارزیابی canUserPerformDeviceAction و hasAnyDeviceActionPermitted در src/utils/rbac.ts جهت سنجش اختیارات دیتابیس‌محور کاربر بر روی هر تجهیز شبکه.',
+      'اتصال کامل منوی ۳ نقطه در DeviceListView.tsx به اختیارات کاربر؛ تفکیک هر ۹ گزینه (کنسول‌های وب، ترمینال SSH مستقیم سیسکو، اعمال تمپلیت کانفیگ، یادداشت‌های چسبان، ویرایش مشخصات، تست پینگ، مشاهده پورت‌ها و VLAN، رایت در NVRAM و حذف تجهیز).',
+      'مخفی‌سازی هوشمند دکمه ۳ نقطه در صورتی که کاربر هیچ مجوزی روی آن دیوایس نداشته باشد و نمایش خط تیره غیرفعال.',
+      'اعمال گارد امنیتی روی دکمه‌های مستقیم پینگ، مشاهده پورت‌ها، لینک‌های کنسول وب و همچنین دکمه‌های افزودن تجهیز و حذف گروهی در نوار ابزار بر اساس اختیارات پالیسی فعال.',
+      'حفظ کامل پایداری و یکدستی رفتار منوی کشویی در هر دو تم تیره و روشن و پشتیبانی صددرصدی از زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented canUserPerformDeviceAction and hasAnyDeviceActionPermitted in src/utils/rbac.ts for client-side database-authoritative permission evaluations per network device.',
+      'Fully wired the 3-dots action dropdown menu in DeviceListView.tsx to RBAC policy permissions; selectively rendering all 9 actions (Web Consoles, Cisco SSH Terminal, Apply Template, Sticky Notes, Edit Properties, Quick Ping, Ports & VLANs Inspector, Save to NVRAM, and Delete Device).',
+      'Intelligently concealed the 3-dots action button and displayed a neat inactive dash when the active user policy grants zero operational permissions on that target device.',
+      'Guarded direct inline action buttons (quick ping, inspect interfaces, web console badges) and top toolbar operations (Register Device, Bulk Delete) against active policy restrictions.',
+      'Maintained complete styling fidelity across dark and light themes with strict bilingual localization compliance without any untranslated text in English mode.'
+    ],
+  },
   {
     version: '1.251.0',
     releaseDate: '2026-10-02',

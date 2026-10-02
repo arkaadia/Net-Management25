@@ -394,6 +394,66 @@ export function isDeviceActionAllowed(
 }
 
 /**
+ * Universally evaluates whether a user or active policy is authorized to perform a specific action on a network device.
+ * Conforms to both (policy, deviceId, action) and (user, policy, deviceId, action) calling signatures.
+ */
+export function canUserPerformDeviceAction(
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  action: NetworkDeviceActionKey
+): boolean;
+export function canUserPerformDeviceAction(
+  user: any,
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  action: NetworkDeviceActionKey
+): boolean;
+export function canUserPerformDeviceAction(
+  arg1: any,
+  arg2: any,
+  arg3: any,
+  arg4?: any
+): boolean {
+  if (arg4 !== undefined) {
+    // Called as (user, policy, deviceId, action)
+    const policy = arg2;
+    const deviceId = arg3;
+    const action = arg4 as NetworkDeviceActionKey;
+    return isDeviceActionPermitted(policy, deviceId, action);
+  } else {
+    // Called as (policy, deviceId, action)
+    const policy = arg1;
+    const deviceId = arg2;
+    const action = arg3 as NetworkDeviceActionKey;
+    return isDeviceActionPermitted(policy, deviceId, action);
+  }
+}
+
+/**
+ * Checks whether at least one operational action is permitted on the target network equipment
+ * under the active AccessPolicy. Used to determine visibility of the 3-dots actions menu.
+ */
+export function hasAnyDeviceActionPermitted(
+  policy: AccessPolicy | any | null | undefined,
+  device: { id: string } | string | null | undefined
+): boolean {
+  if (!device) return false;
+  const deviceId = typeof device === 'string' ? device : device.id;
+  const actions: NetworkDeviceActionKey[] = [
+    'web_configs',
+    'terminal',
+    'apply_template',
+    'device_note',
+    'edit_properties',
+    'ping_keepalive',
+    'inspect_ports',
+    'write_memory',
+    'delete_device',
+  ];
+  return actions.some((act) => isDeviceActionPermitted(policy, deviceId, act));
+}
+
+/**
  * Evaluates whether a user or active policy is authorized to check for software updates.
  * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to check for software updates.
  * Access is authoritative and linked to the Super Admin policy in the database.
