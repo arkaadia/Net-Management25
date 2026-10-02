@@ -938,6 +938,7 @@ export default function App() {
             activeTab === 'settings-backup') && (
             <SettingsView
               devices={devices}
+              isLightMode={panelTheme === 'light'}
               activeSubTab={
                 activeTab === 'settings-users'
                   ? 'users'

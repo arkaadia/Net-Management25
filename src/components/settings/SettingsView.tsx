@@ -53,6 +53,7 @@ interface SettingsViewProps {
   activeSubTab?: SettingsSubTab;
   onSelectSubTab?: (subTab: SettingsSubTab) => void;
   onRefreshAllData?: () => void;
+  isLightMode?: boolean;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -60,7 +61,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateDeviceGroups,
   activeSubTab: externalSubTab,
   onSelectSubTab,
-  onRefreshAllData
+  onRefreshAllData,
+  isLightMode,
 }) => {
   const { isRtl, isEn } = useLanguage();
   const [internalTab, setInternalTab] = useState<SettingsSubTab>(externalSubTab || 'groups');
@@ -372,6 +374,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onSelectSimulatedPolicy={handleSelectSimulatedPolicy}
             localUsers={localUsers}
             localGroups={localGroups}
+            isLightMode={isLightMode}
           />
         )}
 

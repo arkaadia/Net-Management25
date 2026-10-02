@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.255.0';
+export const APP_VERSION = '1.256.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.256.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۲: توسعه رابط کاربری تفکیک‌شده کنترل دسترسی پورت‌ها و تجهیزات در پنل تنظیمات (Access Control Settings UI)',
+    title_en: 'Phase 2: Granular Port & Equipment RBAC Management UI in Access Control Settings',
+    changes: [
+      'بازطراحی و غنی‌سازی کامل بخش اختیارات تفکیک‌شده تجهیزات شبکه در AccessControlTab با تفکیک بصری و ساختاریافته میان «اختیارات کلی تجهیزات (منوی ۳ نقطه)» و «اختیارات پورت‌ها و اینترفیس‌ها (منوی راست‌کلیک و فرم ویرایش)».',
+      'نمایش شفاف و زیبا تگ‌های پلتفرم (مشترک تجهیزات، اختصاصی سیسکو و اختصاصی میکروتیک) با رنگ‌بندی تفکیک‌شده در هر دو بخش تنظیمات پیش‌فرض پالیسی و ماتریس استثنا به ازای هر تجهیز.',
+      'افزودن دکمه‌های اقدام گروهی اختصاصی برای اعطا و مسدودسازی دسته‌جمعی اختیارات پورت‌ها (Grant/Revoke Port Defaults) در کنار اختیارات کلی تجهیزات.',
+      'تجهیز تمام گزینه‌های پورت‌ها و تجهیزات به راهنمای سه‌بخشی Info شامل چیستی، چرایی و مثال کاربردی استاندارد (FieldInfoTooltip) با جلوگیری تضمینی از خروج از لبه‌های مانیتور.',
+      'انطباق صددرصدی با تم روشن و تم تیره بر اساس استانداردهای سخت‌گیرانه سیستم، کنتراست ارگونومیک بالا برای تمامی کادرها و متون، و اعمال کامل عدم نمایش کاراکترهای فارسی در زبان انگلیسی.',
+      'پشتیبانی کامل از ماتریس استثنا به ازای هر تجهیز (Per-Device Override Matrix) با امکان فیلتر بر اساس وضعیت استثنا و انواع تجهیز (سوییچ، روتر، فایروال) و اعمال فوری بازنشانی استثناها.',
+      'ایجاد اسکریپت آزمون تجربی خودکار test_phase2_rbac_ui.ts و تایید موفقیت‌آمیز تمام ۱۶۱ تست مستقل کاتالوگ و ارزیابی ماتریس دسترسی.'
+    ],
+    changes_en: [
+      'Redesigned and enriched the Network Equipment Granular Permissions UI in AccessControlTab with clear visual separation between General Equipment Actions (3-Dots Menu) and Port & Interface Capabilities (Context Menu & Inspector).',
+      'Implemented clean, high-contrast platform badges (Universal / Common, Cisco Exclusive, MikroTik Exclusive) across both baseline policy defaults and per-device override matrix.',
+      'Added dedicated bulk action toggles for granular port permissions (Grant/Revoke Port Defaults) alongside general equipment action toggles.',
+      'Equipped every single equipment and port capability option with boundary-safe 3-part FieldInfoTooltip (What is it, Why needed, Practical example) across all cards.',
+      'Achieved strict light/dark theme adaptability with tailored ergonomics, high-contrast palette compliance, and zero Persian text in English mode.',
+      'Full per-device granular override matrix integration with override status filtering (All, Overrides, Defaults), device type categorization (Switches, Routers, Firewalls), and one-click reset to default.',
+      'Created automated empirical validation suite test_phase2_rbac_ui.ts with 100% pass rate across 161 independent test assertions.'
+    ],
+  },
   {
     version: '1.255.0',
     releaseDate: '2026-10-02',
