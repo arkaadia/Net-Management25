@@ -1169,11 +1169,97 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (!pData.defaultDevicePermissions) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.defaultDevicePermissions = isSuper
-          ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+          ? {
+              web_configs: true,
+              terminal: true,
+              apply_template: true,
+              device_note: true,
+              edit_properties: true,
+              ping_keepalive: true,
+              inspect_ports: true,
+              write_memory: true,
+              delete_device: true,
+              port_power: true,
+              port_mode: true,
+              port_vlan: true,
+              port_security: true,
+              port_description: true,
+              port_bridge: true,
+              port_speed: true,
+              port_cable_test: true,
+            }
           : r.id === 'policy-noc-observer'
-          ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
-          : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false };
+          ? {
+              web_configs: true,
+              terminal: false,
+              apply_template: false,
+              device_note: true,
+              edit_properties: false,
+              ping_keepalive: true,
+              inspect_ports: true,
+              write_memory: false,
+              delete_device: false,
+              port_power: false,
+              port_mode: false,
+              port_vlan: false,
+              port_security: false,
+              port_description: false,
+              port_bridge: false,
+              port_speed: false,
+              port_cable_test: true,
+            }
+          : {
+              web_configs: true,
+              terminal: false,
+              apply_template: false,
+              device_note: true,
+              edit_properties: false,
+              ping_keepalive: true,
+              inspect_ports: true,
+              write_memory: false,
+              delete_device: false,
+              port_power: false,
+              port_mode: false,
+              port_vlan: false,
+              port_security: false,
+              port_description: false,
+              port_bridge: false,
+              port_speed: false,
+              port_cable_test: true,
+            };
         changed = true;
+      } else {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const portActionKeys = [
+          'port_power',
+          'port_mode',
+          'port_vlan',
+          'port_security',
+          'port_description',
+          'port_bridge',
+          'port_speed',
+          'port_cable_test',
+        ];
+        for (const pk of portActionKeys) {
+          if (pData.defaultDevicePermissions[pk] === undefined) {
+            if (isSuper) {
+              pData.defaultDevicePermissions[pk] = true;
+            } else if (pk === 'port_cable_test') {
+              pData.defaultDevicePermissions[pk] = true;
+            } else if (pk === 'port_power') {
+              pData.defaultDevicePermissions[pk] = Boolean(pData.canToggleAdminStatus || pData.canMikrotikToggleInterface);
+            } else if (pk === 'port_vlan') {
+              pData.defaultDevicePermissions[pk] = Boolean(pData.canChangeVlan || pData.canMikrotikBridgeVlan);
+            } else if (pk === 'port_description') {
+              pData.defaultDevicePermissions[pk] = Boolean(pData.canEditDescription || pData.canMikrotikComment);
+            } else if (pk === 'port_security') {
+              pData.defaultDevicePermissions[pk] = Boolean(pData.canTogglePortSecurity);
+            } else {
+              pData.defaultDevicePermissions[pk] = false;
+            }
+            changed = true;
+          }
+        }
       }
       if (!pData.perDevicePermissions) {
         pData.perDevicePermissions = {};
@@ -2612,10 +2698,10 @@ export async function getAccessPolicies(): Promise<any[]> {
         );
         const defaultDevicePerms = pData.defaultDevicePermissions || (
           r.id === 'policy-super-admin' || (r.priority || 0) >= 100
-            ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+            ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true, port_power: true, port_mode: true, port_vlan: true, port_security: true, port_description: true, port_bridge: true, port_speed: true, port_cable_test: true }
             : r.id === 'policy-noc-observer'
-            ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
-            : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+            ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false, port_power: false, port_mode: false, port_vlan: false, port_security: false, port_description: false, port_bridge: false, port_speed: false, port_cable_test: true }
+            : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false, port_power: false, port_mode: false, port_vlan: false, port_security: false, port_description: false, port_bridge: false, port_speed: false, port_cable_test: true }
         );
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         const canCheck = pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper;
@@ -2651,10 +2737,10 @@ export async function getAccessPolicies(): Promise<any[]> {
     );
     const defaultDevicePerms = p.defaultDevicePermissions || pData.defaultDevicePermissions || (
       p.id === 'policy-super-admin' || (p.priority || 0) >= 100
-        ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true }
+        ? { web_configs: true, terminal: true, apply_template: true, device_note: true, edit_properties: true, ping_keepalive: true, inspect_ports: true, write_memory: true, delete_device: true, port_power: true, port_mode: true, port_vlan: true, port_security: true, port_description: true, port_bridge: true, port_speed: true, port_cable_test: true }
         : p.id === 'policy-noc-observer'
-        ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
-        : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false }
+        ? { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false, port_power: false, port_mode: false, port_vlan: false, port_security: false, port_description: false, port_bridge: false, port_speed: false, port_cable_test: true }
+        : { web_configs: true, terminal: false, apply_template: false, device_note: true, edit_properties: false, ping_keepalive: true, inspect_ports: true, write_memory: false, delete_device: false, port_power: false, port_mode: false, port_vlan: false, port_security: false, port_description: false, port_bridge: false, port_speed: false, port_cable_test: true }
     );
     const isSuper = p.id === 'policy-super-admin' || (p.priority || 0) >= 100;
     const canCheck = p.canCheckUpdate !== undefined ? Boolean(p.canCheckUpdate) : (pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper);
@@ -2947,6 +3033,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         inspect_ports: true,
         write_memory: true,
         delete_device: true,
+        port_power: true,
+        port_mode: true,
+        port_vlan: true,
+        port_security: true,
+        port_description: true,
+        port_bridge: true,
+        port_speed: true,
+        port_cable_test: true,
       },
       perDevicePermissions: {},
     });
@@ -3018,6 +3112,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       inspect_ports: false,
       write_memory: false,
       delete_device: false,
+      port_power: false,
+      port_mode: false,
+      port_vlan: false,
+      port_security: false,
+      port_description: false,
+      port_bridge: false,
+      port_speed: false,
+      port_cable_test: false,
     },
     perDevicePermissions: {},
   });
@@ -3141,6 +3243,32 @@ export function isDeviceActionPermitted(
   }
   if (action === 'delete_device' || action === 'edit_properties') {
     return Boolean(policy.canManageDevices);
+  }
+
+  // Fallback mappings for granular port & interface capabilities:
+  if (action === 'port_power') {
+    return policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false;
+  }
+  if (action === 'port_mode') {
+    return policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false;
+  }
+  if (action === 'port_vlan') {
+    return policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'port_security') {
+    return Boolean(policy.canTogglePortSecurity);
+  }
+  if (action === 'port_description') {
+    return policy.canEditDescription !== false && policy.canMikrotikComment !== false;
+  }
+  if (action === 'port_bridge') {
+    return policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'port_speed') {
+    return policy.canMikrotikToggleInterface !== false;
+  }
+  if (action === 'port_cable_test') {
+    return policy.canGenericDiagnostics !== false;
   }
 
   // Non-destructive actions (web_configs, ping_keepalive, inspect_ports, device_note)

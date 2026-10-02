@@ -601,7 +601,16 @@ export type NetworkDeviceActionKey =
   | 'ping_keepalive'   // Ping & Keepalive Telemetry Check
   | 'inspect_ports'    // Inspect Interfaces & VLANs
   | 'write_memory'     // Save to NVRAM (Write Memory)
-  | 'delete_device';   // Delete Device from System
+  | 'delete_device'    // Delete Device from System
+  // Granular Port & Interface Operations (Cisco & MikroTik)
+  | 'port_power'       // Administrative Status (Shutdown / No-Shutdown / Enable / Disable)
+  | 'port_mode'        // Cisco Switchport Mode (Trunk / Access)
+  | 'port_vlan'        // VLAN & Bridge PVID Assignment
+  | 'port_security'    // Cisco Port Security Toggle
+  | 'port_description' // Port Description & RouterOS Comment
+  | 'port_bridge'      // MikroTik Bridge Membership (Add / Remove)
+  | 'port_speed'       // MikroTik Speed, Duplex & Auto-Negotiation
+  | 'port_cable_test'; // MikroTik TDR Cable Diagnostic Test
 
 export interface NetworkDeviceActionPermissions {
   web_configs?: boolean;
@@ -613,6 +622,15 @@ export interface NetworkDeviceActionPermissions {
   inspect_ports?: boolean;
   write_memory?: boolean;
   delete_device?: boolean;
+  // Granular Port & Interface Operations
+  port_power?: boolean;
+  port_mode?: boolean;
+  port_vlan?: boolean;
+  port_security?: boolean;
+  port_description?: boolean;
+  port_bridge?: boolean;
+  port_speed?: boolean;
+  port_cable_test?: boolean;
 }
 
 export interface AccessPolicy {

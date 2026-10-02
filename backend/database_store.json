@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T10:38:35.059Z"
+      "last_login": "2026-10-02T12:29:00.147Z"
     },
     {
       "id": "user-helpdesk",
@@ -32,7 +32,7 @@
       ],
       "is_builtin": false,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T10:38:40.545Z"
+      "last_login": "2026-10-02T12:29:06.032Z"
     },
     {
       "id": "user-noc",
@@ -183,7 +183,15 @@
         "ping_keepalive": true,
         "inspect_ports": true,
         "write_memory": false,
-        "delete_device": false
+        "delete_device": false,
+        "port_power": false,
+        "port_mode": false,
+        "port_vlan": false,
+        "port_security": false,
+        "port_description": false,
+        "port_bridge": false,
+        "port_speed": false,
+        "port_cable_test": true
       },
       "perDevicePermissions": {}
     },
@@ -253,7 +261,15 @@
         "ping_keepalive": true,
         "inspect_ports": true,
         "write_memory": false,
-        "delete_device": false
+        "delete_device": false,
+        "port_power": false,
+        "port_mode": false,
+        "port_vlan": false,
+        "port_security": false,
+        "port_description": false,
+        "port_bridge": false,
+        "port_speed": false,
+        "port_cable_test": true
       },
       "perDevicePermissions": {}
     },
@@ -323,7 +339,15 @@
         "ping_keepalive": true,
         "inspect_ports": true,
         "write_memory": true,
-        "delete_device": true
+        "delete_device": true,
+        "port_power": true,
+        "port_mode": true,
+        "port_vlan": true,
+        "port_security": true,
+        "port_description": true,
+        "port_bridge": true,
+        "port_speed": true,
+        "port_cable_test": true
       },
       "perDevicePermissions": {}
     },
@@ -383,7 +407,15 @@
         "ping_keepalive": true,
         "inspect_ports": true,
         "write_memory": false,
-        "delete_device": false
+        "delete_device": false,
+        "port_power": false,
+        "port_mode": false,
+        "port_vlan": false,
+        "port_security": false,
+        "port_description": false,
+        "port_bridge": false,
+        "port_speed": false,
+        "port_cable_test": false
       },
       "perDevicePermissions": {}
     }

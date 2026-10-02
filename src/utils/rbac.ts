@@ -22,7 +22,8 @@ export interface NetworkDeviceActionDescriptor {
   labelFa: string;
   descriptionEn: string;
   descriptionFa: string;
-  category: 'remote' | 'management' | 'config' | 'danger';
+  category: 'remote' | 'management' | 'config' | 'port' | 'danger';
+  platform?: 'all' | 'cisco' | 'mikrotik';
   danger?: boolean;
 }
 
@@ -34,6 +35,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Access external and in-browser HTTP/HTTPS device web consoles and out-of-band management.',
     descriptionFa: 'دسترسی به کنسول‌ها و رابط‌های وب مدیریتی تجهیزات نظیر WebFig میکروتیک، iLO، ESXi و پنل وب سوییچ‌ها.',
     category: 'remote',
+    platform: 'all',
     danger: false,
   },
   {
@@ -43,6 +45,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Interactive direct SSH terminal console session into Cisco IOS, MikroTik, or network appliances.',
     descriptionFa: 'برقراری اتصال مستقیم و تعاملی خط فرمان (CLI Terminal) به تجهیز جهت مدیریت مستقیم و صدور دستورات.',
     category: 'remote',
+    platform: 'all',
     danger: true,
   },
   {
@@ -52,6 +55,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Deploy structured configuration templates with dynamic variable substitutions to the device.',
     descriptionFa: 'اجرا و اعمال الگوهای پیکربندی، جایگذاری متغیرها و استقرار خودکار دستورات بر روی تجهیز شبکه.',
     category: 'config',
+    platform: 'all',
     danger: true,
   },
   {
@@ -61,6 +65,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Create, view, and modify persistent operational notes and handover comments attached to this device.',
     descriptionFa: 'ثبت، مشاهده و ویرایش یادداشت‌های چسبان و نکات فنی پیوست‌شده به این تجهیز در سیستم.',
     category: 'management',
+    platform: 'all',
     danger: false,
   },
   {
@@ -70,6 +75,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Update device hostname, management IP address, role, physical location, credentials, and tags.',
     descriptionFa: 'ویرایش نام میزبان، آدرس IP مدیریتی، نقش، مکان فیزیکی، اطلاعات کاربری اتصال و برچسب‌های دستگاه.',
     category: 'config',
+    platform: 'all',
     danger: true,
   },
   {
@@ -79,6 +85,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Trigger real-time ICMP ping echo, round-trip latency measurement, and reachability validation.',
     descriptionFa: 'ارسال درخواست‌های تست پینگ ICMP، سنجش تاخیر رفت و برگشت (Latency) و پایش سلامت اتصال آنلاین تجهیز.',
     category: 'management',
+    platform: 'all',
     danger: false,
   },
   {
@@ -88,6 +95,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Inspect port interface telemetry, operational link states, duplex, and assigned VLAN memberships.',
     descriptionFa: 'مشاهده و بررسی وضعیت پورت‌های فیزیکی، لینک‌های فعال، تخصیص VLAN و مشخصات تلمتری اینترفیس‌ها.',
     category: 'management',
+    platform: 'all',
     danger: false,
   },
   {
@@ -97,6 +105,7 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Commit running configuration to non-volatile startup storage (copy running-config startup-config).',
     descriptionFa: 'ذخیره‌سازی و تثبیت پیکربندی جاری در حافظه پایدار تجهیز جهت حفظ تنظیمات پس از راه‌اندازی مجدد.',
     category: 'config',
+    platform: 'all',
     danger: true,
   },
   {
@@ -106,7 +115,92 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     descriptionEn: 'Permanently remove this device, linked port connections, and topology map references from the system.',
     descriptionFa: 'حذف کامل و دائمی این تجهیز، اتصالات پورت‌ها و رکوردهای پایگاه داده از کل پنل مدیریت شبکه.',
     category: 'danger',
+    platform: 'all',
     danger: true,
+  },
+
+  // -------------------------------------------------------------
+  // Granular Port & Interface Operations (Cisco & MikroTik)
+  // -------------------------------------------------------------
+  {
+    key: 'port_power',
+    labelEn: 'Port Power (Shutdown / Enable)',
+    labelFa: 'روشن/خاموش کردن پورت (Shutdown / Enable)',
+    descriptionEn: 'Administratively enable or shutdown interfaces (Cisco shutdown / no shutdown, MikroTik disabled=yes/no).',
+    descriptionFa: 'تغییر وضعیت اداری اینترفیس‌ها، خاموش کردن (Shutdown) یا فعال‌سازی (No Shutdown / Enable) پورت‌ها.',
+    category: 'port',
+    platform: 'all',
+    danger: true,
+  },
+  {
+    key: 'port_mode',
+    labelEn: 'Switchport Mode (Trunk / Access)',
+    labelFa: 'تغییر مود پورت سیسکو (Trunk / Access)',
+    descriptionEn: 'Switch interface operation mode between Access port (untagged end-host) and 802.1Q Trunk.',
+    descriptionFa: 'تغییر حالت کاری پورت سوئیچ سیسکو بین حالت دسترسی (Access) و ترانک (802.1Q Trunk).',
+    category: 'port',
+    platform: 'cisco',
+    danger: true,
+  },
+  {
+    key: 'port_vlan',
+    labelEn: 'VLAN & Bridge PVID Assignment',
+    labelFa: 'تخصیص و تغییر VLAN و PVID',
+    descriptionEn: 'Assign access VLAN IDs, configure native VLANs, and update MikroTik bridge PVID memberships.',
+    descriptionFa: 'تخصیص VLANهای دسترسی و تغییر شناسه‌های PVID در بریج میکروتیک و سوییچ‌های سیسکو.',
+    category: 'port',
+    platform: 'all',
+    danger: true,
+  },
+  {
+    key: 'port_security',
+    labelEn: 'Port Security (Cisco IOS)',
+    labelFa: 'امنیت پورت سیسکو (Port Security)',
+    descriptionEn: 'Enable or disable MAC address limits, sticky MAC learning, and violation shutdown policies.',
+    descriptionFa: 'فعال‌سازی یا غیرفعال‌سازی محدودیت آدرس‌های MAC، قابلیت Sticky MAC و پالیسی‌های مسدودسازی پورت در سیسکو.',
+    category: 'port',
+    platform: 'cisco',
+    danger: false,
+  },
+  {
+    key: 'port_description',
+    labelEn: 'Port Description & Comments',
+    labelFa: 'توضیحات و یادداشت پورت (Description / Comment)',
+    descriptionEn: 'Update descriptive interface labels, connected endpoint names, and RouterOS port comments.',
+    descriptionFa: 'تنظیم توضیحات پورت (Cisco Description) و یادداشت‌های اینترفیس میکروتیک (RouterOS Comment).',
+    category: 'port',
+    platform: 'all',
+    danger: false,
+  },
+  {
+    key: 'port_bridge',
+    labelEn: 'Bridge Membership (MikroTik)',
+    labelFa: 'عضویت در بریج میکروتیک (Bridge Port)',
+    descriptionEn: 'Add or remove Ethernet interfaces to/from RouterOS bridge domains (bridge port add/remove).',
+    descriptionFa: 'افزودن یا خارج کردن پورت‌های اترنت از بریج میکروتیک (RouterOS Bridge Port).',
+    category: 'port',
+    platform: 'mikrotik',
+    danger: true,
+  },
+  {
+    key: 'port_speed',
+    labelEn: 'Speed, Duplex & Auto-Negotiation',
+    labelFa: 'سرعت، دوبلکس و Auto-Negotiation',
+    descriptionEn: 'Configure interface transmission speed (100M, 1G, 10G), full/half duplex, or auto-negotiation.',
+    descriptionFa: 'پیکربندی نرخ انتقال داده، حالت Full/Half Duplex و تطبیق خودکار (Auto-Negotiation) پورت.',
+    category: 'port',
+    platform: 'mikrotik',
+    danger: true,
+  },
+  {
+    key: 'port_cable_test',
+    labelEn: 'TDR Cable Diagnostic Test',
+    labelFa: 'تست و عیب‌یابی کابل شبکه (TDR Test)',
+    descriptionEn: 'Execute Time Domain Reflectometry (TDR) diagnostics to measure cable pair health, length, and faults.',
+    descriptionFa: 'اجرای تست عیب‌یابی فیزیکی کابل شبکه (TDR) جهت سنجش طول کابل، سلامت زوج‌سیم‌ها و قطعی یا اتصال کوتاه.',
+    category: 'port',
+    platform: 'mikrotik',
+    danger: false,
   },
 ];
 
@@ -120,6 +214,14 @@ export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   inspect_ports: true,
   write_memory: true,
   delete_device: true,
+  port_power: true,
+  port_mode: true,
+  port_vlan: true,
+  port_security: true,
+  port_description: true,
+  port_bridge: true,
+  port_speed: true,
+  port_cable_test: true,
 };
 
 export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -132,6 +234,14 @@ export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   inspect_ports: true,
   write_memory: false,
   delete_device: false,
+  port_power: false,
+  port_mode: false,
+  port_vlan: false,
+  port_security: false,
+  port_description: false,
+  port_bridge: false,
+  port_speed: false,
+  port_cable_test: true,
 };
 
 export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -144,6 +254,14 @@ export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   inspect_ports: false,
   write_memory: false,
   delete_device: false,
+  port_power: false,
+  port_mode: false,
+  port_vlan: false,
+  port_security: false,
+  port_description: false,
+  port_bridge: false,
+  port_speed: false,
+  port_cable_test: false,
 };
 
 export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
@@ -375,6 +493,32 @@ export function isDeviceActionPermitted(
     return Boolean(policy.canManageDevices);
   }
 
+  // Fallback mappings for granular port & interface capabilities:
+  if (action === 'port_power') {
+    return policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false;
+  }
+  if (action === 'port_mode') {
+    return policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false;
+  }
+  if (action === 'port_vlan') {
+    return policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'port_security') {
+    return Boolean(policy.canTogglePortSecurity);
+  }
+  if (action === 'port_description') {
+    return policy.canEditDescription !== false && policy.canMikrotikComment !== false;
+  }
+  if (action === 'port_bridge') {
+    return policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'port_speed') {
+    return policy.canMikrotikToggleInterface !== false;
+  }
+  if (action === 'port_cable_test') {
+    return policy.canGenericDiagnostics !== false;
+  }
+
   // Operational telemetry and memos are enabled by default for authorized equipment
   return true;
 }
@@ -449,6 +593,14 @@ export function hasAnyDeviceActionPermitted(
     'inspect_ports',
     'write_memory',
     'delete_device',
+    'port_power',
+    'port_mode',
+    'port_vlan',
+    'port_security',
+    'port_description',
+    'port_bridge',
+    'port_speed',
+    'port_cable_test',
   ];
   return actions.some((act) => isDeviceActionPermitted(policy, deviceId, act));
 }

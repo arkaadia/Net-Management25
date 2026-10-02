@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.254.1';
+export const APP_VERSION = '1.255.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.255.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۱: معماری مدل داده، تعاریف اکشن‌ها و ذخیره‌سازی مقتدرانه کنترل دسترسی پورت‌های تجهیزات در PostgreSQL',
+    title_en: 'Phase 1: Port-Level Granular Action Definitions, RBAC Data Architecture & PostgreSQL Persistence',
+    changes: [
+      'طراحی و ثبت ۸ کلید اکشن تفکیک‌شده برای عملیات پورت‌ها در NetworkDeviceActionKey و NetworkDeviceActionPermissions شامل port_power، port_mode، port_vlan، port_security، port_description، port_bridge، port_speed و port_cable_test.',
+      'افزودن دیسکریپتورها و متادیتای تفصیلی هر اکشن در DEVICE_ACTIONS_CATALOG با تفکیک پلتفرم (مشترک، اختصاصی سیسکو و اختصاصی میکروتیک)، دسته‌بندی پورت و توضیحات دوزبانه.',
+      'به‌روزرسانی آرایه‌های سطوح دسترسی پیش‌فرض FULL_DEVICE_PERMISSIONS (همه مجاز برای سوپرادمین) و RESTRICTED_DEVICE_PERMISSIONS (محدودسازی عملیات مخرب پورت برای هلپ‌دسک و اپراتورها).',
+      'توسعه توابع ارزیابی امنیتی isDeviceActionPermitted در هر دو لایه کلاینت و سرور با منطق ماتریس استثنا به ازای هر تجهیز (perDevicePermissions) و نگاشت سازگار با پالیسی‌های پیشین.',
+      'به‌روزرسانی پایگاه‌داده پایدار PostgreSQL و فایل داده backend/database_store.json با اعطای کلیه اختیارات پورت‌ها به سوپرادمین و اعمال محدودیت‌های استاندارد برای سایر نقش‌ها.',
+      'ایجاد اسکریپت آزمون تجربی و خودکار test_phase1_port_rbac.ts و اعتبارسنجی موفقیت‌آمیز تمام ۶۱ تست مستقل با موفقیت ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Engineered and registered 8 granular port operational keys in NetworkDeviceActionKey and NetworkDeviceActionPermissions: port_power, port_mode, port_vlan, port_security, port_description, port_bridge, port_speed, and port_cable_test.',
+      'Integrated comprehensive action metadata into DEVICE_ACTIONS_CATALOG featuring platform indicators (All, Cisco, MikroTik), port category classification, and bilingual descriptions.',
+      'Updated default permission presets FULL_DEVICE_PERMISSIONS (unrestricted for Super Admin) and RESTRICTED_DEVICE_PERMISSIONS (safeguarding destructive port operations for operators).',
+      'Enhanced isDeviceActionPermitted security evaluators across both client and server runtimes, supporting perDevicePermissions overrides alongside backward-compatible fallback mappings.',
+      'Synchronized PostgreSQL database schema migration and backend/database_store.json with authoritative full port permissions for Super Admin and hardened baselines for operators.',
+      'Added automated empirical verification test suite test_phase1_port_rbac.ts, validating all 61 independent test scenarios with 100% pass rate.'
+    ],
+  },
   {
     version: '1.254.1',
     releaseDate: '2026-10-02',
