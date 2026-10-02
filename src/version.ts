@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.261.0';
+export const APP_VERSION = '1.262.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.262.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'حذف کامل داده‌های ساختگی و پیاده‌سازی پایش وضعیت واقعی تجهیزات با پروتکل ICMP (Authentic ICMP Network Reachability)',
+    title_en: 'Authentic ICMP Network Reachability & Zero-Simulation Telemetry in Equipment Inventory',
+    changes: [
+      'حذف کامل و قطعی هرگونه داده شبیه‌سازی‌شده، اعداد تصادفی (Random latency) و فالبک‌های فرضی از منطق سنجش وضعیت تجهیزات شبکه در بک‌اند.',
+      'پیاده‌سازی ماژول پروب مستقیم و واقعی ICMP با فراخوانی دستور محلی ping در کرنل سیستم‌عامل در لایه‌های Node.js و Python.',
+      'سنجش دقیق و بی‌درنگ وضعیت آنلاین/آفلاین، تاخیر میانگین واقعی (RTT Latency بر حسب میلی‌ثانیه) و درصد پکت‌لاس (Packet Loss).',
+      'ایجاد اندپوینت‌های استاندارد و امن /api/ping/:id و /api/ping-all در سرور به همراه اجرای همزمان و موازی (Concurrent ThreadPool & Promise.all) جهت پایش سریع کل تجهیزات.',
+      'همگام‌سازی بلادرنگ وضعیت واقعی در فایل‌های پایگاه داده backend/network_data.json و backend/database_store.json و PostgreSQL.',
+      'بهبود رابط کاربری جدول موجودی تجهیزات (DeviceListView) در ستون Live Status با تفکیک واضح وضعیت‌های آنلاین با تاخیر، و آفلاین با برچسب عدم پاسخ ICMP، به همراه دکمه تست فوری.'
+    ],
+    changes_en: [
+      'Strictly eliminated all artificial simulated data, mock ping logic, random latency generation, and hardcoded fallbacks from network equipment reachability probing.',
+      'Engineered authentic ICMP reachability engine directly utilizing native operating system ping execution across both Node.js and Python backend layers.',
+      'Accurate real-time extraction of live Online/Offline status, round-trip latency (RTT in ms), and packet loss percentage from real ICMP Echo responses.',
+      'Added high-performance /api/ping/:id and /api/ping-all endpoints featuring concurrent probe execution (ThreadPool & Promise.all) for fleet-wide real-time checks.',
+      'Real-time persistence and synchronization of authentic network status across backend/network_data.json, backend/database_store.json, and PostgreSQL database.',
+      'Enhanced Equipment Inventory UI (DeviceListView) in the Live Status column with clear distinction between verified Online status with latency and ICMP Unreachable status with instant probe controls.'
+    ],
+  },
   {
     version: '1.261.0',
     releaseDate: '2026-10-02',

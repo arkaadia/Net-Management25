@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import {
   hashPassword,
   verifyPassword,
@@ -1998,6 +2000,147 @@ apiRouter.use('/devices/:id/unsaved-changes', async (req: Request, res: Response
     return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
   }
   next();
+});
+
+// Authentic ICMP Ping Engine using native Linux ping command
+const execFileAsync = promisify(execFile);
+
+export async function executeRealIcmpPing(ip: string, count: number = 2, timeoutSec: number = 1): Promise<{
+  is_online: boolean;
+  latency_ms: number | null;
+  packet_loss: number;
+  raw_output?: string;
+}> {
+  const cleanIp = String(ip || '').trim();
+  if (!cleanIp) {
+    return { is_online: false, latency_ms: null, packet_loss: 100 };
+  }
+
+  const start = Date.now();
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      'ping',
+      ['-c', String(count), '-W', String(timeoutSec), cleanIp],
+      { timeout: (count * timeoutSec + 2) * 1000 }
+    );
+    const raw = (stdout || stderr || '').trim();
+    const elapsed = Date.now() - start;
+
+    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
+    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
+
+    const rttMatch = raw.match(/rtt\s+min\/avg\/max\/mdev\s*=\s*([0-9\.]+)\/([0-9\.]+)\/([0-9\.]+)/i);
+    const avgLatency = rttMatch ? parseFloat(rttMatch[2]) : elapsed;
+
+    if (lossPct < 100) {
+      return {
+        is_online: true,
+        latency_ms: Math.round(avgLatency * 10) / 10,
+        packet_loss: lossPct,
+        raw_output: raw,
+      };
+    } else {
+      return {
+        is_online: false,
+        latency_ms: null,
+        packet_loss: 100,
+        raw_output: raw,
+      };
+    }
+  } catch (err: any) {
+    const raw = (err?.stdout || err?.stderr || err?.message || '').toString();
+    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
+    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
+    return {
+      is_online: false,
+      latency_ms: null,
+      packet_loss: lossPct,
+      raw_output: raw,
+    };
+  }
+}
+
+// POST /ping/:id - Authentic ICMP ping probe for a single network device
+apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
+  try {
+    const devId = (req.params.id || '').trim();
+    const device = await getDeviceById(devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', errorFa: 'تجهیز مورد نظر یافت نشد.' });
+    }
+
+    const check = await assertDeviceScopeAccess(req, devId, 'ping_keepalive');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
+    }
+
+    const pingResult = await executeRealIcmpPing(device.ip || device.ssh_host || '');
+    const updatedDevice = await updateDevice(devId, {
+      is_online: pingResult.is_online,
+      latency_ms: pingResult.latency_ms,
+      packet_loss: pingResult.packet_loss,
+      last_seen: pingResult.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
+    });
+
+    return res.json({
+      device: updatedDevice || {
+        ...device,
+        is_online: pingResult.is_online,
+        latency_ms: pingResult.latency_ms,
+        packet_loss: pingResult.packet_loss,
+      },
+      ping_result: {
+        ip: device.ip,
+        is_online: pingResult.is_online,
+        latency_ms: pingResult.latency_ms,
+        packet_loss: pingResult.packet_loss,
+      },
+    });
+  } catch (err: any) {
+    console.error('[ICMP Ping Route Error]', err);
+    return res.status(500).json({ success: false, error: err.message || 'ICMP Ping execution failed' });
+  }
+});
+
+// POST /ping-all - Concurrent authentic ICMP probe for all network devices
+apiRouter.post('/ping-all', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    let allDevices = await getAllDevices();
+
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      const allowedSet = new Set(allowedDeviceIds);
+      allDevices = allDevices.filter((d: any) => allowedSet.has(d.id));
+    }
+
+    const results = await Promise.all(
+      allDevices.map(async (dev: any) => {
+        const pingRes = await executeRealIcmpPing(dev.ip || dev.ssh_host || '');
+        await updateDevice(dev.id, {
+          is_online: pingRes.is_online,
+          latency_ms: pingRes.latency_ms,
+          packet_loss: pingRes.packet_loss,
+          last_seen: pingRes.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
+        }).catch(() => {});
+        return {
+          id: dev.id,
+          name: dev.name,
+          ip: dev.ip,
+          is_online: pingRes.is_online,
+          latency_ms: pingRes.latency_ms,
+          packet_loss: pingRes.packet_loss,
+        };
+      })
+    );
+
+    return res.json({
+      message: 'پایش و پینگ وضعیت تجهیزات با پروتکل واقعی ICMP تکمیل شد.',
+      results,
+    });
+  } catch (err: any) {
+    console.error('[ICMP Ping All Route Error]', err);
+    return res.status(500).json({ success: false, error: err.message || 'ICMP Ping All failed' });
+  }
 });
 
 // Guard for ping & keepalive telemetry

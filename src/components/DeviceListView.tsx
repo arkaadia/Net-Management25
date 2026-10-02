@@ -1183,7 +1183,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
                                     : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border-white/10'
                                 }`}
-                                title={isEn ? 'Ping device now' : 'پینگ مجدد لحظه‌ای'}
+                                title={isEn ? 'Ping device now (Real ICMP)' : 'پینگ لحظه‌ای با پروتکل واقعی ICMP'}
                               >
                                 <RefreshCw className={`w-3 h-3 ${isPinging ? 'animate-spin text-indigo-400' : ''}`} />
                               </button>
@@ -1192,6 +1192,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           {dev.is_online && dev.latency_ms !== null && (
                             <div className={`text-[10px] font-mono mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                               {isEn ? 'Latency:' : 'تأخیر:'} {dev.latency_ms} ms
+                            </div>
+                          )}
+                          {!dev.is_online && (
+                            <div className={`text-[9px] font-mono mt-0.5 ${isLightMode ? 'text-rose-600/80' : 'text-rose-400/80'}`}>
+                              {isEn ? 'ICMP Unreachable' : 'عدم پاسخ ICMP'}
                             </div>
                           )}
                         </td>
@@ -1481,8 +1486,8 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                       >
                         <RefreshCw className={`w-4 h-4 text-indigo-400 shrink-0 ${pingingId === dev.id ? 'animate-spin' : ''}`} />
                         <div className="flex flex-col">
-                          <span>{isEn ? 'Ping & Keepalive Telemetry' : 'تست پینگ و تاخیر لحظه‌ای'}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">ICMP Keepalive Check</span>
+                          <span>{isEn ? 'Ping & Keepalive Telemetry (ICMP)' : 'تست پینگ و تاخیر لحظه‌ای (ICMP)'}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">Real ICMP Echo Probe</span>
                         </div>
                       </button>
                     )}

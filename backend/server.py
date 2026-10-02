@@ -7,6 +7,9 @@ import socket
 import threading
 import random
 import uuid
+import subprocess
+import re
+import concurrent.futures
 from typing import Dict, Any, List, Optional
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
@@ -1211,29 +1214,62 @@ def save_data(data):
     with db_lock:
         save_data_unsafe(data)
 
-# Real ping simulation / check
-def probe_device_reachability(ip):
-    # Try a rapid socket connection or TCP probe if applicable, otherwise simulate realistic network latency
+# Authentic ICMP Reachability Probe using Linux ping (strictly no simulation or fake data)
+def probe_device_reachability(ip, count=2, timeout=1):
+    """
+    Authentic ICMP Reachability Probe using Linux system ping.
+    Strictly zero simulation or fake data.
+    Returns: (is_online: bool, latency_ms: float | None, packet_loss: float)
+    """
+    ip = str(ip).strip()
+    if not ip:
+        return False, None, 100.0
+
     start = time.time()
     try:
-        # Check standard network management ports (e.g. 22 SSH, 80 HTTP, 443 HTTPS, 161 SNMP) with very short timeout
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.3)
-        res = s.connect_ex((ip, 80))
-        s.close()
+        cmd = ["ping", "-c", str(count), "-W", str(timeout), ip]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=(count * timeout + 2))
+        raw_output = p.stdout.strip() or p.stderr.strip()
         elapsed = round((time.time() - start) * 1000, 1)
-        if res == 0:
-            return True, max(0.4, elapsed), 0
+
+        loss_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss', raw_output)
+        loss_pct = float(loss_match.group(1)) if loss_match else 100.0
+
+        rtt_match = re.search(r'rtt\s+min/avg/max/mdev\s*=\s*([0-9\.]+)/([0-9\.]+)/([0-9\.]+)/([0-9\.]+)', raw_output)
+        rtt_avg = float(rtt_match.group(2)) if rtt_match else None
+
+        if p.returncode == 0 and loss_pct < 100.0:
+            latency = round(rtt_avg, 1) if rtt_avg is not None else elapsed
+            return True, latency, loss_pct
+        else:
+            return False, None, 100.0
     except Exception:
-        pass
-    
-    # In sandbox or local private subnet, check based on configured device state
-    # If device was marked offline (like SW-ACC-BLDG-B-F2 with 192.168.1.32), maintain real status
-    if ip.endswith(".32"):
-        return False, None, 100
-    import random
-    latency = round(random.uniform(0.7, 3.5), 1)
-    return True, latency, 0
+        return False, None, 100.0
+
+def sync_database_store_devices(devices_list):
+    """
+    Synchronizes updated device statuses (is_online, latency_ms, packet_loss, last_seen)
+    to database_store.json to guarantee uniform persistence.
+    """
+    try:
+        db_store_path = os.path.join(os.path.dirname(__file__), "database_store.json")
+        if os.path.exists(db_store_path):
+            with open(db_store_path, "r", encoding="utf-8") as f:
+                store = json.load(f)
+            if "devices" in store and isinstance(store["devices"], list):
+                dev_map = {d["id"]: d for d in devices_list if isinstance(d, dict) and "id" in d}
+                for d in store["devices"]:
+                    dev_id = d.get("id")
+                    if dev_id in dev_map:
+                        src = dev_map[dev_id]
+                        d["is_online"] = src.get("is_online", False)
+                        d["latency_ms"] = src.get("latency_ms")
+                        d["packet_loss"] = src.get("packet_loss", 100.0)
+                        d["last_seen"] = src.get("last_seen", "آفلاین")
+                with open(db_store_path, "w", encoding="utf-8") as f:
+                    json.dump(store, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Warning] Failed to sync database_store devices: {e}")
 
 # HTTP Request Handler
 class NetworkAPIHandler(BaseHTTPRequestHandler):
@@ -3077,23 +3113,28 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/ping-all":
-            # Probe all devices
-            results = []
-            for d in data["devices"]:
-                online, latency, loss = probe_device_reachability(d["ip"])
+            # Concurrent authentic ICMP probe across all devices
+            devices = data.get("devices", [])
+            def _probe_dev(d):
+                online, latency, loss = probe_device_reachability(d.get("ip", ""))
                 d["is_online"] = online
                 d["latency_ms"] = latency
                 d["packet_loss"] = loss
                 d["last_seen"] = "هم اکنون (Just now)" if online else d.get("last_seen", "آفلاین")
-                results.append({
-                    "id": d["id"],
-                    "name": d["name"],
-                    "ip": d["ip"],
+                return {
+                    "id": d.get("id"),
+                    "name": d.get("name"),
+                    "ip": d.get("ip"),
                     "is_online": online,
                     "latency_ms": latency,
                     "packet_loss": loss
-                })
+                }
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, max(len(devices), 1))) as executor:
+                results = list(executor.map(_probe_dev, devices))
+
             save_data(data)
+            sync_database_store_devices(devices)
             self._send_json(200, {
                 "message": "پایش و پینگ وضعیت تجهیزات تکمیل شد.",
                 "results": results
@@ -3101,18 +3142,19 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/api/ping/"):
-            # /api/ping/:id
+            # /api/ping/:id - Authentic single-device ICMP probe
             dev_id = path.split("/")[3]
-            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+            device = next((d for d in data.get("devices", []) if d["id"] == dev_id), None)
             if not device:
                 self._send_json(404, {"error": "Device not found"})
                 return
-            online, latency, loss = probe_device_reachability(device["ip"])
+            online, latency, loss = probe_device_reachability(device.get("ip", ""))
             device["is_online"] = online
             device["latency_ms"] = latency
             device["packet_loss"] = loss
             device["last_seen"] = "هم اکنون (Just now)" if online else device.get("last_seen", "آفلاین")
             save_data(data)
+            sync_database_store_devices([device])
             self._send_json(200, {
                 "device": device,
                 "ping_result": {
