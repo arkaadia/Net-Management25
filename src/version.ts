@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.259.0';
+export const APP_VERSION = '1.260.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.260.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۴: اعمال کنترل دسترسی تفکیک‌شده در مودال و منوی راست‌کلیک میکروتیک (MikroTik Port RBAC Enforcement)',
+    title_en: 'Phase 4: Granular RBAC Enforcement in MikroTik Port Context Menu & Manage Modal',
+    changes: [
+      'اعمال کامل ماتریس اختیارات تفکیک‌شده پورت‌های RouterOS بر روی منوی راست‌کلیک پورت میکروتیک (MikroTikPortContextMenu) با لایه‌بندی پورتال ریشه و z-index فوقانی.',
+      'مخفی‌سازی داینامیک آیتم‌های فاقد مجوز: روشن/خاموش کردن اینترفیس (port_power)، عضویت در بریج (port_bridge)، تغییر شناسه PVID و ویلن (port_vlan)، تنظیم سرعت و دوبلکس (port_speed)، ویرایش کامنت پورت (port_description) و تست عیب‌یابی کابل TDR بر اساس (port_cable_test).',
+      'تجهیز هدر منوی راست‌کلیک به نشانگر امنیتی «فقط‌خواندنی» (Read-Only) و کادر راهنمای مسدودیت اختیارات در صورت فقدان تمامی مجوزهای اعمال تغییرات.',
+      'غیرفعال‌سازی (Disabled) بلادرنگ فیلدهای فرم ویرایش تکی پورت در MikroTikDeviceManageModal به همراه نشانگرهای قفل اختصاصی (Locked Badges).',
+      'مسدودسازی دکمه اعمال و ارسال دستورات (Review & Send Commands) و تبدیل آن به وضعیت «مشاهده فقط‌خواندنی» در صورت عدم احراز اختیارات تنظیمی.',
+      'اعتبارسنجی پیش‌پرواز (Pre-flight Validation) در دو لایه توابع کلیک و هندلرهای ارسال دستورات CLI جهت رد قاطع عملیات غیرمجاز با اخطارهای شفاف دوزبانه.',
+      'ایجاد اسکریپت آزمون تجربی test_phase4_mikrotik_port_rbac.ts و تایید موفقیت‌آمیز ۲۵ سناریوی اعتبارسنجی با نرخ قبولی ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Enforced comprehensive granular RouterOS port permissions across MikroTik Port Context Menu (MikroTikPortContextMenu) with root portal rendering and top-level z-index.',
+      'Dynamic suppression of unauthorized action items: Enable/Disable Interface (port_power), Bridge Membership (port_bridge), Bridge PVID / VLAN (port_vlan), Speed & Duplex (port_speed), Edit Comment (port_description), and TDR Cable Diagnostic (port_cable_test).',
+      'Equipped context menu header with dedicated Read-Only badge and informative restriction notice when user lacks port modification permissions.',
+      'Real-time disabling of edit form inputs in MikroTikDeviceManageModal with dedicated Lock badges and boundary protection.',
+      'Disabled configuration dispatch button and converted into "Read-Only: No Port Permissions" state when all port permissions are absent.',
+      'Dual-layer pre-flight RBAC validation across click handlers and CLI dispatch functions rejecting unauthorized parameter changes with descriptive bilingual alerts.',
+      'Created empirical verification test suite test_phase4_mikrotik_port_rbac.ts passing all 25 test scenarios with 100% success rate.'
+    ],
+  },
   {
     version: '1.259.0',
     releaseDate: '2026-10-02',

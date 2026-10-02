@@ -25,7 +25,8 @@ import {
   Download,
   Search,
   Filter,
-  Shield
+  Shield,
+  Lock
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
@@ -73,6 +74,15 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     onConnectTerminal &&
     isDeviceActionPermitted(effectivePolicy, device.id, 'terminal')
   );
+
+  // Granular Port RBAC Permissions for this specific MikroTik Router/Switch
+  const canPortPower = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_power'));
+  const canPortBridge = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_bridge'));
+  const canPortVlan = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_vlan'));
+  const canPortSpeed = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_speed'));
+  const canPortDescription = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_description'));
+  const canPortCableTest = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_cable_test'));
+  const canAnyPortEdit = canPortPower || canPortBridge || canPortVlan || canPortSpeed || canPortDescription;
 
   const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
@@ -232,6 +242,33 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     setIsExecuting(true);
     try {
       const { targetPortIds, updates } = confirmModal;
+
+      // Verify RBAC permissions before applying configuration
+      if (updates.admin_status && updates.admin_status !== 'no_change' && !canPortPower) {
+        alert(isEn ? 'Access Denied: You do not have permission to modify port power (port_power).' : 'عدم دسترسی: شما مجوز تغییر وضعیت پاور پورت (port_power) را ندارید.');
+        setConfirmModal(null);
+        return;
+      }
+      if (updates.vlan !== undefined && !canPortVlan) {
+        alert(isEn ? 'Access Denied: You do not have permission to modify VLAN/PVID (port_vlan).' : 'عدم دسترسی: شما مجوز تغییر ویلن یا PVID پورت (port_vlan) را ندارید.');
+        setConfirmModal(null);
+        return;
+      }
+      if (updates.comment !== undefined && !canPortDescription) {
+        alert(isEn ? 'Access Denied: You do not have permission to edit port comments (port_description).' : 'عدم دسترسی: شما مجوز ویرایش کامنت پورت (port_description) را ندارید.');
+        setConfirmModal(null);
+        return;
+      }
+      if ((updates.speed || updates.auto_negotiation !== undefined) && !canPortSpeed) {
+        alert(isEn ? 'Access Denied: You do not have permission to modify port speed/duplex (port_speed).' : 'عدم دسترسی: شما مجوز تنظیم سرعت و دوبلکس پورت (port_speed) را ندارید.');
+        setConfirmModal(null);
+        return;
+      }
+      if (updates.bridge_membership && updates.bridge_membership !== 'no_change' && !canPortBridge) {
+        alert(isEn ? 'Access Denied: You do not have permission to modify bridge membership (port_bridge).' : 'عدم دسترسی: شما مجوز تغییر عضویت بریج (port_bridge) را ندارید.');
+        setConfirmModal(null);
+        return;
+      }
 
       // Update local port objects
       setPorts((prev) =>
@@ -841,23 +878,34 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                     </div>
 
                     <div className="space-y-3 text-xs">
-                      {/* Admin Status Toggle */}
+                      {/* Admin Status Toggle (Guarded by port_power) */}
                       <div>
-                        <label className={`block mb-1 font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
-                          {isEn ? 'Admin Status (disabled=yes/no)' : 'وضعیت کاربری (Admin Status):'}
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className={`font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {isEn ? 'Admin Status (disabled=yes/no):' : 'وضعیت کاربری (Admin Status):'}
+                          </label>
+                          {!canPortPower && (
+                            <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20" title={isEn ? 'Requires port_power' : 'نیازمند دسترسی port_power'}>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Locked' : 'قفل'}</span>
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
+                            disabled={!canPortPower}
                             onClick={() => setEditAdminStatus('enabled')}
-                            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                              editAdminStatus === 'enabled'
+                            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
+                              !canPortPower
+                                ? 'opacity-50 cursor-not-allowed bg-slate-900/40 text-slate-500 border-white/5'
+                                : editAdminStatus === 'enabled'
                                 ? isLightMode
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-400 shadow-xs'
-                                  : 'bg-emerald-950 text-emerald-300 border-emerald-500'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-400 shadow-xs cursor-pointer'
+                                  : 'bg-emerald-950 text-emerald-300 border-emerald-500 cursor-pointer'
                                 : isLightMode
-                                ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                                ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 cursor-pointer'
+                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 cursor-pointer'
                             }`}
                           >
                             <Power className="w-3.5 h-3.5 text-emerald-500" />
@@ -865,15 +913,18 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                           </button>
                           <button
                             type="button"
+                            disabled={!canPortPower}
                             onClick={() => setEditAdminStatus('disabled')}
-                            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                              editAdminStatus === 'disabled'
+                            className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
+                              !canPortPower
+                                ? 'opacity-50 cursor-not-allowed bg-slate-900/40 text-slate-500 border-white/5'
+                                : editAdminStatus === 'disabled'
                                 ? isLightMode
-                                  ? 'bg-amber-100 text-amber-800 border-amber-400 shadow-xs'
-                                  : 'bg-amber-950 text-amber-300 border-amber-500'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-400 shadow-xs cursor-pointer'
+                                  : 'bg-amber-950 text-amber-300 border-amber-500 cursor-pointer'
                                 : isLightMode
-                                ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                                ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 cursor-pointer'
+                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 cursor-pointer'
                             }`}
                           >
                             <PowerOff className="w-3.5 h-3.5 text-amber-500" />
@@ -882,35 +933,57 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                         </div>
                       </div>
 
-                      {/* Bridge PVID */}
+                      {/* Bridge PVID (Guarded by port_vlan) */}
                       <div>
-                        <label className={`block mb-1 font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
-                          {isEn ? 'Bridge PVID (VLAN ID):' : 'شناسه VLAN در بریج (PVID):'}
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className={`font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {isEn ? 'Bridge PVID (VLAN ID):' : 'شناسه VLAN در بریج (PVID):'}
+                          </label>
+                          {!canPortVlan && (
+                            <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20" title={isEn ? 'Requires port_vlan' : 'نیازمند دسترسی port_vlan'}>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Locked' : 'قفل'}</span>
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="number"
                           min="1"
                           max="4094"
+                          disabled={!canPortVlan}
                           value={editVlan}
                           onChange={(e) => setEditVlan(Number(e.target.value))}
                           className={`w-full rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-hidden border ${
-                            isLightMode
+                            !canPortVlan
+                              ? 'opacity-50 cursor-not-allowed bg-slate-900/60 border-white/10 text-slate-500'
+                              : isLightMode
                               ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600'
                               : 'bg-slate-950 border-slate-700 text-white focus:border-cyan-500'
                           }`}
                         />
                       </div>
 
-                      {/* Speed & Auto Negotiation */}
+                      {/* Speed & Auto Negotiation (Guarded by port_speed) */}
                       <div>
-                        <label className={`block mb-1 font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
-                          {isEn ? 'Speed & Duplex Mode:' : 'تنظیمات سرعت و مذاکره خودکار:'}
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className={`font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {isEn ? 'Speed & Duplex Mode:' : 'تنظیمات سرعت و مذاکره خودکار:'}
+                          </label>
+                          {!canPortSpeed && (
+                            <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20" title={isEn ? 'Requires port_speed' : 'نیازمند دسترسی port_speed'}>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Locked' : 'قفل'}</span>
+                            </span>
+                          )}
+                        </div>
                         <select
                           value={editSpeed}
+                          disabled={!canPortSpeed}
                           onChange={(e) => setEditSpeed(e.target.value)}
                           className={`w-full rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-hidden border ${
-                            isLightMode
+                            !canPortSpeed
+                              ? 'opacity-50 cursor-not-allowed bg-slate-900/60 border-white/10 text-slate-500'
+                              : isLightMode
                               ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600'
                               : 'bg-slate-950 border-slate-700 text-white focus:border-cyan-500'
                           }`}
@@ -922,18 +995,29 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                         </select>
                       </div>
 
-                      {/* Port Comment */}
+                      {/* Port Comment (Guarded by port_description) */}
                       <div>
-                        <label className={`block mb-1 font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
-                          {isEn ? 'RouterOS Comment / Description:' : 'یادداشت / کامنت روتر او اس:'}
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className={`font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {isEn ? 'RouterOS Comment / Description:' : 'یادداشت / کامنت روتر او اس:'}
+                          </label>
+                          {!canPortDescription && (
+                            <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20" title={isEn ? 'Requires port_description' : 'نیازمند دسترسی port_description'}>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Locked' : 'قفل'}</span>
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
+                          disabled={!canPortDescription}
                           value={editComment}
                           onChange={(e) => setEditComment(e.target.value)}
                           placeholder="e.g. Uplink to Core Switch"
                           className={`w-full rounded-lg px-3 py-1.5 text-xs focus:outline-hidden border ${
-                            isLightMode
+                            !canPortDescription
+                              ? 'opacity-50 cursor-not-allowed bg-slate-900/60 border-white/10 text-slate-500'
+                              : isLightMode
                               ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-600'
                               : 'bg-slate-950 border-slate-700 text-white focus:border-cyan-500'
                           }`}
@@ -942,14 +1026,25 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
 
                       {/* Loop Protect */}
                       <div className="flex items-center justify-between pt-1">
-                        <span className={isLightMode ? 'text-slate-700' : 'text-slate-400'}>
-                          {isEn ? 'Hardware Loop Protect:' : 'محافظت در برابر لوپ (Loop Protect):'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={isLightMode ? 'text-slate-700' : 'text-slate-400'}>
+                            {isEn ? 'Hardware Loop Protect:' : 'محافظت در برابر لوپ (Loop Protect):'}
+                          </span>
+                          {!canPortSpeed && (
+                            <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20" title={isEn ? 'Requires port_speed' : 'نیازمند دسترسی port_speed'}>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Locked' : 'قفل'}</span>
+                            </span>
+                          )}
+                        </div>
                         <select
                           value={editLoopProtect}
+                          disabled={!canPortSpeed}
                           onChange={(e) => setEditLoopProtect(e.target.value as any)}
                           className={`rounded-md px-2 py-1 text-xs font-mono border ${
-                            isLightMode
+                            !canPortSpeed
+                              ? 'opacity-50 cursor-not-allowed bg-slate-900/60 border-white/10 text-slate-500'
+                              : isLightMode
                               ? 'bg-slate-50 border-slate-300 text-cyan-800'
                               : 'bg-slate-950 border-slate-700 text-cyan-300'
                           }`}
@@ -964,7 +1059,42 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                     <div className={`pt-3 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
                       <button
                         type="button"
+                        disabled={!canAnyPortEdit || isExecuting}
                         onClick={() => {
+                          if (!canAnyPortEdit) {
+                            alert(isEn ? 'Access Denied: You do not have permission to modify port configuration.' : 'عدم دسترسی: شما مجوز ویرایش تنظیمات پورت را ندارید.');
+                            return;
+                          }
+
+                          // Pre-flight RBAC validation
+                          const origAdmin = selectedPort.admin_status === 'disabled' ? 'disabled' : 'enabled';
+                          const origVlan = selectedPort.vlan || 1;
+                          const origComment = selectedPort.description || '';
+                          const origSpeed = selectedPort.speed || 'auto';
+
+                          const unauthorized: string[] = [];
+                          if (editAdminStatus !== origAdmin && !canPortPower) {
+                            unauthorized.push(isEn ? 'Admin Status (port_power)' : 'وضعیت کاربری پورت (port_power)');
+                          }
+                          if (editVlan !== origVlan && !canPortVlan) {
+                            unauthorized.push(isEn ? 'Bridge PVID / VLAN (port_vlan)' : 'شناسه PVID بریج (port_vlan)');
+                          }
+                          if (editComment !== origComment && !canPortDescription) {
+                            unauthorized.push(isEn ? 'Port Comment (port_description)' : 'یادداشت پورت (port_description)');
+                          }
+                          if (editSpeed !== origSpeed && !canPortSpeed) {
+                            unauthorized.push(isEn ? 'Speed & Duplex (port_speed)' : 'تنظیمات سرعت پورت (port_speed)');
+                          }
+
+                          if (unauthorized.length > 0) {
+                            alert(
+                              isEn
+                                ? `Access Denied: You lack permissions for the following actions under your RBAC policy:\n• ${unauthorized.join('\n• ')}`
+                                : `عدم دسترسی: شما طبق پالیسی دسترسی مجوز انجام تغییرات زیر را ندارید:\n• ${unauthorized.join('\n• ')}`
+                            );
+                            return;
+                          }
+
                           setConfirmModal({
                             targetPortIds: [selectedPort.port_id],
                             updates: {
@@ -978,17 +1108,28 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                           });
                         }}
                         className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 ${
-                          isLightMode
+                          !canAnyPortEdit
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 cursor-not-allowed shadow-none'
+                            : isLightMode
                             ? 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-cyan-600/20'
                             : 'bg-cyan-400 hover:bg-cyan-300 text-black shadow-cyan-500/20'
                         }`}
                       >
-                        <Save className="w-4 h-4" />
-                        <span>
-                          {isEn
-                            ? 'Review & Send Commands to MikroTik'
-                            : 'مشاهده دستورات و ارسال به روتر میکروتیک'}
-                        </span>
+                        {!canAnyPortEdit ? (
+                          <>
+                            <Lock className="w-4 h-4 text-amber-400" />
+                            <span>{isEn ? 'Read-Only: No Port Permissions' : 'مشاهده فقط‌خواندنی: فاقد مجوز ویرایش پورت'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4" />
+                            <span>
+                              {isEn
+                                ? 'Review & Send Commands to MikroTik'
+                                : 'مشاهده دستورات و ارسال به روتر میکروتیک'}
+                            </span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -1163,36 +1304,62 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
             y={contextMenu.y}
             port={contextMenu.port}
             deviceName={device.name || 'MikroTik'}
+            deviceId={device.id}
+            policy={effectivePolicy}
             isLightMode={isLightMode}
             onClose={() => setContextMenu(null)}
             onExecuteAction={(action, extra) => {
               const targetPortId = contextMenu.port.port_id;
               if (action === 'enable') {
+                if (!canPortPower) {
+                  alert(isEn ? 'Access Denied: You do not have permission to enable interface (port_power).' : 'عدم دسترسی: شما مجوز فعال‌سازی اینترفیس (port_power) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { admin_status: 'enabled' },
                 });
               } else if (action === 'disable') {
+                if (!canPortPower) {
+                  alert(isEn ? 'Access Denied: You do not have permission to disable interface (port_power).' : 'عدم دسترسی: شما مجوز غیرفعال‌سازی اینترفیس (port_power) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { admin_status: 'disabled' },
                 });
               } else if (action === 'bridge_add') {
+                if (!canPortBridge) {
+                  alert(isEn ? 'Access Denied: You do not have permission to modify bridge membership (port_bridge).' : 'عدم دسترسی: شما مجوز افزودن پورت به بریج (port_bridge) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { bridge_membership: 'add', bridge_name: 'bridge1' },
                 });
               } else if (action === 'bridge_remove') {
+                if (!canPortBridge) {
+                  alert(isEn ? 'Access Denied: You do not have permission to modify bridge membership (port_bridge).' : 'عدم دسترسی: شما مجوز حذف پورت از بریج (port_bridge) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { bridge_membership: 'remove' },
                 });
               } else if (action === 'change_vlan') {
+                if (!canPortVlan) {
+                  alert(isEn ? 'Access Denied: You do not have permission to change bridge PVID/VLAN (port_vlan).' : 'عدم دسترسی: شما مجوز تغییر PVID یا ویلن پورت (port_vlan) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { vlan: extra?.vlan || 1 },
                 });
               } else if (action === 'set_speed') {
+                if (!canPortSpeed) {
+                  alert(isEn ? 'Access Denied: You do not have permission to modify port speed/duplex (port_speed).' : 'عدم دسترسی: شما مجوز تنظیم سرعت و دوبلکس پورت (port_speed) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: {
@@ -1201,16 +1368,28 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
                   },
                 });
               } else if (action === 'loop_protect') {
+                if (!canPortSpeed && !canAnyPortEdit) {
+                  alert(isEn ? 'Access Denied: You do not have permission to modify loop protect.' : 'عدم دسترسی: شما مجوز فعال‌سازی محافظت لوپ را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { loop_protect: 'on' },
                 });
               } else if (action === 'edit_comment') {
+                if (!canPortDescription) {
+                  alert(isEn ? 'Access Denied: You do not have permission to edit port comments (port_description).' : 'عدم دسترسی: شما مجوز ویرایش کامنت پورت (port_description) را ندارید.');
+                  return;
+                }
                 setConfirmModal({
                   targetPortIds: [targetPortId],
                   updates: { comment: extra?.comment },
                 });
               } else if (action === 'cable_test') {
+                if (!canPortCableTest) {
+                  alert(isEn ? 'Access Denied: You do not have permission to run cable diagnostics (port_cable_test).' : 'عدم دسترسی: شما مجوز تست کابل TDR (port_cable_test) را ندارید.');
+                  return;
+                }
                 alert(
                   isEn
                     ? `[RouterOS TDR Test] Port ${targetPortId}: Cable OK, Pair 1-2: Normal (12m), Pair 3-6: Normal (12m). No shorts or opens detected.`
