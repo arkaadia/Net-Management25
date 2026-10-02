@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.250.0';
+export const APP_VERSION = '1.251.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.251.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۲: طراحی و پیاده‌سازی رابط کاربری مدیریت دسترسی‌های تفکیک‌شده تجهیزات شبکه و منوی ۳ نقطه در AccessControlTab (Network Equipment Granular RBAC UI)',
+    title_en: 'Phase 2: Network Equipment Inventory 3-Dots Granular Access Control UI in Settings',
+    changes: [
+      'پیاده‌سازی بخش اختصاصی «۷. اختیارات تفکیک‌شده تجهیزات شبکه و منوی ۳ نقطه» در تب Access Control داخل پنجره تنظیمات پالیسی‌های امنیتی.',
+      'افزودن بخش الف (مجوزهای پیش‌فرض سراسری تجهیزات): شامل دکمه‌های اعطای همه پیش‌فرض‌ها و مسدودسازی همه، چک‌باکس‌های ۹ گانه گزینه‌های منوی سه‌نقطه با توضیحات کامل، دسته‌بندی رنگی و بج نشانگر ریسک بالا (HIGH RISK).',
+      'افزودن بخش ب (ماتریس دسترسی به تفکیک هر تجهیز شبکه): مجهز به نوار جستجوی زنده (نام، IP، مدل)، فیلتر وضعیت استثناها (همه، دارای استثنا، پیروی از پیش‌فرض)، و فیلتر نوع تجهیز (سوئیچ‌ها، روترها، فایروال‌ها).',
+      'نمایش لیست هوشمند تجهیزات بر اساس محدوده مجاز پالیسی (Scope-Aware Filtering) همراه با دکمه‌های ریست به پیش‌فرض (Reset to Default)، اعطای همه و مسدودسازی همه برای هر دیوایس به‌صورت مجزا.',
+      'تجهیز بخش به کادر راهنمای سه‌بخشی FieldInfoTooltip منطبق با دستورالعمل‌ها، انطباق کامل با تم‌های تاریک و روشن، و رعایت اکید قانون عدم نمایش متن فارسی در حالت انگلیسی.',
+      'افزودن تب فیلتر سریع «Equipment & 3-Dots» به نوار فیلتر وندورها در بالای فرم پالیسی.'
+    ],
+    changes_en: [
+      'Implemented dedicated Section 7 "Network Equipment Inventory Granular Permissions" in the Access Control Tab within Security & RBAC Settings.',
+      'Created Part A (Global Baseline Equipment Permissions): includes Grant All / Revoke All defaults, 9 granular action checkboxes with full bilingual descriptors, category styling, and HIGH RISK hazard indicators.',
+      'Created Part B (Per-Device Permission Matrix): equipped with live real-time search (name, IP, model), override status filter (All, Customized, Defaults), and equipment type filter (Switches, Routers, Firewalls).',
+      'Integrated scope-aware equipment population reflecting active policy boundaries with per-device quick actions (Reset to Default, Grant All, Deny All) and toggleable 9-action buttons.',
+      'Equipped the section with a 3-part boundary-safe FieldInfoTooltip, strict theme contrast compatibility (light & dark modes), and strict bilingual localization without any untranslated text.',
+      'Added the "Equipment & 3-Dots" quick vendor filter tab to the top toolbar of the access policy form.'
+    ],
+  },
   {
     version: '1.250.0',
     releaseDate: '2026-10-02',

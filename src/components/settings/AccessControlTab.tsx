@@ -69,6 +69,7 @@ import {
   DEVICE_ACTIONS_CATALOG,
   FULL_DEVICE_PERMISSIONS,
   RESTRICTED_DEVICE_PERMISSIONS,
+  EMPTY_DEVICE_PERMISSIONS,
   isDeviceActionPermitted,
 } from '../../utils/rbac';
 import { fetchRemoteServers } from '../../services/api';
@@ -112,7 +113,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const { isRtl, isEn } = useLanguage();
   const [editingPolicy, setEditingPolicy] = useState<AccessPolicy | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic' | 'servers'>('all');
+  const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic' | 'servers' | 'devices'>('all');
 
   // Live database-backed states for subjects and scopes
   const [liveLocalUsers, setLiveLocalUsers] = useState<LocalUser[]>(localUsers);
@@ -122,6 +123,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const [liveServers, setLiveServers] = useState<RemoteServer[]>([]);
   const [serverSearchQuery, setServerSearchQuery] = useState('');
   const [serverMatrixFilter, setServerMatrixFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
+  const [deviceMatrixFilter, setDeviceMatrixFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
+  const [deviceTypeMatrixFilter, setDeviceTypeMatrixFilter] = useState<'all' | 'switch' | 'router' | 'firewall' | 'other'>('all');
   const [isSyncingDb, setIsSyncingDb] = useState<boolean>(false);
 
   // Synchronize authentic database entities
@@ -264,6 +268,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     setIsCreating(true);
     setVendorFilter('all');
     setServerSearchQuery('');
+    setDeviceSearchQuery('');
+    setDeviceMatrixFilter('all');
+    setDeviceTypeMatrixFilter('all');
   };
 
   const handleStartEdit = (policy: AccessPolicy) => {
@@ -286,6 +293,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     setIsCreating(false);
     setVendorFilter('all');
     setServerSearchQuery('');
+    setDeviceSearchQuery('');
+    setDeviceMatrixFilter('all');
+    setDeviceTypeMatrixFilter('all');
   };
 
   // Real-time calculation of permitted devices based on current targetScope selection
@@ -1374,6 +1384,18 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     <HardDrive className="w-3 h-3" />
                     <span>{isEn ? 'Server Fleet & 3-Dots' : 'ناوگان سرورها و منوی ۳ نقطه'}</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setVendorFilter('devices')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      vendorFilter === 'devices'
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-indigo-400 hover:bg-indigo-500/10'
+                    }`}
+                  >
+                    <Network className="w-3 h-3" />
+                    <span>{isEn ? 'Equipment & 3-Dots' : 'تجهیزات شبکه و منوی ۳ نقطه'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -2275,6 +2297,534 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                                               ? (isEn ? 'Power' : 'توان')
                                               : action.key === 'edit_properties'
                                               ? (isEn ? 'Edit' : 'ویرایش')
+                                              : (isEn ? 'Delete' : 'حذف')}
+                                          </span>
+                                        </div>
+                                        <span className={`text-[8px] font-mono px-1 py-0.2 rounded ${
+                                          hasSpecificOverride
+                                            ? 'bg-amber-500/20 text-amber-300 font-bold'
+                                            : 'text-slate-500'
+                                        }`}>
+                                          {hasSpecificOverride
+                                            ? (isEn ? 'Custom' : 'اختصاصی')
+                                            : (isEn ? 'Default' : 'پیش‌فرض')}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* 7. NETWORK EQUIPMENT INVENTORY & 3-DOTS ACTION MENU PERMISSIONS */}
+              {(vendorFilter === 'all' || vendorFilter === 'devices') && (
+                <div className="p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/30 space-y-4">
+                  {/* Section Title & Info */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-500/20 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300">
+                        <Network className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-indigo-300">
+                            {isEn
+                              ? '7. Network Equipment Inventory Granular Permissions'
+                              : '۷. اختیارات تفکیک‌شده تجهیزات شبکه و منوی ۳ نقطه'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'Equipment Action Permissions' : 'دسترسی‌های منوی ۳ نقطه تجهیزات شبکه'}
+                            infoWhatEn="Controls granular permissions for each item inside the 3-dots action menu on the Network Equipment Inventory page (Web Consoles, Direct SSH Terminal, Apply Config Template, Sticky Notes, Edit Device Properties, Ping & Keepalive, Inspect Interfaces & VLANs, Save to NVRAM / Write Memory, and Delete Device)."
+                            infoWhatFa="تعیین و کنترل اختیارات برای تک‌تک گزینه‌های موجود در منوی سه‌نقطه تجهیزات در صفحه مدیریت موجودی تجهیزات شبکه (شامل کنسول‌های وب، ترمینال مستقیم SSH، اعمال تمپلیت کانفیگ، یادداشت‌های چسبان، ویرایش مشخصات، تست پینگ لحظه‌ای، وضعیت پورت‌ها و VLAN، ذخیره در NVRAM و حذف تجهیز)."
+                            infoWhyEn="Enforces least-privilege security by allowing operators to inspect ports, view web GUIs, and run keepalive pings without granting dangerous full CLI terminal access, NVRAM writes, or device deletion."
+                            infoWhyFa="تضمین اصل حداقل دسترسی با مجاز کردن پرسنل به مشاهده پورت‌ها، کنسول وب و تست پینگ بدون اعطای دسترسی خطرناک شل تعاملی، رایت مموری یا حذف فیزیکی تجهیزات حیاتی شبکه."
+                            infoExampleEn="Grant Inspect Ports & Ping on Core Switches (dev-core-01) while disabling SSH Terminal and Write Memory, and granting full terminal access on Lab Access Switches (dev-access-lab01)."
+                            infoExampleFa="اعطای دسترسی پایش پورت‌ها و تست پینگ روی سوییچ‌های لایه کور (dev-core-01) در عین مسدود بودن ترمینال و رایت مموری، و اعطای دسترسی کامل شل روی سوییچ‌های آزمایشگاه (dev-access-lab01)."
+                            isEn={isEn}
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'Configure baseline defaults for all network equipment plus granular per-device overrides for 3-dots menu actions.'
+                            : 'تنظیم مجوزهای پیش‌فرض سراسری و تعریف ماتریس استثناها و اختیارات اختصاصی به ازای هر تجهیز برای منوی سه‌نقطه.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-bold">
+                        {isEn
+                          ? `${permittedScopeDevices.length} Equipment in Scope`
+                          : `${permittedScopeDevices.length} تجهیز در محدوده`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* PART A: Baseline Default Device Permissions */}
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-indigo-500/20 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2">
+                      <div>
+                        <span className="font-bold text-xs text-indigo-200">
+                          {isEn ? 'A. Global Baseline Equipment Permissions' : 'الف) مجوزهای پیش‌فرض سراسری تجهیزات شبکه'}
+                        </span>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'These default permissions apply to all network devices unless explicitly overridden in the matrix below.'
+                            : 'این دسترسی‌ها به صورت پیش‌فرض روی تمامی تجهیزات مجاز اعمال می‌شوند، مگر اینکه در جدول پایین برای تجهیزی استثنا تعریف شود.'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPolicy({
+                              ...editingPolicy,
+                              defaultDevicePermissions: { ...FULL_DEVICE_PERMISSIONS },
+                            });
+                          }}
+                          className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer"
+                        >
+                          {isEn ? 'Grant All Defaults' : 'اعطای همه پیش‌فرض‌ها'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPolicy({
+                              ...editingPolicy,
+                              defaultDevicePermissions: { ...EMPTY_DEVICE_PERMISSIONS },
+                            });
+                          }}
+                          className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold border border-rose-500/30 transition cursor-pointer"
+                        >
+                          {isEn ? 'Revoke All Defaults' : 'مسدودسازی همه پیش‌فرض‌ها'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {DEVICE_ACTIONS_CATALOG.map((action) => {
+                        const isGranted = Boolean(editingPolicy.defaultDevicePermissions?.[action.key]);
+                        return (
+                          <label
+                            key={action.key}
+                            className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                              isGranted
+                                ? action.danger
+                                  ? 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+                                  : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+                                : 'bg-slate-950/60 border-white/5 text-slate-400 hover:border-white/10'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isGranted}
+                              onChange={(e) => {
+                                setEditingPolicy({
+                                  ...editingPolicy,
+                                  defaultDevicePermissions: {
+                                    ...(editingPolicy.defaultDevicePermissions || {}),
+                                    [action.key]: e.target.checked,
+                                  },
+                                });
+                              }}
+                              className={`w-4 h-4 mt-0.5 rounded cursor-pointer ${
+                                action.danger ? 'accent-rose-500' : 'accent-indigo-500'
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold text-[11px] text-white truncate">
+                                  {isEn ? action.labelEn : action.labelFa}
+                                </span>
+                                {action.danger && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0 font-bold">
+                                    {isEn ? 'HIGH RISK' : 'حساس'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[9px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                {isEn ? action.descriptionEn : action.descriptionFa}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* PART B: Per-Device Action Matrix */}
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-indigo-500/20 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-indigo-200">
+                            {isEn ? 'B. Per-Device Permission Matrix' : 'ب) ماتریس دسترسی به تفکیک هر تجهیز شبکه'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                            {isEn ? 'Granular Overrides' : 'تنظیمات اختصاصی'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {isEn
+                            ? 'Configure device-specific action overrides. An override set here takes priority over baseline defaults.'
+                            : 'تنظیم اختیارات اختصاصی برای هر تجهیز. دسترسی‌های تنظیم‌شده در اینجا اولویت قطعی بر مجوزهای پیش‌فرض دارند.'}
+                        </p>
+                      </div>
+
+                      {/* Matrix Toolbar: Search & Filter */}
+                      <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto">
+                        <div className="relative flex-1 sm:w-48">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={deviceSearchQuery}
+                            onChange={(e) => setDeviceSearchQuery(e.target.value)}
+                            placeholder={isEn ? 'Search name / IP / model...' : 'جستجوی نام، IP یا مدل...'}
+                            className="w-full pl-8 pr-2.5 py-1 text-[11px] rounded-lg bg-slate-950/80 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+                          />
+                        </div>
+
+                        {/* Status Filter */}
+                        <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-lg border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setDeviceMatrixFilter('all')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceMatrixFilter === 'all'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'All' : 'همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeviceMatrixFilter('custom_only')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceMatrixFilter === 'custom_only'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Customized' : 'دارای استثنا'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeviceMatrixFilter('default_only')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceMatrixFilter === 'default_only'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Defaults' : 'پیروی از پیش‌فرض'}
+                          </button>
+                        </div>
+
+                        {/* Device Type Filter */}
+                        <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-lg border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setDeviceTypeMatrixFilter('all')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceTypeMatrixFilter === 'all'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'All Types' : 'انواع'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeviceTypeMatrixFilter('switch')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceTypeMatrixFilter === 'switch'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Switches' : 'سوئیچ'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeviceTypeMatrixFilter('router')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceTypeMatrixFilter === 'router'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Routers' : 'روتر'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeviceTypeMatrixFilter('firewall')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              deviceTypeMatrixFilter === 'firewall'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {isEn ? 'Firewalls' : 'فایروال'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Devices List */}
+                    {permittedScopeDevices.length === 0 ? (
+                      <div className="p-6 rounded-xl bg-slate-950/40 border border-dashed border-white/10 text-center space-y-2">
+                        <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
+                        <div className="text-xs font-bold text-slate-300">
+                          {isEn ? 'No Network Equipment in Current Scope' : 'هیچ تجهیزی در محدوده انتخابی فعلی قرار ندارد'}
+                        </div>
+                        <p className="text-[10px] text-slate-500 max-w-md mx-auto">
+                          {editingPolicy.canViewDevices === false
+                            ? (isEn
+                                ? 'Network Equipment module is disabled in Section 1 above (Network Devices checkbox is unchecked).'
+                                : 'ماژول تجهیزات شبکه در بخش ۱ بالا غیرفعال است (تیک تجهیزات شبکه برداشته شده است).')
+                            : editingPolicy.targetScope === 'groups' && (!editingPolicy.targetGroupIds || editingPolicy.targetGroupIds.length === 0)
+                            ? (isEn
+                                ? 'No device groups selected. Please select at least one device group in Section 2 above.'
+                                : 'هیچ گروه تجهیزاتی انتخاب نشده است. لطفاً در بخش ۲ بالا حداقل یک گروه تجهیزات را انتخاب کنید.')
+                            : (isEn
+                                ? 'Either assign Device Groups that contain equipment to this policy, or set Target Scope to "All Equipment" above to configure equipment permissions.'
+                                : 'جهت تعریف دسترسی تجهیزات، در بخش بالا محدوده پالیسی را روی «تمام تجهیزات» قرار دهید یا گروه‌های تجهیزاتی دارای دیوایس را انتخاب کنید.')}
+                        </p>
+                      </div>
+                    ) : (() => {
+                      const filteredDevices = permittedScopeDevices.filter((dev) => {
+                        if (deviceTypeMatrixFilter !== 'all') {
+                          const dType = (dev.type || '').toLowerCase();
+                          if (deviceTypeMatrixFilter === 'switch' && dType !== 'switch') return false;
+                          if (deviceTypeMatrixFilter === 'router' && dType !== 'router') return false;
+                          if (deviceTypeMatrixFilter === 'firewall' && dType !== 'firewall') return false;
+                          if (deviceTypeMatrixFilter === 'other' && ['switch', 'router', 'firewall'].includes(dType)) return false;
+                        }
+
+                        if (deviceSearchQuery.trim()) {
+                          const q = deviceSearchQuery.trim().toLowerCase();
+                          const nameMatch = (dev.name || '').toLowerCase().includes(q);
+                          const ipMatch = (dev.ip || '').toLowerCase().includes(q);
+                          const modelMatch = (dev.model || '').toLowerCase().includes(q);
+                          const roleMatch = (dev.role || '').toLowerCase().includes(q);
+                          if (!nameMatch && !ipMatch && !modelMatch && !roleMatch) return false;
+                        }
+
+                        const hasCustom = Boolean(
+                          editingPolicy.perDevicePermissions?.[dev.id] &&
+                          Object.keys(editingPolicy.perDevicePermissions[dev.id]).length > 0
+                        );
+                        if (deviceMatrixFilter === 'custom_only' && !hasCustom) return false;
+                        if (deviceMatrixFilter === 'default_only' && hasCustom) return false;
+                        return true;
+                      });
+
+                      if (filteredDevices.length === 0) {
+                        return (
+                          <div className="p-6 rounded-xl bg-slate-950/40 border border-dashed border-white/10 text-center space-y-1">
+                            <div className="text-xs font-semibold text-slate-300">
+                              {isEn ? 'No Matching Network Equipment Found' : 'هیچ تجهیزی با این فیلتر یا جستجو یافت نشد'}
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              {isEn
+                                ? 'No network devices in the current scope match your search query or filter selection.'
+                                : 'تجهیزی در محدوده فعلی با عبارت جستجو یا فیلتر انتخابی مطابقت ندارد.'}
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                          {filteredDevices.map((dev) => {
+                            const customPerms = editingPolicy.perDevicePermissions?.[dev.id];
+                            const hasCustomOverrides = Boolean(
+                              customPerms && Object.keys(customPerms).length > 0
+                            );
+
+                            return (
+                              <div
+                                key={dev.id}
+                                className={`p-3 rounded-xl border transition ${
+                                  hasCustomOverrides
+                                    ? 'bg-slate-950/90 border-indigo-500/40 shadow-sm'
+                                    : 'bg-slate-950/50 border-white/5 hover:border-white/10'
+                                }`}
+                              >
+                                {/* Device Item Header */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5 mb-2.5">
+                                  <div className="flex items-center gap-2.5">
+                                    <div
+                                      className={`p-1.5 rounded-lg shrink-0 ${
+                                        dev.type === 'router'
+                                          ? 'bg-rose-500/20 text-rose-300'
+                                          : dev.type === 'firewall'
+                                          ? 'bg-amber-500/20 text-amber-300'
+                                          : 'bg-indigo-500/20 text-indigo-300'
+                                      }`}
+                                    >
+                                      {dev.type === 'router' ? (
+                                        <RouterIcon className="w-4 h-4" />
+                                      ) : dev.type === 'firewall' ? (
+                                        <Shield className="w-4 h-4" />
+                                      ) : (
+                                        <Network className="w-4 h-4" />
+                                      )}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-xs text-white">
+                                          {dev.name}
+                                        </span>
+                                        <span
+                                          className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase font-bold ${
+                                            dev.type === 'router'
+                                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                              : dev.type === 'firewall'
+                                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                              : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                          }`}
+                                        >
+                                          {dev.type || 'switch'}
+                                        </span>
+                                        {hasCustomOverrides ? (
+                                          <span className="px-1.5 py-0.2 rounded text-[8px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                                            {isEn ? 'Custom Overrides' : 'تنظیمات اختصاصی فعال'}
+                                          </span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.2 rounded text-[8px] bg-slate-800 text-slate-400 border border-white/5">
+                                            {isEn ? 'Inheriting Baseline' : 'پیروی از پیش‌فرض'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                                        <span>IP: {dev.ip}</span>
+                                        {dev.model && <span>• {dev.model}</span>}
+                                        {dev.role && <span>• {dev.role}</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Row Quick Actions */}
+                                  <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                                    {hasCustomOverrides && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const next = { ...(editingPolicy.perDevicePermissions || {}) };
+                                          delete next[dev.id];
+                                          setEditingPolicy({
+                                            ...editingPolicy,
+                                            perDevicePermissions: next,
+                                          });
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] border border-white/10 transition cursor-pointer"
+                                      >
+                                        <RotateCcw className="w-3 h-3 text-slate-400" />
+                                        <span>{isEn ? 'Reset to Default' : 'حذف استثناها'}</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPolicy({
+                                          ...editingPolicy,
+                                          perDevicePermissions: {
+                                            ...(editingPolicy.perDevicePermissions || {}),
+                                            [dev.id]: { ...FULL_DEVICE_PERMISSIONS },
+                                          },
+                                        });
+                                      }}
+                                      className="px-2 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 transition cursor-pointer"
+                                    >
+                                      {isEn ? 'Grant All' : 'اعطای همه'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPolicy({
+                                          ...editingPolicy,
+                                          perDevicePermissions: {
+                                            ...(editingPolicy.perDevicePermissions || {}),
+                                            [dev.id]: { ...EMPTY_DEVICE_PERMISSIONS },
+                                          },
+                                        });
+                                      }}
+                                      className="px-2 py-0.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[10px] font-bold border border-rose-500/30 transition cursor-pointer"
+                                    >
+                                      {isEn ? 'Deny All' : 'مسدودسازی همه'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Action Matrix Checkboxes for this Device */}
+                                <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-1.5">
+                                  {DEVICE_ACTIONS_CATALOG.map((action) => {
+                                    const hasSpecificOverride =
+                                      customPerms && typeof customPerms[action.key] === 'boolean';
+                                    const isPermitted = hasSpecificOverride
+                                      ? customPerms[action.key]
+                                      : Boolean(editingPolicy.defaultDevicePermissions?.[action.key]);
+
+                                    return (
+                                      <button
+                                        key={action.key}
+                                        type="button"
+                                        onClick={() => {
+                                          const currentCustom = editingPolicy.perDevicePermissions?.[dev.id] || {};
+                                          const nextDevicePerms = {
+                                            ...currentCustom,
+                                            [action.key]: !isPermitted,
+                                          };
+                                          setEditingPolicy({
+                                            ...editingPolicy,
+                                            perDevicePermissions: {
+                                              ...(editingPolicy.perDevicePermissions || {}),
+                                              [dev.id]: nextDevicePerms,
+                                            },
+                                          });
+                                        }}
+                                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition cursor-pointer select-none ${
+                                          isPermitted
+                                            ? hasSpecificOverride
+                                              ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-xs'
+                                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                            : hasSpecificOverride
+                                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                                            : 'bg-slate-900/60 border-white/5 text-slate-500 hover:text-slate-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1 mb-1">
+                                          {isPermitted ? (
+                                            <Check className={`w-3.5 h-3.5 ${hasSpecificOverride ? 'text-amber-300' : 'text-emerald-400'}`} />
+                                          ) : (
+                                            <X className={`w-3.5 h-3.5 ${hasSpecificOverride ? 'text-rose-400' : 'text-slate-600'}`} />
+                                          )}
+                                          <span className="text-[10px] font-bold">
+                                            {action.key === 'web_configs'
+                                              ? (isEn ? 'Web GUI' : 'کنسول وب')
+                                              : action.key === 'terminal'
+                                              ? (isEn ? 'Terminal' : 'ترمینال')
+                                              : action.key === 'apply_template'
+                                              ? (isEn ? 'Template' : 'تمپلیت')
+                                              : action.key === 'device_note'
+                                              ? (isEn ? 'Note' : 'یادداشت')
+                                              : action.key === 'edit_properties'
+                                              ? (isEn ? 'Edit' : 'ویرایش')
+                                              : action.key === 'ping_keepalive'
+                                              ? (isEn ? 'Ping' : 'پینگ')
+                                              : action.key === 'inspect_ports'
+                                              ? (isEn ? 'Ports' : 'پورت‌ها')
+                                              : action.key === 'write_memory'
+                                              ? (isEn ? 'NVRAM' : 'حافظه')
                                               : (isEn ? 'Delete' : 'حذف')}
                                           </span>
                                         </div>
