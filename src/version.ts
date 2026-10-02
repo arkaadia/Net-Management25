@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.249.0';
+export const APP_VERSION = '1.249.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.249.1',
+    releaseDate: '2026-10-02',
+    type: 'patch',
+    title: 'حذف دکمه‌های تکراری ادیت، حذف و یادداشت از سطرهای لیست تجهیزات و تجمیع در منوی سه‌نقطه (Streamline Device Table Actions into 3-Dots Menu)',
+    title_en: 'Streamline Device Table Actions into 3-Dots Menu',
+    changes: [
+      'حذف دکمه‌های مستقیم و تکراری ویرایش مشخصات تجهیز (Edit Device Properties)، حذف تجهیز (Delete Device) و افزودن یادداشت (Sticky Note) از ستون عملیات هر سطر در جدول مدیریت موجودی تجهیزات شبکه (Network Equipment Inventory & Management).',
+      'تمرکز کامل عملیات مدیریتی تجهیزات در منوی ۳ نقطه کشویی (MoreVertical Portal Dropdown) جهت بهینه‌سازی فضا، ارگونومی بصری و جلوگیری از شلوغی رابط کاربری در تمامی نقش‌ها.',
+      'حفظ بج نشانگر یادداشت چسبان (Sticky Note Indicator Badge) در کنار نام تجهیز صرفاً در صورت وجود یادداشت فعال جهت دسترسی سریع.'
+    ],
+    changes_en: [
+      'Removed redundant direct action buttons for Edit Device Properties, Delete Device, and Sticky Note from device rows within the Network Equipment Inventory & Management table.',
+      'Consolidated device actions cleanly into the 3-dots dropdown menu (MoreVertical Portal Dropdown) for improved table ergonomics and visual clarity across all user profiles.',
+      'Preserved the compact sticky note indicator badge next to the device name when a note exists for quick reference and editing.'
+    ],
+  },
   {
     version: '1.249.0',
     releaseDate: '2026-10-01',

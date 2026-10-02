@@ -1023,8 +1023,8 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className={`font-bold font-mono text-xs ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{dev.name}</span>
 
-                                {/* Sticky Note Badge / Indicator Button */}
-                                {devNote ? (
+                                {/* Sticky Note Badge Indicator (if note exists) */}
+                                {devNote && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1036,19 +1036,6 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                                   >
                                     <StickyNote className="w-2.5 h-2.5 text-amber-400 fill-amber-400/40 shrink-0" />
                                     <span className="max-w-[110px] truncate">{devNote.title || (isEn ? 'Note' : 'یادداشت')}</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenDeviceNote(dev);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 text-[10px] transition cursor-pointer"
-                                    title={isEn ? 'Add sticky note for this device' : 'افزودن یادداشت استیکی برای این تجهیز'}
-                                  >
-                                    <StickyNote className="w-2.5 h-2.5 shrink-0" />
-                                    <span>{isEn ? '+ Note' : '+ یادداشت'}</span>
                                   </button>
                                 )}
 
@@ -1214,64 +1201,10 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         </td>
                       )}
 
-                      {/* Actions with Direct Edit, Direct Delete, Note & 3-Dots Menu */}
+                      {/* Actions with 3-Dots Menu */}
                       {visibleColumns.actions && (
                         <td className="p-3.5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* Direct Quick Edit Button */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (onEditDevice) {
-                                  onEditDevice(dev);
-                                } else {
-                                  setInternalEditingDevice(dev);
-                                }
-                              }}
-                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
-                                isLightMode
-                                  ? 'border-amber-400/80 bg-amber-50 hover:bg-amber-100 text-amber-700'
-                                  : 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300'
-                              }`}
-                              title={isEn ? 'Edit Device Properties' : 'ویرایش مشخصات تجهیز'}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-
-                            {/* Direct Quick Delete Button */}
-                            <button
-                              type="button"
-                              onClick={() => setDeviceToDelete(dev)}
-                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
-                                isLightMode
-                                  ? 'border-rose-400/80 bg-rose-50 hover:bg-rose-100 text-rose-700'
-                                  : 'border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/25 text-rose-400'
-                              }`}
-                              title={isEn ? 'Delete Device' : 'حذف تجهیز'}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-
-                            {/* Dedicated Sticky Note direct button */}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDeviceNote(dev)}
-                              className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
-                                devNote
-                                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                                  : isLightMode
-                                  ? 'bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-700 border-slate-300 hover:border-amber-400'
-                                  : 'bg-white/5 hover:bg-amber-500/15 text-slate-300 hover:text-amber-300 border-white/10 hover:border-amber-500/30'
-                              }`}
-                              title={
-                                devNote
-                                  ? (isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" (Click to view or edit)` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» (جهت مشاهده یا ویرایش کلیک کنید)`)
-                                  : (isEn ? 'Add Sticky Note for this device' : 'افزودن یادداشت استیکی برای این تجهیز')
-                              }
-                            >
-                              <StickyNote className={`w-4 h-4 ${devNote ? 'text-amber-400 fill-amber-400/40' : ''}`} />
-                            </button>
-
+                          <div className="flex items-center justify-center">
                             {/* 3-Dots Menu Trigger */}
                             <button
                               type="button"
