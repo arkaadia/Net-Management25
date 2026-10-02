@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.256.0';
+export const APP_VERSION = '1.257.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.257.0',
+    releaseDate: '2026-10-02',
+    type: 'minor',
+    title: 'فاز ۲: بارگذاری مستقیم سوژه‌ها و گروه‌های تجهیزات از دیتابیس در ایجاد پالیسی و فیلترسازی قطعی دسترسی کاربر در لاگین',
+    title_en: 'Phase 2: Database-Authoritative Policy Subject & Scope Loading and Login Device Filtering Enforcement',
+    changes: [
+      'همگام‌سازی مستقیم و بلادرنگ هویت‌های بخش ۱ (کاربران محلی، گروه‌های کاربری و اکتیو دایرکتوری) و گروه‌های تجهیزات بخش ۲ از پایگاه‌داده PostgreSQL به محض کلیک روی دکمه Create Access Policy.',
+      'افزودن دکمه‌های همگام‌سازی بلادرنگ «بارگذاری مجدد از دیتابیس» (Reload DB Subjects & Reload DB Groups) در هدر بخش‌های ۱ و ۲ با انیمیشن وضعیت و نشانگر اقتدار دیتابیس.',
+      'حل مشکل ناهمگامی داده‌های پیش‌فرض در متد handleStartCreate با ارسال بلادرنگ موجودیت‌های تازه دریافت‌شده به getBlankPolicy.',
+      'فیلترسازی صددرصد قطعی و سمت سرور تجهیزات در زمان ورود کاربر بر اساس محدوده گروه‌های انتخابی در پالیسی ثبت‌شده در دیتابیس (allowedDeviceIds).',
+      'همگام‌سازی شمارنده‌های تجهیزات در نوار ناوبری (Navbar) و فوتر سیستم برای نمایش دقیق تجهیزات مجاز کاربر جاری بدون دستکاری در داده‌های واقعی.',
+      'اعمال کامل قانون ۱۵ در مستندات AGENTS.md و GEMINI.md جهت ممنوعیت مطلق ذخیره یا ارزیابی منطق امنیتی و کنترل دسترسی در LocalStorage مرورگر.'
+    ],
+    changes_en: [
+      'Implemented direct, real-time fetching of Section 1 Subject identities (local users, groups, AD) and Section 2 Device Groups from PostgreSQL when initiating Create Access Policy.',
+      'Added dedicated real-time synchronization buttons ("Reload DB Subjects" & "Reload DB Groups") with loading spin animations and database-authoritative indicators.',
+      'Resolved asynchronous closure staleness in handleStartCreate by directly propagating fresh database entities into getBlankPolicy on creation.',
+      'Enforced server-side database-authoritative device filtering on user login (/api/auth/login, /api/devices, /api/topology) strictly matching assigned device groups (allowedDeviceIds).',
+      'Synchronized Navbar and Footer connected device counters to strictly reflect authorizedDevices without touching real inventory data.',
+      'Codified Rule 15 in AGENTS.md and GEMINI.md prohibiting browser LocalStorage for security, authorization, and device scopes, mandating server-side PostgreSQL persistence.'
+    ],
+  },
   {
     version: '1.256.0',
     releaseDate: '2026-10-02',

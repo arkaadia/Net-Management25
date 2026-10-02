@@ -141,6 +141,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   // Synchronize authentic database entities
   const refreshDatabaseData = useCallback(async () => {
     setIsSyncingDb(true);
+    let finalUsers = liveLocalUsers;
+    let finalGroups = liveLocalGroups;
+    let finalDevGroups = liveDeviceGroups;
+    let finalAd = liveAdConfig;
+    let finalServers = liveServers;
     try {
       const [dbUsers, dbGroups, dbDevGroups, dbAd, dbServers] = await Promise.all([
         syncLocalUsersFromDatabase().catch(() => localUsers),
@@ -149,10 +154,22 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         syncActiveDirectoryConfigFromDatabase().catch(() => adConfig),
         fetchRemoteServers().catch(() => null),
       ]);
-      if (Array.isArray(dbUsers) && dbUsers.length > 0) setLiveLocalUsers(dbUsers);
-      if (Array.isArray(dbGroups) && dbGroups.length > 0) setLiveLocalGroups(dbGroups);
-      if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) setLiveDeviceGroups(dbDevGroups);
-      if (dbAd && typeof dbAd === 'object') setLiveAdConfig(dbAd);
+      if (Array.isArray(dbUsers) && dbUsers.length > 0) {
+        setLiveLocalUsers(dbUsers);
+        finalUsers = dbUsers;
+      }
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
+        setLiveLocalGroups(dbGroups);
+        finalGroups = dbGroups;
+      }
+      if (Array.isArray(dbDevGroups) && dbDevGroups.length > 0) {
+        setLiveDeviceGroups(dbDevGroups);
+        finalDevGroups = dbDevGroups;
+      }
+      if (dbAd && typeof dbAd === 'object') {
+        setLiveAdConfig(dbAd);
+        finalAd = dbAd;
+      }
 
       // fetchRemoteServers() returns { success: boolean; count: number; servers: RemoteServer[] }
       const parsedServers: RemoteServer[] = Array.isArray(dbServers)
@@ -163,6 +180,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
       if (parsedServers.length > 0) {
         setLiveServers(parsedServers);
+        finalServers = parsedServers;
       } else {
         // Fallback: direct fetch from /api/remote-servers
         try {
@@ -174,7 +192,10 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
               : Array.isArray(data)
               ? data
               : [];
-            if (list.length > 0) setLiveServers(list);
+            if (list.length > 0) {
+              setLiveServers(list);
+              finalServers = list;
+            }
           }
         } catch {
           // ignore
@@ -183,16 +204,25 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     } finally {
       setIsSyncingDb(false);
     }
-  }, [localUsers, localGroups, groups, adConfig]);
+    return {
+      users: finalUsers,
+      groups: finalGroups,
+      devGroups: finalDevGroups,
+      ad: finalAd,
+      servers: finalServers,
+    };
+  }, [localUsers, localGroups, groups, adConfig, liveLocalUsers, liveLocalGroups, liveDeviceGroups, liveAdConfig, liveServers]);
 
   useEffect(() => {
     refreshDatabaseData();
   }, [refreshDatabaseData]);
 
   // Initial template for new policy
-  const getBlankPolicy = (): AccessPolicy => {
-    const firstGroup = liveLocalGroups[0];
-    const firstDevGroup = liveDeviceGroups[0];
+  const getBlankPolicy = (groupsPool?: LocalGroup[], devGroupsPool?: DeviceGroup[]): AccessPolicy => {
+    const activeGroups = groupsPool && groupsPool.length > 0 ? groupsPool : liveLocalGroups;
+    const activeDevGroups = devGroupsPool && devGroupsPool.length > 0 ? devGroupsPool : liveDeviceGroups;
+    const firstGroup = activeGroups[0];
+    const firstDevGroup = activeDevGroups[0];
     return {
       id: `policy-${Date.now().toString(36)}`,
       name: isEn ? 'New Custom Access Policy' : 'پالیسی جدید سطح دسترسی',
@@ -273,8 +303,10 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   };
 
   const handleStartCreate = async () => {
-    await refreshDatabaseData();
-    setEditingPolicy(getBlankPolicy());
+    const data = await refreshDatabaseData();
+    const activeGroups = data?.groups && data.groups.length > 0 ? data.groups : liveLocalGroups;
+    const activeDevGroups = data?.devGroups && data.devGroups.length > 0 ? data.devGroups : liveDeviceGroups;
+    setEditingPolicy(getBlankPolicy(activeGroups, activeDevGroups));
     setIsCreating(true);
     setVendorFilter('all');
     setServerSearchQuery('');
@@ -825,9 +857,21 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   <Users className="w-4 h-4" />
                   <span>{isEn ? '1. Subject: Who does this policy apply to?' : '۱. هویت و کاربر: این پالیسی به چه کسی یا گروهی اعمال شود؟'}</span>
                 </h4>
-                <span className="text-[10px] font-mono text-cyan-400/80 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20">
-                  {isEn ? 'Live Database Loaded' : 'بارگذاری‌شده از پایگاه داده'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => refreshDatabaseData()}
+                    disabled={isSyncingDb}
+                    className="flex items-center gap-1.5 text-[10px] font-mono text-cyan-400 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/25 hover:bg-cyan-500/20 transition cursor-pointer"
+                    title={isEn ? 'Reload entities from PostgreSQL database' : 'بارگذاری مجدد آیتم‌ها از پایگاه داده PostgreSQL'}
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isSyncingDb ? 'animate-spin' : ''}`} />
+                    <span>{isEn ? 'Reload DB Subjects' : 'بارگذاری مجدد از دیتابیس'}</span>
+                  </button>
+                  <span className="text-[10px] font-mono text-cyan-400/80 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20">
+                    {isEn ? 'Live Database Loaded' : 'بارگذاری‌شده از پایگاه داده'}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -994,9 +1038,21 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   <FolderTree className="w-4 h-4" />
                   <span>{isEn ? '2. Device Target Scope: Which devices can they manage?' : '۲. محدوده تجهیزات: این کاربر/گروه به چه دیوایس‌هایی دسترسی دارند؟'}</span>
                 </h4>
-                <span className="text-[10px] font-mono text-amber-400/80 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                  {isEn ? `${liveDeviceGroups.length} Groups in Database` : `${liveDeviceGroups.length} گروه در پایگاه داده`}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => refreshDatabaseData()}
+                    disabled={isSyncingDb}
+                    className="flex items-center gap-1.5 text-[10px] font-mono text-amber-400 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 transition cursor-pointer"
+                    title={isEn ? 'Reload device groups from PostgreSQL database' : 'بارگذاری مجدد گروه‌های تجهیزات از دیتابیس'}
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isSyncingDb ? 'animate-spin' : ''}`} />
+                    <span>{isEn ? 'Reload DB Groups' : 'بارگذاری مجدد گروه‌ها'}</span>
+                  </button>
+                  <span className="text-[10px] font-mono text-amber-400/80 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                    {isEn ? `${liveDeviceGroups.length} Groups in Database` : `${liveDeviceGroups.length} گروه در پایگاه داده`}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center gap-4 text-xs">
@@ -1016,7 +1072,18 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                     type="radio"
                     name="scope"
                     checked={editingPolicy.targetScope === 'groups'}
-                    onChange={() => setEditingPolicy({ ...editingPolicy, targetScope: 'groups' })}
+                    onChange={() =>
+                      setEditingPolicy({
+                        ...editingPolicy,
+                        targetScope: 'groups',
+                        targetGroupIds:
+                          editingPolicy.targetGroupIds.length > 0
+                            ? editingPolicy.targetGroupIds
+                            : liveDeviceGroups[0]
+                            ? [liveDeviceGroups[0].id]
+                            : [],
+                      })
+                    }
                     className="accent-amber-400"
                   />
                   <span>{isEn ? 'Specific Device Groups (From Database)' : 'گروه‌های تجهیزات ساخته‌شده در دیتابیس'}</span>

@@ -39,7 +39,8 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9mYSveEZ33gXlwFSNZcGs5hf2rhmR8K_1KAlXpy8ggUIR0n8BK1f62l8Xan-WJl3r6RqNo6_FPlYiYhppMFBt6A=="
       },
-      "location": "Rack 01 - Shelf B"
+      "location": "Rack 01 - Shelf B",
+      "winbox_port": 8291
     },
     {
       "id": "dev-router-gw",

@@ -773,8 +773,8 @@ export default function App() {
     }
   };
 
-  const onlineCount = devices.filter((d) => d.is_online).length;
-  const offlineCount = devices.filter((d) => !d.is_online).length;
+  const onlineCount = authorizedDevices.filter((d) => d.is_online).length;
+  const offlineCount = authorizedDevices.filter((d) => !d.is_online).length;
 
   if (isAuthLoading) {
     return (
@@ -811,7 +811,7 @@ export default function App() {
           isScanning={isScanning}
           onResetDemo={handleResetDemo}
           onlineCount={onlineCount}
-          totalDevices={devices.length}
+          totalDevices={authorizedDevices.length}
           panelTheme={panelTheme}
           onChangeTheme={changeTheme}
           onOpenReleaseNotes={handleOpenReleaseNotes}
@@ -981,7 +981,7 @@ export default function App() {
               {t('footer_core_latency')} <b className="text-cyan-400 font-mono">1.2ms</b>
             </span>
             <span>
-              {t('footer_connected_devices')} <b className="text-indigo-400 font-mono font-bold">{onlineCount}</b>/{devices.length}
+              {t('footer_connected_devices')} <b className="text-indigo-400 font-mono font-bold">{onlineCount}</b>/{authorizedDevices.length}
             </span>
             <span className="hidden md:inline text-slate-400">
               {t('footer_neighbor_engine')} <b className="text-purple-400 font-mono">CDP v2 / LLDP Matrix</b>

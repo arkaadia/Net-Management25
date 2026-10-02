@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T12:29:00.147Z"
+      "last_login": "2026-10-02T17:45:10.494Z"
     },
     {
       "id": "user-helpdesk",
@@ -32,7 +32,7 @@
       ],
       "is_builtin": false,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T12:29:06.032Z"
+      "last_login": "2026-10-02T17:44:51.417Z"
     },
     {
       "id": "user-noc",
@@ -1347,6 +1347,66 @@
       "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
       "ip_address": "127.0.0.1",
       "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1790963075709-k5nyi",
+      "timestamp": "2026-10-02T17:44:35.709Z",
+      "user_name": "helpdesk_user",
+      "action": "Failed Login (Invalid Password)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Invalid password supplied for user \"helpdesk_user\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790963083999-r21cl",
+      "timestamp": "2026-10-02T17:44:43.999Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790963087637-qcjdw",
+      "timestamp": "2026-10-02T17:44:47.637Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790963092054-il0lp",
+      "timestamp": "2026-10-02T17:44:52.054Z",
+      "user_name": "helpdesk_user",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"helpdesk_user\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: سطح دسترسی تیم هلپ‌دسک (Helpdesk Operator Policy)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790963110996-wm0xo",
+      "timestamp": "2026-10-02T17:45:10.996Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {
