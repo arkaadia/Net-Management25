@@ -55,6 +55,7 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 let pythonProcess: ChildProcess | null = null;
 let isStartingPython = false;
 const LEGACY_PYTHON_BIN = path.join(projectRoot, 'backend', 'venv_legacy', 'bin', 'python3');
+const MODERN_PYTHON_BIN = path.join(projectRoot, 'backend', 'venv_modern', 'bin', 'python3');
 
 function isPortActive(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -852,7 +853,11 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
         const pipInstallCmd = `"${LEGACY_PYTHON_BIN}" -m pip install "paramiko>=2.12.0,<2.13.0" cryptography websockets requests 2>/dev/null || true`;
         await executeShell(pipInstallCmd, projectRoot, 60000);
       }
-      log('Python environment & dedicated legacy drivers (Paramiko 2.12.x, cryptography, websockets, requests) verified.');
+      if (fs.existsSync(MODERN_PYTHON_BIN)) {
+        const pipInstallCmd = `"${MODERN_PYTHON_BIN}" -m pip install "paramiko>=3.4.0" cryptography websockets requests 2>/dev/null || true`;
+        await executeShell(pipInstallCmd, projectRoot, 60000);
+      }
+      log('Python environments & dedicated drivers (Paramiko 2.12.x legacy and Paramiko modern) verified.');
     } catch (pyErr: any) {
       log(`Python dependency notice: ${pyErr.message}`);
     }

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.263.1';
+export const APP_VERSION = '1.264.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.264.0',
+    releaseDate: '2026-10-03',
+    type: 'minor',
+    title: 'فاز ۲: افزودن بک‌اند اختصاصی SSH با نسخه مدرن پارامیکو و تفکیک‌کننده یکپارچه نسخه SSH (Modern Paramiko Backend & Version Resolver)',
+    title_en: 'Phase 2: Dedicated Modern Paramiko SSH Backend and Unified SSH Version Resolver',
+    changes: [
+      'ایجاد محیط مجازی اختصاصی دوم پایتون (venv_modern) با نسخه مدرن Paramiko و ایزولاسیون کامل از محیط نسخه ۲.۱۲ قدیمی.',
+      'الزام نود جی‌اس به اجرای انحصاری مفسر پایتون این محیط در حالت Modern و مسدودسازی قطعی هرگونه فالبک به پایتون سراسری سیستم.',
+      'غیرفعال‌سازی قطعی الگوریتم‌های منسوخ و قدیمی در حالت Modern (عدم فعال‌سازی diffie-hellman-group1-sha1، 3des-cbc و عدم فالبک به لایه‌های قدیمی).',
+      'طراحی و پیاده‌سازی ماژول مرکزی تفکیک‌کننده بک‌اند (SSH Backend Resolver) برای هدایت تمامی مسیرهای SSH (تست و واکشی، ترمینال، مودال پورت‌ها) به فایل اجرایی و اسکریپت پل اختصاصی متناظر.',
+      'تضمین بازگردانی خطاهای واقعی شبکه بدون استفاده از هرگونه دیتای ساختگی یا شبیه‌سازی‌شده در سناریوهای خطا.'
+    ],
+    changes_en: [
+      'Created and isolated dedicated second Python virtual environment (venv_modern) with modern Paramiko version.',
+      'Enforced Node.js to strictly execute this dedicated virtual environment Python binary in Modern mode, strictly prohibiting any fallback to system /usr/bin/python3.',
+      'Disabled legacy and deprecated cryptographic algorithms in Modern mode (prohibiting diffie-hellman-group1-sha1, 3des-cbc, and preventing legacy fallbacks).',
+      'Engineered unified single SSH Backend Resolver module (server/sshBackendResolver.ts) routing all SSH paths (Test & Fetch, Terminal, Port modal) to the designated Python executable and bridge script.',
+      'Guaranteed authentic error reporting upon connection failure directly to callers with absolute zero mock or simulated fallback data.'
+    ],
+  },
   {
     version: '1.263.1',
     releaseDate: '2026-10-03',

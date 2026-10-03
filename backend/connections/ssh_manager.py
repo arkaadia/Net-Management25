@@ -8,6 +8,7 @@ import socket
 import threading
 import uuid
 import re
+import os
 from typing import Dict, Any, Optional
 from backend.drivers import get_driver
 try:
@@ -151,7 +152,8 @@ class SSHConnectionManager:
                 except ImportError:
                     from ssh_compat import connect_ssh_device, ensure_paramiko_compatibility
 
-            ensure_paramiko_compatibility()
+            ssh_version = device.get("ssh_version") or device.get("sshVersion") or os.environ.get("SSH_BACKEND_MODE", "legacy")
+            ensure_paramiko_compatibility(ssh_version)
 
             p_client = paramiko.SSHClient()
             p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -165,7 +167,8 @@ class SSHConnectionManager:
                 timeout=6.0,
                 banner_timeout=6.0,
                 auth_timeout=6.0,
-                platform=platform
+                platform=platform,
+                ssh_version=ssh_version
             )
             if not connected:
                 err_msg = str(err or "SSH Connection Failed")

@@ -216,6 +216,7 @@ import {
   remediatePostgresConnection,
 } from './postgresManager';
 import * as net from 'net';
+import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
   startDiscoveryJob,
@@ -2002,6 +2003,51 @@ apiRouter.use('/devices/:id/unsaved-changes', async (req: Request, res: Response
   next();
 });
 
+// POST /api/devices/:id/ports/sync - Synchronize device interfaces live via resolved SSH backend (Port modal)
+apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[PortSync Resolver] Synchronizing ports for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+
+    const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);
+    if (result && result.success && Array.isArray(result.ports)) {
+      return res.json({
+        success: true,
+        device,
+        ports: result.ports,
+        total_ports: result.ports.length,
+        is_live: true,
+        paramiko_version: result.paramiko_version,
+        ssh_version: backend.version,
+        message: isEn ? 'Ports synchronized live via SSH.' : 'اطلاعات پورت‌ها به صورت زنده از طریق SSH همگام‌سازی شد.',
+      });
+    } else if (result && result.success === false) {
+      return res.status(400).json({
+        success: false,
+        error: result.error || 'Port synchronization failed',
+        message: result.message || result.error || 'Port synchronization failed',
+        ssh_version: backend.version,
+      });
+    }
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
+
 // Authentic ICMP Ping Engine using native Linux ping command
 const execFileAsync = promisify(execFile);
 
@@ -2258,97 +2304,98 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
       }
     }
 
-    const pythonPort = process.env.BACKEND_PORT || process.env.PYTHON_PORT || '5001';
-    // Forward to Python backend SSH discovery engine
+    const sshVersionParam = req.body?.ssh_version || req.body?.sshVersion || (platform.includes('modern') ? 'modern' : 'legacy');
+    const backendRes = resolveSshBackend(sshVersionParam);
+    console.log(`[SSH Backend Resolver] Routing test-connection via ${backendRes.version.toUpperCase()} Python: ${backendRes.pythonBin}`);
+
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const pythonResp = await fetch(`http://127.0.0.1:${pythonPort}/api/devices/test-connection`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Language': isEn ? 'en' : 'fa',
-        },
-        body: JSON.stringify({ ...req.body, lang: isEn ? 'en' : 'fa', is_en: isEn }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      const pythonData = await executeSshBridgeAction(
+        'test-connection',
+        { ...req.body, lang: isEn ? 'en' : 'fa', is_en: isEn, ssh_version: backendRes.version },
+        backendRes.version,
+        18000
+      );
 
-      if (pythonResp && pythonResp.ok) {
-        const pythonData = await pythonResp.json();
-        if (pythonData && pythonData.success) {
-          if (pythonData.hardware) {
-            pythonData.hostname = pythonData.hostname || pythonData.hardware.hostname;
-            pythonData.model = pythonData.model || pythonData.hardware.model;
-            pythonData.total_ports = pythonData.total_ports || pythonData.hardware.total_ports;
-            pythonData.serial_number = pythonData.serial_number || pythonData.hardware.serial_number;
-            pythonData.mac = pythonData.mac || pythonData.hardware.mac_address;
-            pythonData.firmware = pythonData.firmware || pythonData.hardware.os_version;
-            pythonData.uptime = pythonData.uptime || pythonData.hardware.uptime;
-            pythonData.ip = pythonData.ip || pythonData.hardware.ip;
-            pythonData.platform_detected = pythonData.platform_detected || pythonData.hardware.platform_detected;
-            pythonData.role_detected = pythonData.role_detected || pythonData.hardware.role_detected;
-            pythonData.device_type = pythonData.device_type || pythonData.hardware.device_type;
-          }
-          pythonData.ip = pythonData.ip || req.body?.ssh_host || req.body?.host || req.body?.ip;
-
-          if (!pythonData.platform_detected || !pythonData.role_detected) {
-            const autoDet = detectPlatformAndRole(
-              pythonData.raw_output || pythonData.raw_status_output || '',
-              pythonData.model || '',
-              pythonData.firmware || '',
-              pythonData.banner || '',
-              pythonData.total_ports || 24,
-              req.body?.platform
-            );
-            pythonData.platform_detected = pythonData.platform_detected || autoDet.platform;
-            pythonData.role_detected = pythonData.role_detected || autoDet.role;
-            pythonData.device_type = pythonData.device_type || autoDet.device_type;
-          }
-
-          if (pythonData.ports_telemetry && (!pythonData.ports || pythonData.ports.length === 0)) {
-            pythonData.ports = pythonData.ports_telemetry.ports;
-            pythonData.total_ports = pythonData.total_ports || pythonData.ports_telemetry.total_ports;
-          }
-          if (Array.isArray(pythonData.ports)) {
-            const seen = new Set<string>();
-            const deduped: any[] = [];
-            for (let idx = 0; idx < pythonData.ports.length; idx++) {
-              const p = pythonData.ports[idx];
-              if (!p || typeof p !== 'object') continue;
-              const portId = p.port_id || p.port || p.name || `port-${idx + 1}`;
-              const canon = String(portId).toLowerCase().replace(/gigabitethernet/g, 'gi').replace(/fastethernet/g, 'fa').replace(/tengigabitethernet/g, 'te');
-              if (seen.has(canon)) continue;
-              seen.add(canon);
-              deduped.push({
-                ...p,
-                port_id: portId,
-                port: p.port || portId,
-                name: portId,
-                description: p.description || '',
-              });
-            }
-            pythonData.ports = deduped;
-            pythonData.total_ports = deduped.length;
-          }
-          if (isEn && pythonData.message_en) {
-            pythonData.message = pythonData.message_en;
-          } else if (!isEn && pythonData.message_fa) {
-            pythonData.message = pythonData.message_fa;
-          }
-          return res.json(pythonData);
-        } else if (pythonData && pythonData.success === false) {
-          // Real error from Python SSH engine (Paramiko 2.12.x). Return authentic failure directly.
-          if (isEn && pythonData.message_en) {
-            pythonData.message = pythonData.message_en;
-          } else if (!isEn && pythonData.message_fa) {
-            pythonData.message = pythonData.message_fa;
-          }
-          return res.json(pythonData);
+      if (pythonData && pythonData.success) {
+        if (pythonData.hardware) {
+          pythonData.hostname = pythonData.hostname || pythonData.hardware.hostname;
+          pythonData.model = pythonData.model || pythonData.hardware.model;
+          pythonData.total_ports = pythonData.total_ports || pythonData.hardware.total_ports;
+          pythonData.serial_number = pythonData.serial_number || pythonData.hardware.serial_number;
+          pythonData.mac = pythonData.mac || pythonData.hardware.mac_address;
+          pythonData.firmware = pythonData.firmware || pythonData.hardware.os_version;
+          pythonData.uptime = pythonData.uptime || pythonData.hardware.uptime;
+          pythonData.ip = pythonData.ip || pythonData.hardware.ip;
+          pythonData.platform_detected = pythonData.platform_detected || pythonData.hardware.platform_detected;
+          pythonData.role_detected = pythonData.role_detected || pythonData.hardware.role_detected;
+          pythonData.device_type = pythonData.device_type || pythonData.hardware.device_type;
         }
+        pythonData.ip = pythonData.ip || req.body?.ssh_host || req.body?.host || req.body?.ip;
+
+        if (!pythonData.platform_detected || !pythonData.role_detected) {
+          const autoDet = detectPlatformAndRole(
+            pythonData.raw_output || pythonData.raw_status_output || '',
+            pythonData.model || '',
+            pythonData.firmware || '',
+            pythonData.banner || '',
+            pythonData.total_ports || 24,
+            req.body?.platform
+          );
+          pythonData.platform_detected = pythonData.platform_detected || autoDet.platform;
+          pythonData.role_detected = pythonData.role_detected || autoDet.role;
+          pythonData.device_type = pythonData.device_type || autoDet.device_type;
+        }
+
+        if (pythonData.ports_telemetry && (!pythonData.ports || pythonData.ports.length === 0)) {
+          pythonData.ports = pythonData.ports_telemetry.ports;
+          pythonData.total_ports = pythonData.total_ports || pythonData.ports_telemetry.total_ports;
+        }
+        if (Array.isArray(pythonData.ports)) {
+          const seen = new Set<string>();
+          const deduped: any[] = [];
+          for (let idx = 0; idx < pythonData.ports.length; idx++) {
+            const p = pythonData.ports[idx];
+            if (!p || typeof p !== 'object') continue;
+            const portId = p.port_id || p.port || p.name || `port-${idx + 1}`;
+            const canon = String(portId).toLowerCase().replace(/gigabitethernet/g, 'gi').replace(/fastethernet/g, 'fa').replace(/tengigabitethernet/g, 'te');
+            if (seen.has(canon)) continue;
+            seen.add(canon);
+            deduped.push({
+              ...p,
+              port_id: portId,
+              port: p.port || portId,
+              name: portId,
+              description: p.description || '',
+            });
+          }
+          pythonData.ports = deduped;
+          pythonData.total_ports = deduped.length;
+        }
+        if (isEn && pythonData.message_en) {
+          pythonData.message = pythonData.message_en;
+        } else if (!isEn && pythonData.message_fa) {
+          pythonData.message = pythonData.message_fa;
+        }
+        return res.json(pythonData);
+      } else if (pythonData && pythonData.success === false) {
+        // Real authentic error from Python SSH engine (Paramiko).
+        if (isEn && pythonData.message_en) {
+          pythonData.message = pythonData.message_en;
+        } else if (!isEn && pythonData.message_fa) {
+          pythonData.message = pythonData.message_fa;
+        }
+        return res.json(pythonData);
       }
-    } catch {
-      // If Python probe fails or times out, fallback to Node SSH discovery
+    } catch (bridgeErr: any) {
+      return res.json({
+        success: false,
+        connected: false,
+        protocol: 'SSH',
+        ssh_protocol: 'SSH-2.0',
+        ssh_version: backendRes.version,
+        error: isEn ? `SSH execution failed: ${bridgeErr.message}` : `خطا در اجرای فرآیند SSH: ${bridgeErr.message}`,
+        message: isEn ? `SSH execution failed: ${bridgeErr.message}` : `خطا در اجرای فرآیند SSH: ${bridgeErr.message}`,
+      });
     }
 
     const discoveryResult = await testAndDiscoverDeviceViaSsh({

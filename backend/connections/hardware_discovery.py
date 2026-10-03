@@ -544,7 +544,8 @@ def execute_real_hardware_probe(
     enable_password: str = "",
     protocol: str = "ssh",
     platform: str = "cisco_ios",
-    lang: str = "en"
+    lang: str = "en",
+    ssh_version: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Establishes real SSH tunnel via Paramiko, executes show commands,
@@ -553,6 +554,8 @@ def execute_real_hardware_probe(
     """
     is_en = (lang.lower() == "en")
     start_t = time.time()
+    is_modern = "modern" in str(ssh_version or os.environ.get("SSH_BACKEND_MODE", "legacy")).lower()
+    active_ssh_mode = "modern" if is_modern else "legacy"
     
     # 1. Quick TCP socket probe
     try:
@@ -597,7 +600,7 @@ def execute_real_hardware_probe(
         except ImportError:
             from ssh_compat import connect_ssh_device, ensure_paramiko_compatibility
 
-    ensure_paramiko_compatibility()
+    ensure_paramiko_compatibility(active_ssh_mode)
 
     p_client = paramiko.SSHClient()
     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -615,7 +618,8 @@ def execute_real_hardware_probe(
         timeout=6.0,
         banner_timeout=6.0,
         auth_timeout=6.0,
-        platform=platform
+        platform=platform,
+        ssh_version=active_ssh_mode
     )
 
     if not conn_ok:
@@ -626,13 +630,16 @@ def execute_real_hardware_probe(
         clean_err = str(conn_err or "Connection failed")
         err_en = f"SSH connection failed on {ip}:{port} for user '{username}': {clean_err}"
         err_fa = f"اتصال SSH در {ip}:{port} برای کاربر '{username}' ناموفق بود: {clean_err}"
+        paramiko_ver = getattr(paramiko, '__version__', 'unknown')
         return {
             "success": False,
             "connected": False,
             "protocol": "SSH",
             "ssh_protocol": "SSH-2.0",
-            "paramiko_version": getattr(paramiko, '__version__', '2.12.0'),
-            "library_used": f"Paramiko {getattr(paramiko, '__version__', '2.12.0')}",
+            "paramiko_version": paramiko_ver,
+            "ssh_version": active_ssh_mode,
+            "library_used": f"Paramiko {paramiko_ver}",
+            "ssh_suite": f"Paramiko {paramiko_ver} ({'Modern' if is_modern else 'Legacy'})",
             "ip": ip,
             "port": port,
             "latency_ms": round((time.time() - start_t) * 1000, 1),
@@ -832,14 +839,16 @@ def execute_real_hardware_probe(
     msg_en = f"SSH connection to {ip}:{port} successfully established{tier_desc}. Telemetry extracted: {hw['hostname']} ({hw['model']}), Platform: {detected_plat}, Role: {detected_role}, {total_ports} ports discovered."
     msg_fa = f"اتصال SSH به {ip}:{port} با موفقیت برقرار شد{tier_desc}. مشخصات سخت‌افزاری دریافت شد: {hw['hostname']} ({hw['model']})، پلتفرم: {detected_plat}، رده: {detected_role} با {total_ports} پورت شناسایی گردید."
 
+    paramiko_ver = getattr(paramiko, '__version__', 'unknown')
     return {
         "success": True,
         "connected": True,
         "protocol": "SSH",
         "ssh_protocol": "SSH-2.0",
-        "paramiko_version": getattr(paramiko, '__version__', '2.12.0'),
-        "library_used": f"Paramiko {getattr(paramiko, '__version__', '2.12.0')}",
-        "ssh_suite": f"Paramiko {getattr(paramiko, '__version__', '2.12.0')} (Legacy)",
+        "paramiko_version": paramiko_ver,
+        "ssh_version": active_ssh_mode,
+        "library_used": f"Paramiko {paramiko_ver}",
+        "ssh_suite": f"Paramiko {paramiko_ver} ({'Modern' if is_modern else 'Legacy'})",
         "ip": ip,
         "port": port,
         "username": username,

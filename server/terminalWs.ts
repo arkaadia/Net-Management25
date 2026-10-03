@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client, ConnectConfig } from 'ssh2';
+import { resolveSshBackend } from './sshBackendResolver';
 
 /**
  * Terminal WebSocket Gateway
@@ -178,6 +179,23 @@ export function setupTerminalWebSocket(
       }
     };
 
+    // Resolve SSH backend version (legacy vs modern) using single backend resolver
+    let devSshVersion = parsedUrl.searchParams.get('ssh_version') || parsedUrl.searchParams.get('sshVersion') || '';
+    if (!devSshVersion && deviceId) {
+      try {
+        const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
+        if (fs.existsSync(storePath)) {
+          const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+          const foundDev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);
+          if (foundDev) {
+            devSshVersion = foundDev.ssh_version || foundDev.sshVersion || (foundDev.platform?.includes('modern') ? 'modern' : 'legacy');
+          }
+        }
+      } catch {}
+    }
+    const backendRes = resolveSshBackend(devSshVersion);
+    const isModernBackend = backendRes.version === 'modern';
+
     // If host is configured, attempt native ssh2 client connection directly
     if (host && host !== '0.0.0.0') {
       let isSshConnected = false;
@@ -185,6 +203,9 @@ export function setupTerminalWebSocket(
       let activeSshClient: Client | null = null;
 
       const attemptSshConnect = (useLegacyAlgorithms = false) => {
+        if (isModernBackend) {
+          useLegacyAlgorithms = false;
+        }
         const sshClient = new Client();
         activeSshClient = sshClient;
 
@@ -193,9 +214,12 @@ export function setupTerminalWebSocket(
           status: 'connecting',
           host,
           port,
+          ssh_version: backendRes.version,
           message: useLegacyAlgorithms
             ? `Connecting to ${host}:${port} via SSH2 (Legacy Adaptive Mode)...`
-            : `Connecting to ${host}:${port} via SSH2 Native Engine...`,
+            : (isModernBackend
+                ? `Connecting to ${host}:${port} via SSH2 (Modern High-Security Mode)...`
+                : `Connecting to ${host}:${port} via SSH2 Native Engine...`),
         });
 
         sshClient.on('ready', () => {
@@ -276,7 +300,7 @@ export function setupTerminalWebSocket(
             err.message.includes('cipher') ||
             err.message.includes('negotiation');
 
-          if (!useLegacyAlgorithms && !hasRetriedLegacy && isAlgorithmOrHandshakeError) {
+          if (!isModernBackend && !useLegacyAlgorithms && !hasRetriedLegacy && isAlgorithmOrHandshakeError) {
             hasRetriedLegacy = true;
             try {
               sshClient.end();

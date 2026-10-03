@@ -103,11 +103,21 @@ TIER2_LEGACY_MACS = (
 _PATCHED = False
 
 
-def ensure_paramiko_compatibility() -> bool:
+import os
+
+def is_modern_mode(mode: Optional[str] = None) -> bool:
+    """Returns True if modern SSH mode is active."""
+    target = (mode or os.environ.get("SSH_BACKEND_MODE", "legacy")).lower()
+    return "modern" in target
+
+
+def ensure_paramiko_compatibility(mode: Optional[str] = None) -> bool:
     """
-    Registers legacy KEX, host keys, and CBC ciphers in Paramiko defaults and instruments
-    _parse_kex_init to capture exact negotiated key exchange algorithm.
-    CRITICAL: Only enables ciphers present in Paramiko 2.12 internal cipher table.
+    In Legacy mode:
+      Registers legacy KEX, host keys, and CBC ciphers in Paramiko defaults and instruments
+      _parse_kex_init to capture exact negotiated key exchange algorithm.
+    In Modern mode:
+      Do NOT enable legacy algorithms in Modern mode! Only instruments telemetry.
     """
     global _PATCHED
     if _PATCHED:
@@ -119,39 +129,41 @@ def ensure_paramiko_compatibility() -> bool:
         return False
 
     try:
-        # 1. Register legacy KEX if supported
-        if hasattr(paramiko.Transport, '_preferred_kex'):
-            existing_kex = list(paramiko.Transport._preferred_kex)
-            for k in [
-                'diffie-hellman-group1-sha1',
-                'diffie-hellman-group14-sha1',
-                'diffie-hellman-group-exchange-sha1',
-                'diffie-hellman-group-exchange-sha256',
-            ]:
-                if k not in existing_kex:
-                    existing_kex.append(k)
-            paramiko.Transport._preferred_kex = tuple(existing_kex)
+        # In Modern mode, legacy algorithms are strictly prohibited
+        if not is_modern_mode(mode):
+            # 1. Register legacy KEX if supported (Legacy mode only)
+            if hasattr(paramiko.Transport, '_preferred_kex'):
+                existing_kex = list(paramiko.Transport._preferred_kex)
+                for k in [
+                    'diffie-hellman-group1-sha1',
+                    'diffie-hellman-group14-sha1',
+                    'diffie-hellman-group-exchange-sha1',
+                    'diffie-hellman-group-exchange-sha256',
+                ]:
+                    if k not in existing_kex:
+                        existing_kex.append(k)
+                paramiko.Transport._preferred_kex = tuple(existing_kex)
 
-        # 2. Register legacy Host Keys (ssh-rsa, ssh-dss)
-        if hasattr(paramiko.Transport, '_preferred_keys'):
-            existing_keys = list(paramiko.Transport._preferred_keys)
-            for k in ['ssh-rsa', 'ssh-dss', 'rsa-sha2-256', 'rsa-sha2-512']:
-                if k not in existing_keys:
-                    existing_keys.append(k)
-            paramiko.Transport._preferred_keys = tuple(existing_keys)
+            # 2. Register legacy Host Keys (ssh-rsa, ssh-dss) (Legacy mode only)
+            if hasattr(paramiko.Transport, '_preferred_keys'):
+                existing_keys = list(paramiko.Transport._preferred_keys)
+                for k in ['ssh-rsa', 'ssh-dss', 'rsa-sha2-256', 'rsa-sha2-512']:
+                    if k not in existing_keys:
+                        existing_keys.append(k)
+                paramiko.Transport._preferred_keys = tuple(existing_keys)
 
-        # 3. Register legacy CBC ciphers (aes128-cbc, 3des-cbc) if in _cipher_info
-        if hasattr(paramiko.Transport, '_preferred_ciphers'):
-            existing_ciphers = list(paramiko.Transport._preferred_ciphers)
-            valid_ciphers = getattr(paramiko.Transport, '_cipher_info', {})
-            for c in ['aes128-cbc', '3des-cbc', 'aes256-cbc']:
-                if c not in existing_ciphers and c in valid_ciphers:
-                    existing_ciphers.append(c)
-            paramiko.Transport._preferred_ciphers = tuple(existing_ciphers)
+            # 3. Register legacy CBC ciphers (aes128-cbc, 3des-cbc) if in _cipher_info (Legacy mode only)
+            if hasattr(paramiko.Transport, '_preferred_ciphers'):
+                existing_ciphers = list(paramiko.Transport._preferred_ciphers)
+                valid_ciphers = getattr(paramiko.Transport, '_cipher_info', {})
+                for c in ['aes128-cbc', '3des-cbc', 'aes256-cbc']:
+                    if c not in existing_ciphers and c in valid_ciphers:
+                        existing_ciphers.append(c)
+                paramiko.Transport._preferred_ciphers = tuple(existing_ciphers)
 
-        # 3. Instrument _parse_kex_init to record the exact negotiated KEX
-        orig_parse_kex_init = paramiko.Transport._parse_kex_init
-        if not getattr(paramiko.Transport, '_netmgmt_kex_instrumented', False):
+        # Instrument _parse_kex_init to record the exact negotiated KEX
+        orig_parse_kex_init = getattr(paramiko.Transport, '_parse_kex_init', None)
+        if orig_parse_kex_init and not getattr(paramiko.Transport, '_netmgmt_kex_instrumented', False):
             def instrumented_parse_kex_init(self, m):
                 res = orig_parse_kex_init(self, m)
                 try:
@@ -559,7 +571,8 @@ def connect_mikrotik_ssh(
     timeout: float = 6.0,
     banner_timeout: float = 6.0,
     auth_timeout: float = 6.0,
-    on_fallback_log: Optional[Any] = None
+    on_fallback_log: Optional[Any] = None,
+    ssh_version: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
     High-performance multi-tier adaptive SSH connection engine for MikroTik RouterOS.
@@ -668,6 +681,10 @@ def connect_mikrotik_ssh(
                     sock1.close()
                 except Exception:
                     pass
+
+    # In Modern mode, legacy/transitional fallback is strictly prohibited
+    if is_modern_mode(ssh_version):
+        return False, f"Modern MikroTik SSH handshake failed: {last_error or 'Algorithm negotiation failed'}. (Legacy algorithms are disabled in Modern mode)"
 
     # ==========================================================================
     # Tier 2: Transitional ROSSSH Engine (RouterOS v6.4x RFC 8332 Workaround)
@@ -789,7 +806,8 @@ def connect_ssh_device(
     banner_timeout: float = 6.0,
     auth_timeout: float = 6.0,
     on_fallback_log: Optional[Any] = None,
-    platform: str = ""
+    platform: str = "",
+    ssh_version: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
     Connects to a network device using the Two-Tier Adaptive Negotiation Engine:
@@ -797,6 +815,7 @@ def connect_ssh_device(
       Fast path for 100% of modern infrastructure with zero latency penalty or legacy overhead.
     - Tier 2 (Adaptive Legacy Fallback): If (and only if) Tier 1 fails on algorithm/KEX mismatch,
       automatically retries with legacy Cisco algorithms (DH Group 14/1, ssh-rsa, AES-CBC, 3DES).
+      NOTE: Tier 2 is strictly disabled when ssh_version is 'modern'.
     - MikroTik RouterOS Engine: When target platform is MikroTik (or ROSSSH is identified), executes
       hardened MikroTik SSH negotiation bypassing RFC 8332 bug and auth_none/password quirks.
     
@@ -804,7 +823,7 @@ def connect_ssh_device(
     Returns (True, None) on success, or (False, error_message) on failure.
     Attaches `client._negotiation_info` with the negotiated parameters.
     """
-    ensure_paramiko_compatibility()
+    ensure_paramiko_compatibility(ssh_version)
     import paramiko
 
     # Check if target platform is explicitly MikroTik
@@ -818,7 +837,8 @@ def connect_ssh_device(
             timeout=timeout,
             banner_timeout=banner_timeout,
             auth_timeout=auth_timeout,
-            on_fallback_log=on_fallback_log
+            on_fallback_log=on_fallback_log,
+            ssh_version=ssh_version
         )
 
     # --------------------------------------------------------------------------
@@ -907,6 +927,10 @@ def connect_ssh_device(
     # If the error is NOT an algorithm/handshake mismatch (e.g. host unreachable, connection refused), do not retry
     if not is_handshake_or_algo_mismatch(Exception(tier1_error)):
         return False, tier1_error
+
+    # In Modern mode, legacy fallback is strictly prohibited
+    if is_modern_mode(ssh_version):
+        return False, f"Modern SSH handshake failed on {hostname}:{port}: {tier1_error}. (Legacy algorithms are disabled in Modern mode)"
 
     # --------------------------------------------------------------------------
     # Attempt 2: Tier 2 - Adaptive Legacy Fallback (Cisco 2960 / Catalyst IOS)
