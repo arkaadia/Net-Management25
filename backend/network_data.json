@@ -39,7 +39,8 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9mYSveEZ33gXlwFSNZcGs5hf2rhmR8K_1KAlXpy8ggUIR0n8BK1f62l8Xan-WJl3r6RqNo6_FPlYiYhppMFBt6A=="
       },
-      "location": "Rack 01 - Shelf B"
+      "location": "Rack 01 - Shelf B",
+      "winbox_port": 8291
     },
     {
       "id": "dev-router-gw",
@@ -77,7 +78,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9x2WkYgesEdMMdij4IgyVwy6mokJ06rTcBjunQU_qm3jMIQ4WSYstouamaXO3yUxjCMEh53fCRez3n9bnXjVSBw=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-dist-bldg-a",
@@ -115,7 +117,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9a_XU99amzm8_Xj1djmrwtht-R-ftgjvvJVzVeGiX6AENhiYRGQCbHzTf08nlu1uy4njDrbKh_gW_KrXZ7RlDYQ=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-acc-bldg-a-f3",
@@ -153,7 +156,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9NL7vZKMg5cqnSTH-b4dV1GmujrZ559R0dPTV78c69VX0CSIk3eClS8XWIcA10bINHnwIAn-2GxksoaL3qCTGuw=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-dist-bldg-b",
@@ -191,7 +195,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir90wv_64okgbkYZcP5LmQqURlq2J_vVffFkol9pfUMnxbxN21yszUEVnGF3FUENTekqAGt1oGjqvVLwoLL0xruAg=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-acc-bldg-b-f2",
@@ -229,7 +234,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9tPLg2tp5MNBsoHkoy4bL6OqI6OggSFl12KAOOxCGoOxs1eaDaw6zPzbcC4_5tU_xFElrE6qhlTX3HrJv4jMvqA=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-ap-bldg-a-f1",
@@ -269,7 +275,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9tjcPLqZtO1lAZnC9uX5d62dfPriYYg9ifTdHJGK6VnKfrLlaZwqXIBxzdnoCAuQJshmxVV7Xkd7bSVMoRex2ew=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-ap-bldg-a-f3",
@@ -307,7 +314,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir96Im8Y1Ns7sUJrOX5PdzDRHEtK_H0QHgbSL0vZ6EBLjANfeSKeFGHDOJ768r0E8Olz3fcc4an7WUOyPKfiigf0g=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-ap-bldg-b-f1",
@@ -345,7 +353,8 @@
         "port": 22,
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9qe1Ks9jj65AZidE2brkjx2s4pFzYXbGRlzoX0L9VoZXvkIF7DAUbU610e11BYJNttThev5O1-2SQQQ7rYZbYuw=="
-      }
+      },
+      "winbox_port": 8291
     },
     {
       "id": "dev-mikrotik-ccr2004",

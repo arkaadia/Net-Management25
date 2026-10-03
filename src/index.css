@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@custom-variant dark (&:where(.dark, .dark *));
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+@custom-variant dark (&:where(.dark, .dark *));
 
 @font-face {
   font-family: 'Vazirmatn Local';

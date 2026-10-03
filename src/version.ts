@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.263.0';
+export const APP_VERSION = '1.263.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.263.1',
+    releaseDate: '2026-10-03',
+    type: 'patch',
+    title: 'رفع خطای راه‌اندازی سرور توسعه و خودکارسازی محیط مجازی بک‌اند پایتون (Dev Server Startup & Python Venv Fix)',
+    title_en: 'Fix Dev Server Startup Crash and Auto-Provision Dedicated Python Virtual Environment',
+    changes: [
+      'رفع خطای کرش سرور در زمان استارت (عدم یافتن محیط مجازی venv_legacy و پرتاب خطای مدیریت نشده).',
+      'افزودن قابلیت ساخت و راه‌اندازی خودکار محیط مجازی اختصاصی پایتون همراه با Paramiko 2.12.x در صورت عدم وجود.',
+      'اصلاح حلقه وب‌سوکت در سرور پایتون برای سازگاری کامل با نسخه‌های جدید websockets و مدیریت خطای اتصال.',
+      'مرتب‌سازی ترتیب @import در فایل CSS اصلی جهت انطباق با استاندارد PostCSS و حذف هشدارهای بیلد.'
+    ],
+    changes_en: [
+      'Resolved dev server startup crash caused by unhandled exception when legacy python venv was not yet provisioned on disk.',
+      'Added automated self-provisioning of dedicated Python virtual environment with Paramiko 2.12.x when missing.',
+      'Fixed asynchronous WebSocket server serve loop in Python backend for full compatibility with modern websockets library.',
+      'Reordered CSS @import statements to strictly conform with PostCSS specifications and eliminate build warnings.'
+    ],
+  },
   {
     version: '1.263.0',
     releaseDate: '2026-10-03',

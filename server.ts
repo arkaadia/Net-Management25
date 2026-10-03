@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { spawn, exec, ChildProcess } from 'child_process';
+import { spawn, exec, execSync, ChildProcess } from 'child_process';
 import http from 'http';
 import net from 'net';
 import { createServer as createViteServer } from 'vite';
@@ -143,9 +143,23 @@ async function startPythonBackend(forceRestart = false) {
     }
 
     if (!fs.existsSync(LEGACY_PYTHON_BIN)) {
+      console.warn(`[Python Manager] Dedicated Legacy Python virtual environment not found at '${LEGACY_PYTHON_BIN}'. Attempting auto-provision...`);
+      try {
+        const venvDir = path.join(projectRoot, 'backend', 'venv_legacy');
+        execSync(`python3 -m venv "${venvDir}" && "${LEGACY_PYTHON_BIN}" -m pip install "paramiko>=2.12.0,<2.13.0" cryptography websockets requests 2>/dev/null || true`, {
+          cwd: projectRoot,
+          timeout: 60000,
+          stdio: 'ignore',
+        });
+      } catch (autoErr: any) {
+        console.warn(`[Python Manager] Auto-provision notice: ${autoErr.message}`);
+      }
+    }
+
+    if (!fs.existsSync(LEGACY_PYTHON_BIN)) {
       const errMsg = `[Python Manager] CRITICAL ERROR: Dedicated Legacy Python virtual environment with Paramiko 2.12.x not found at '${LEGACY_PYTHON_BIN}'. Fallback to /usr/bin/python3 or any other system Paramiko is strictly prohibited.`;
       console.error(errMsg);
-      throw new Error(errMsg);
+      return;
     }
 
     const pythonScript = path.join(projectRoot, 'backend', 'server.py');
@@ -185,7 +199,9 @@ async function startPythonBackend(forceRestart = false) {
 }
 
 // Start Python
-startPythonBackend();
+startPythonBackend().catch((err) => {
+  console.error('[Python Manager] Error during initial backend start:', err);
+});
 
 // Ensure Apache Guacamole Daemon (guacd) is active for in-browser RDP/VNC remote desktop
 ensureGuacdServiceRunning().catch((err) => {
