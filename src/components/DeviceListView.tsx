@@ -473,7 +473,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         (d.unit || '').toLowerCase().includes(q) ||
         (d.role || '').toLowerCase().includes(q) ||
         (d.platform || '').toLowerCase().includes(q) ||
-        (d.mac || d.mac_address || '').toLowerCase().includes(q) ||
+        (d.mac || (d as any).mac_address || '').toLowerCase().includes(q) ||
         (d.rack || '').toLowerCase().includes(q)
       );
     }

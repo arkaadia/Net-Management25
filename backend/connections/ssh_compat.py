@@ -66,8 +66,8 @@ TIER1_MODERN_MACS = (
 # Activated ONLY if the peer rejects modern algorithms or drops handshake
 # ==============================================================================
 TIER2_LEGACY_KEX = (
-    'diffie-hellman-group14-sha1',
     'diffie-hellman-group1-sha1',
+    'diffie-hellman-group14-sha1',
     'diffie-hellman-group-exchange-sha1',
     'diffie-hellman-group-exchange-sha256',
     'diffie-hellman-group14-sha256',
@@ -105,9 +105,9 @@ _PATCHED = False
 
 def ensure_paramiko_compatibility() -> bool:
     """
-    Registers legacy KEX and host keys in Paramiko defaults and instruments
+    Registers legacy KEX, host keys, and CBC ciphers in Paramiko defaults and instruments
     _parse_kex_init to capture exact negotiated key exchange algorithm.
-    CRITICAL: Does not touch _preferred_ciphers to prevent 'unknown cipher' errors.
+    CRITICAL: Only enables ciphers present in Paramiko 2.12 internal cipher table.
     """
     global _PATCHED
     if _PATCHED:
@@ -123,10 +123,10 @@ def ensure_paramiko_compatibility() -> bool:
         if hasattr(paramiko.Transport, '_preferred_kex'):
             existing_kex = list(paramiko.Transport._preferred_kex)
             for k in [
+                'diffie-hellman-group1-sha1',
                 'diffie-hellman-group14-sha1',
                 'diffie-hellman-group-exchange-sha1',
                 'diffie-hellman-group-exchange-sha256',
-                'diffie-hellman-group1-sha1'
             ]:
                 if k not in existing_kex:
                     existing_kex.append(k)
@@ -139,6 +139,15 @@ def ensure_paramiko_compatibility() -> bool:
                 if k not in existing_keys:
                     existing_keys.append(k)
             paramiko.Transport._preferred_keys = tuple(existing_keys)
+
+        # 3. Register legacy CBC ciphers (aes128-cbc, 3des-cbc) if in _cipher_info
+        if hasattr(paramiko.Transport, '_preferred_ciphers'):
+            existing_ciphers = list(paramiko.Transport._preferred_ciphers)
+            valid_ciphers = getattr(paramiko.Transport, '_cipher_info', {})
+            for c in ['aes128-cbc', '3des-cbc', 'aes256-cbc']:
+                if c not in existing_ciphers and c in valid_ciphers:
+                    existing_ciphers.append(c)
+            paramiko.Transport._preferred_ciphers = tuple(existing_ciphers)
 
         # 3. Instrument _parse_kex_init to record the exact negotiated KEX
         orig_parse_kex_init = paramiko.Transport._parse_kex_init
@@ -332,6 +341,7 @@ def extract_negotiation_info(transport: Any, tier_name: str) -> Dict[str, Any]:
     except Exception:
         pass
 
+    import paramiko
     return {
         "tier": tier_name,
         "kex": kex_name or "negotiated",
@@ -339,6 +349,8 @@ def extract_negotiation_info(transport: Any, tier_name: str) -> Dict[str, Any]:
         "local_cipher": getattr(transport, 'local_cipher', None),
         "key_type": server_key_type,
         "mac": getattr(transport, 'remote_mac', None),
+        "paramiko_version": getattr(paramiko, '__version__', '2.12.0'),
+        "ssh_protocol": "SSH-2.0",
     }
 
 

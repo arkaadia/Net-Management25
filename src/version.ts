@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.262.1';
+export const APP_VERSION = '1.263.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.263.0',
+    releaseDate: '2026-10-03',
+    type: 'minor',
+    title: 'فاز ۱: افزودن بک‌اند اختصاصی SSH با پارامیکو نسخه ۲.۱۲ برای تجهیزات قدیمی سیسکو (Paramiko 2.12 Legacy SSH Backend)',
+    title_en: 'Phase 1: Dedicated Paramiko 2.12 Legacy SSH Backend for Older Cisco Equipment',
+    changes: [
+      'ایجاد و پیکربندی محیط مجازی ایزوله پایتون با نصب نسخه اختصاصی Paramiko 2.12.x بدون امکان تغییر یا ارتقای ناخواسته.',
+      'الزام نود جی‌اس به اجرای انحصاری مفسر پایتون این محیط مجازی برای حالت Legacy و مسدودسازی قطعی هرگونه فالبک به پایتون سراسری سیستم.',
+      'فعال‌سازی الگوریتم‌های استاندارد قدیمی در پارامیکو ۲.۱۲ شامل diffie-hellman-group1-sha1، diffie-hellman-group14-sha1، diffie-hellman-group-exchange-sha1، ssh-rsa و aes128-cbc.',
+      'پشتیبانی کامل از پروتکل SSH نسخه ۲ و خطوط قدیمی VTY سوئیچ‌ها و روترهای سیسکو بدون ایجاد هرگونه خروجی یا دیتای شبیه‌سازی‌شده ساختگی.',
+      'انتقال و نمایش مستقیم خطاهای واقعی اتصال در صورت بروز خطا در احراز هویت یا دسترسی به دستگاه.'
+    ],
+    changes_en: [
+      'Created and provisioned dedicated Python virtual environment with isolated Paramiko 2.12.x for legacy network equipment.',
+      'Enforced Node.js to strictly invoke this dedicated virtual environment Python binary in legacy mode, strictly prohibiting any fallback to system /usr/bin/python3.',
+      'Enabled legacy SSH algorithms supported by Paramiko 2.12.x: diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1, ssh-rsa, and aes128-cbc.',
+      'Delivered full support for SSH Protocol 2 and legacy Cisco VTY lines with absolute prohibition of fake or simulated fallback output.',
+      'Guaranteed authentic error reporting upon connection failure directly to the UI without synthetic responses.'
+    ],
+  },
   {
     version: '1.262.1',
     releaseDate: '2026-10-02',

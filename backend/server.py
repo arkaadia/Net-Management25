@@ -44,6 +44,13 @@ except ImportError:
 if ensure_paramiko_compatibility:
     ensure_paramiko_compatibility()
 
+try:
+    import paramiko
+    print(f"[Python SSH Engine] Running under Python: {sys.executable} (v{sys.version.split()[0]})")
+    print(f"[Python SSH Engine] Paramiko: {getattr(paramiko, '__version__', 'unknown')} ({os.path.dirname(paramiko.__file__)})")
+except Exception as _pe:
+    print(f"[Python SSH Engine] Paramiko import error: {_pe}")
+
 # Global active SSH sessions registry: session_id -> session dict
 ACTIVE_SSH_SESSIONS = {}
 ACTIVE_SESSIONS_LOCK = threading.Lock()

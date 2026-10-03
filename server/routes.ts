@@ -2337,6 +2337,14 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
             pythonData.message = pythonData.message_fa;
           }
           return res.json(pythonData);
+        } else if (pythonData && pythonData.success === false) {
+          // Real error from Python SSH engine (Paramiko 2.12.x). Return authentic failure directly.
+          if (isEn && pythonData.message_en) {
+            pythonData.message = pythonData.message_en;
+          } else if (!isEn && pythonData.message_fa) {
+            pythonData.message = pythonData.message_fa;
+          }
+          return res.json(pythonData);
         }
       }
     } catch {
