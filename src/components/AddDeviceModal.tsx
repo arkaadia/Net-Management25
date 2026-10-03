@@ -95,6 +95,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
   // SSH / Telnet Credentials
   const [connectionProtocol, setConnectionProtocol] = useState<'ssh' | 'telnet'>('ssh');
+  const [sshVersion, setSshVersion] = useState<'legacy' | 'modern'>('legacy');
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
   const [winboxPort, setWinboxPort] = useState(8291);
@@ -141,7 +142,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [discoverySource, setDiscoverySource] = useState<string | null>(null);
 
   const [isTestingSsh, setIsTestingSsh] = useState(false);
-  const [sshTestResult, setSshTestResult] = useState<{ success: boolean; message: string; latency_ms?: number } | null>(null);
+  const [sshTestResult, setSshTestResult] = useState<{
+    success: boolean;
+    message: string;
+    latency_ms?: number;
+    ssh_protocol?: string;
+    paramiko_version?: string;
+    negotiation?: {
+      kex?: string;
+      cipher?: string;
+      key_type?: string;
+      mac?: string;
+      tier?: string;
+    };
+    error?: string;
+  } | null>(null);
   const [isTestingPing, setIsTestingPing] = useState(false);
   const [pingTestResult, setPingTestResult] = useState<{ success: boolean; message: string; latency_ms?: number } | null>(null);
 
@@ -413,6 +428,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         connection_mode: connectionMode,
         simulate: forcedSimulate || connectionMode === 'simulator',
         lang: isEn ? 'en' : 'fa',
+        ssh_version: sshVersion,
+        sshVersion: sshVersion,
       });
 
       if (res.success) {
@@ -611,10 +628,10 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           success: true,
           message: successMsg,
           latency_ms: res.latency_ms,
-          library_used: (res as any).library_used,
-          ssh_suite: (res as any).ssh_suite,
-          negotiation: (res as any).negotiation || (res as any).ssh_negotiation,
-        } as any);
+          ssh_protocol: res.ssh_protocol || 'SSH-2.0',
+          paramiko_version: res.paramiko_version || (res as any).library_used?.replace(/^Paramiko\s*/i, ''),
+          negotiation: res.negotiation || res.ssh_negotiation,
+        });
       } else {
         const failMsg = isEn
           ? (res.message_en || (res.message && !/[\u0600-\u06FF]/.test(res.message) ? res.message : `${connectionProtocol.toUpperCase()} connection failed: ${res.error || 'Device unreachable or credentials rejected'}`))
@@ -623,9 +640,10 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           success: false,
           message: failMsg,
           latency_ms: res.latency_ms,
-          library_used: (res as any).library_used,
-          ssh_suite: (res as any).ssh_suite,
-        } as any);
+          ssh_protocol: res.ssh_protocol || 'SSH-2.0',
+          paramiko_version: res.paramiko_version,
+          error: res.error || failMsg,
+        });
       }
     } catch (err: any) {
       setSshTestResult({
@@ -633,6 +651,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         message: isEn
           ? `Connection error: ${err.message || 'Failed to establish SSH session'}`
           : `خطای برقراری ارتباط: ${err.message || 'اتصال ناموفق بود'}`,
+        error: err.message,
       });
     } finally {
       setIsTestingSsh(false);
@@ -701,7 +720,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           username: sshUsername.trim() || 'admin',
           password: sshPassword,
           connection_timeout: 4000,
+          ssh_version: sshVersion,
         },
+        ssh_version: sshVersion,
         model: model.trim(),
         building: building.trim(),
         floor: floor.trim(),
@@ -1599,7 +1620,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                         <Terminal className="w-3 h-3" />
                         <span>
                           {connectionProtocol === 'ssh'
-                            ? (isEn ? 'Test SSH & Fetch Data' : 'تست SSH و دریافت مشخصات')
+                            ? (isEn ? 'SSH V2 Test & Fetch' : 'تست SSH V2 و دریافت مشخصات')
                             : (isEn ? 'Test Telnet & Fetch Data' : 'تست Telnet و دریافت مشخصات')}
                         </span>
                       </>
@@ -1611,53 +1632,98 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               {/* SSH / Telnet Test Result Banner */}
               {sshTestResult && (
                 <div
-                  className={`p-2.5 rounded-lg flex items-start gap-2 text-xs ${
+                  className={`p-3 rounded-xl border text-xs transition-all ${
                     sshTestResult.success
                       ? isLightMode
-                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                        : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                        ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                        : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200 shadow-xs'
                       : isLightMode
-                      ? 'bg-rose-50 border border-rose-200 text-rose-800'
-                      : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
+                      ? 'bg-rose-50/90 border-rose-300 text-rose-950 shadow-xs'
+                      : 'bg-rose-950/40 border-rose-500/40 text-rose-200 shadow-xs'
                   }`}
                 >
-                  {sshTestResult.success ? (
-                    <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
-                  ) : (
-                    <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
-                  )}
-                  <div className="flex-1">
-                    <div className="font-semibold">{sshTestResult.message}</div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] font-mono">
-                      {sshTestResult.latency_ms !== undefined && (
-                        <span className={isLightMode ? 'text-emerald-700' : 'text-emerald-400/80'}>
-                          {isEn ? 'Latency' : 'تاخیر اتصال'}: {sshTestResult.latency_ms} ms
-                        </span>
-                      )}
-                      {((sshTestResult as any).library_used || (sshTestResult as any).ssh_suite || (sshTestResult as any).negotiation || (sshTestResult as any).ssh_negotiation) && (
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono border ${
-                          isLightMode 
-                            ? 'bg-indigo-100/80 text-indigo-900 border-indigo-300' 
-                            : 'bg-indigo-950/60 text-indigo-300 border-indigo-600/40'
-                        }`}>
-                          {isEn ? 'Engine' : 'موتور'}: {(sshTestResult as any).library_used || 'SSH'}
-                          {(sshTestResult as any).ssh_suite 
-                            ? ` (${(sshTestResult as any).ssh_suite})`
-                            : ((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier)
-                              ? ` (${((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier).replace('_', ' ')})`
-                              : ''}
-                          {((sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher) 
-                            ? ` [${(sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher}]` 
-                            : ''}
-                        </span>
+                  <div className="flex items-start gap-2.5">
+                    {sshTestResult.success ? (
+                      <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                    ) : (
+                      <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-xs leading-relaxed">{sshTestResult.message}</div>
+                      {sshTestResult.error && !sshTestResult.success && sshTestResult.error !== sshTestResult.message && (
+                        <div className="text-[11px] font-mono mt-1 opacity-90 break-words">{sshTestResult.error}</div>
                       )}
                     </div>
                   </div>
+
+                  {sshTestResult.success && (
+                    <div className="mt-2.5 pt-2 border-t border-current/15 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-[11px] font-mono">
+                      {/* 1. Connection Status */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Connection Status' : 'وضعیت اتصال'}
+                        </span>
+                        <span className="font-semibold text-emerald-500 truncate">
+                          {isEn ? 'Connected' : 'موفق / متصل'}
+                        </span>
+                      </div>
+
+                      {/* 2. SSH Protocol */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'SSH Protocol' : 'پروتکل SSH'}
+                        </span>
+                        <span className="font-semibold truncate">
+                          {sshTestResult.ssh_protocol || 'SSH-2.0'}
+                        </span>
+                      </div>
+
+                      {/* 3. Paramiko Version */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Paramiko Version' : 'نسخه Paramiko'}
+                        </span>
+                        <span className="font-semibold truncate">
+                          {sshTestResult.paramiko_version || '—'}
+                        </span>
+                      </div>
+
+                      {/* 4. Negotiated KEX */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Negotiated KEX' : 'الگوریتم KEX'}
+                        </span>
+                        <span className="font-semibold truncate" title={sshTestResult.negotiation?.kex || (sshTestResult as any).ssh_negotiation?.kex || '—'}>
+                          {sshTestResult.negotiation?.kex || (sshTestResult as any).ssh_negotiation?.kex || '—'}
+                        </span>
+                      </div>
+
+                      {/* 5. Host Key */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Host Key' : 'کلید سرور (Host Key)'}
+                        </span>
+                        <span className="font-semibold truncate" title={sshTestResult.negotiation?.key_type || (sshTestResult as any).ssh_negotiation?.key_type || '—'}>
+                          {sshTestResult.negotiation?.key_type || (sshTestResult as any).ssh_negotiation?.key_type || '—'}
+                        </span>
+                      </div>
+
+                      {/* 6. Cipher */}
+                      <div className={`p-1.5 rounded-lg border flex flex-col ${isLightMode ? 'bg-white/80 border-emerald-200' : 'bg-black/30 border-emerald-500/30'}`}>
+                        <span className={`text-[9px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Cipher' : 'رمزنگاری (Cipher)'}
+                        </span>
+                        <span className="font-semibold truncate" title={sshTestResult.negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher || '—'}>
+                          {sshTestResult.negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-                <div className="sm:col-span-8">
+                <div className={connectionProtocol === 'ssh' ? 'sm:col-span-5' : 'sm:col-span-8'}>
                   <label className="block text-[11px] font-medium mb-1 flex items-center justify-between">
                     <span className={`font-semibold ${isLightMode ? 'text-indigo-700' : 'text-indigo-300'}`}>
                       {isEn ? `${connectionProtocol.toUpperCase()} Target Host / IP:` : `آدرس IP اتصال ${connectionProtocol.toUpperCase()}:`}
@@ -1681,7 +1747,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   />
                 </div>
 
-                <div className="sm:col-span-4">
+                <div className={connectionProtocol === 'ssh' ? 'sm:col-span-3' : 'sm:col-span-4'}>
                   <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn ? `${connectionProtocol.toUpperCase()} Port:` : `پورت ${connectionProtocol.toUpperCase()}:`}
                   </label>
@@ -1698,6 +1764,26 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     dir="ltr"
                   />
                 </div>
+
+                {connectionProtocol === 'ssh' && (
+                  <div className="sm:col-span-4">
+                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      {isEn ? 'SSH Version:' : 'نسخه SSH:'}
+                    </label>
+                    <select
+                      value={sshVersion}
+                      onChange={(e) => setSshVersion(e.target.value as 'legacy' | 'modern')}
+                      className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none transition ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                          : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
+                      }`}
+                    >
+                      <option value="legacy">{isEn ? 'SSH v2 – Legacy (older devices)' : 'SSH v2 – قدیمی / لگسی (تجهیزات قدیمی)'}</option>
+                      <option value="modern">{isEn ? 'SSH v2 – Modern (newer devices)' : 'SSH v2 – مدرن (تجهیزات جدید)'}</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="sm:col-span-4">
                   <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>

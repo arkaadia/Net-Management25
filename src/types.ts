@@ -16,6 +16,7 @@ export interface DeviceConnection {
   password?: string;
   private_key?: string;
   connection_timeout?: number;
+  ssh_version?: 'legacy' | 'modern' | string;
 }
 
 export interface PlatformCapabilities {
@@ -122,6 +123,7 @@ export interface Device {
   detected_ports?: SwitchPort[];
   web_configs?: DeviceWebConfig[];
   winbox_port?: number;
+  ssh_version?: 'legacy' | 'modern' | string;
   tags?: string[];
 }
 

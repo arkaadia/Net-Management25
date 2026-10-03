@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.264.0';
+export const APP_VERSION = '1.265.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.265.0',
+    releaseDate: '2026-10-03',
+    type: 'minor',
+    title: 'فاز ۳: افزودن منوی کشویی نسخه SSH به فرم ثبت و ویرایش تجهیزات شبکه همراه با تست و واکشی زنده پارامترهای واقعی (SSH Version Dropdown & Live Test & Fetch)',
+    title_en: 'Phase 3: SSH Version Dropdown and Real-Time Test & Fetch for Device Registration',
+    changes: [
+      'افزودن منوی کشویی (Dropdown) انتخاب نسخه SSH در مودال‌های ثبت تجهیز جدید (Register New Network Device) و ویرایش مشخصات تجهیز (Edit Device Properties).',
+      'تعریف گزینه‌های استاندارد نسخه SSH: گزینه SSH v2 – Legacy برای تجهیزات قدیمی با اتصال به محیط مجازی Paramiko 2.12.x و گزینه SSH v2 – Modern برای تجهیزات جدید با اتصال به محیط مدرن، بدون نمایش کلمات Paramiko یا Netmiko در رابط کاربری.',
+      'ذخیره‌سازی مقدار انتخابی نسخه SSH (فیلد ssh_version) در پروفایل تجهیز در پایگاه داده PostgreSQL و بارگذاری خودکار آن هنگام باز شدن فرم ویرایش.',
+      'اتصال دکمه «تست SSH V2 و دریافت مشخصات» (SSH V2 Test & Fetch) به تفکیک‌کننده نسخه و بازگردانی بلادرنگ نتایج واقعی.',
+      'نمایش دقیق و شفاف پارامترهای استخراج‌شده از اتصال واقعی شامل: وضعیت اتصال (Connection Status)، پروتکل SSH، نسخه پارامیکو، الگوریتم تبادل کلید (Negotiated KEX)، نوع کلید سرور (Host Key) و الگوریتم رمزنگاری (Cipher).',
+      'رعایت استاندارد عدم استفاده از داده‌های فیک یا ساختگی و نمایش خطای واقعی در صورت ناموفق بودن اتصال.'
+    ],
+    changes_en: [
+      'Added single "SSH Version" dropdown selector to both Register New Network Device modal and Edit Device Properties modal.',
+      'Provided clean version-type options ("SSH v2 – Legacy (older devices)" and "SSH v2 – Modern (newer devices)"), keeping internal library names (Paramiko/Netmiko) completely out of the UI.',
+      'Persisted the selected ssh_version attribute alongside core device credentials in PostgreSQL and local storage, and restored it automatically in the edit form.',
+      'Connected the existing "SSH V2 Test & Fetch" action to the authoritative backend resolver matching the selected version to execute live authentic probes.',
+      'Rendered authentic real-time cryptographic details from the device connection: Connection Status, SSH Protocol, Paramiko Version, Negotiated KEX, Host Key, and Cipher.',
+      'Enforced absolute zero mock or simulated values, transparently relaying real connection error messages on failure.'
+    ],
+  },
   {
     version: '1.264.0',
     releaseDate: '2026-10-03',

@@ -1742,6 +1742,7 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS server_ids JSONB DEFAULT '[]'::jsonb");
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy'");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -3306,6 +3307,8 @@ export async function getAllDevices(): Promise<any[]> {
             mac_address: r.mac_address || '',
             uptime: r.uptime_str || '',
             uptime_str: r.uptime_str || '',
+            ssh_version: r.ssh_version || (r.connection_data && r.connection_data.ssh_version) || 'legacy',
+            sshVersion: r.ssh_version || (r.connection_data && r.connection_data.ssh_version) || 'legacy',
             ports,
           };
         });
@@ -3350,6 +3353,7 @@ export async function createDevice(deviceData: any): Promise<any> {
     latency_ms: Number(deviceData.latency_ms) || 1.5,
     mac_address: deviceData.mac_address || deviceData.mac || '',
     uptime_str: deviceData.uptime_str || deviceData.uptime || '0 days',
+    ssh_version: deviceData.ssh_version || (deviceData.connection && deviceData.connection.ssh_version) || 'legacy',
     ports: Array.isArray(deviceData.ports) ? deviceData.ports : [],
   };
 
@@ -3386,8 +3390,8 @@ export async function createDevice(deviceData: any): Promise<any> {
     try {
       await pool.query(
         `INSERT INTO devices (
-          id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports, ssh_version
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           ip = EXCLUDED.ip,
@@ -3403,7 +3407,8 @@ export async function createDevice(deviceData: any): Promise<any> {
           latency_ms = EXCLUDED.latency_ms,
           mac_address = EXCLUDED.mac_address,
           uptime_str = EXCLUDED.uptime_str,
-          ports = EXCLUDED.ports`,
+          ports = EXCLUDED.ports,
+          ssh_version = EXCLUDED.ssh_version`,
         [
           newDevice.id,
           newDevice.name,
@@ -3421,6 +3426,7 @@ export async function createDevice(deviceData: any): Promise<any> {
           newDevice.mac_address,
           newDevice.uptime_str,
           JSON.stringify(newDevice.ports),
+          newDevice.ssh_version || 'legacy',
         ]
       );
     } catch (e) {
@@ -3446,6 +3452,7 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     type: updates.type !== undefined ? updates.type : existing.type,
     platform: updates.platform !== undefined ? updates.platform : existing.platform,
     role: updates.role !== undefined ? updates.role.trim() : existing.role,
+    ssh_version: updates.ssh_version !== undefined ? updates.ssh_version : (existing.ssh_version || 'legacy'),
   };
 
   const store = loadFallbackStore();
@@ -3487,7 +3494,8 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
         `UPDATE devices SET
           name = $2, ip = $3, type = $4, model = $5, platform = $6, role = $7,
           ssh_host = $8, ssh_port = $9, ssh_username = $10, is_online = $11,
-          latency_ms = $12, mac_address = $13, uptime_str = $14, ports = $15
+          latency_ms = $12, mac_address = $13, uptime_str = $14, ports = $15,
+          ssh_version = $16
         WHERE id = $1`,
         [
           updated.id,
@@ -3505,6 +3513,7 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.mac_address || updated.mac || '',
           updated.uptime_str || '',
           JSON.stringify(updated.ports || []),
+          updated.ssh_version || 'legacy',
         ]
       );
     } catch (e) {

@@ -471,6 +471,8 @@ export async function testDeviceConnection(data: {
   connection_mode?: string;
   simulate?: boolean;
   lang?: string;
+  ssh_version?: 'legacy' | 'modern' | string;
+  sshVersion?: 'legacy' | 'modern' | string;
 }): Promise<{
   success: boolean;
   message: string;
@@ -479,6 +481,25 @@ export async function testDeviceConnection(data: {
   latency_ms?: number;
   banner?: string;
   protocol?: string;
+  ssh_protocol?: string;
+  paramiko_version?: string;
+  ssh_version?: string;
+  negotiation?: {
+    kex?: string;
+    cipher?: string;
+    key_type?: string;
+    mac?: string;
+    tier?: string;
+  };
+  ssh_negotiation?: {
+    kex?: string;
+    cipher?: string;
+    key_type?: string;
+    mac?: string;
+    tier?: string;
+  };
+  library_used?: string;
+  ssh_suite?: string;
   error?: string;
   hostname?: string;
   model?: string;
