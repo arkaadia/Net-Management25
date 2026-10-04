@@ -4213,13 +4213,40 @@ def start_websocket_server(ws_port: int):
                 session.close()
 
     def run_ws_loop():
+        # Start FastAPI Paramiko Cisco Backend Engine via uvicorn
+        fastapi_started = False
         try:
             import uvicorn
-            from backend.ssh_fastapi import app as fastapi_ssh_app
-            print(f"[FastAPI Paramiko Cisco Server] Running on http://127.0.0.1:{ws_port} and ws://127.0.0.1:{ws_port}")
-            uvicorn.run(fastapi_ssh_app, host="127.0.0.1", port=ws_port, log_level="warning")
+            try:
+                from backend.ssh_fastapi import app as fastapi_ssh_app
+            except ImportError:
+                from ssh_fastapi import app as fastapi_ssh_app
+
+            print(f"[FastAPI Paramiko Cisco Server] Starting on http://127.0.0.1:{ws_port} and ws://127.0.0.1:{ws_port}...")
+            config = uvicorn.Config(
+                fastapi_ssh_app,
+                host="127.0.0.1",
+                port=ws_port,
+                log_level="warning",
+                access_log=False
+            )
+            server = uvicorn.Server(config)
+            fastapi_started = True
+            server.run()
         except Exception as e:
-            print(f"[FastAPI Paramiko Cisco Server] Error starting FastAPI server: {e}")
+            print(f"[FastAPI Paramiko Cisco Server] Notice/Error on FastAPI server: {e}")
+            if not fastapi_started:
+                print(f"[Python WS Server] Falling back to standard Paramiko WebSocket server on ws://127.0.0.1:{ws_port}...")
+                try:
+                    ws_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(ws_loop)
+                    async def main():
+                        async with websockets.serve(terminal_ws_handler, "127.0.0.1", ws_port):
+                            print(f"[Python WS Server] Fallback Paramiko SSH WebSocket server running on ws://127.0.0.1:{ws_port}")
+                            await asyncio.Future()
+                    ws_loop.run_until_complete(main())
+                except Exception as ws_err:
+                    print(f"[Python WS Server] WebSocket fallback server error: {ws_err}")
 
     t = threading.Thread(target=run_ws_loop, daemon=True)
     t.start()

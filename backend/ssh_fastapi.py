@@ -12,6 +12,7 @@ Features:
 
 import os
 import sys
+import json
 import time
 import socket
 import asyncio
@@ -311,6 +312,8 @@ def open_paramiko_cisco_session(
 # ==============================================================================
 # REST API Endpoints
 # ==============================================================================
+@app.get("/")
+@app.get("/health")
 @app.get("/api/ssh/health")
 def health_check():
     return {

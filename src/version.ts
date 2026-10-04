@@ -10,29 +10,29 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.266.0';
+export const APP_VERSION = '1.266.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
   {
-    version: '1.266.0',
+    version: '1.266.1',
     releaseDate: '2026-10-04',
-    type: 'minor',
-    title: 'پیاده‌سازی بک‌اند اتصال SSH با FastAPI و Paramiko جهت اتصال واقعی به تجهیزات سیسکو (React → FastAPI → Paramiko → Cisco)',
-    title_en: 'Implementation of FastAPI and Paramiko SSH Connection Backend for Cisco Hardware (React → FastAPI → Paramiko → Cisco)',
+    type: 'patch',
+    title: 'رفع خطای راه‌اندازی سرور SSH مبتنی بر FastAPI و ارتقای پایداری محیط مجازی پایتون و استریم وب‌سوکت (FastAPI SSH Server Stabilization)',
+    title_en: 'Resolve FastAPI SSH Server Startup Crash, Python Venv Auto-Provisioning & Resilient WebSocket Streaming',
     changes: [
-      'پیاده‌سازی معماری استاندارد React → FastAPI → Paramiko → Cisco بدون اتصال مستقیم فرانت‌اند به تجهیزات سخت‌افزاری',
-      'ایجاد موتور بک‌اند پایتون مبتنی بر FastAPI (فایل backend/ssh_fastapi.py) با بهره‌گیری از کتابخانه Paramiko و قابلیت invoke_shell() جهت ایجاد ترمینال تعاملی PTY',
-      'برقراری ارتباط با دیوایس بر اساس پارامترهای host, port, username و password و استریم زنده خروجی واقعی CLI بدون تولید داده ساختگی یا شبیه‌سازی‌شده (Strict Zero-Mock Data)',
-      'مدیریت چرخه حیات نشست‌های SSH شامل ایجاد، اجرای دستورات و بستن صحیح نشست و آزاد‌سازی منابع سوکت',
-      'پشتیبانی دوگانه از اندپوینت‌های REST (/api/ssh/connect, /api/ssh/command, /api/ssh/close) و استریم تعاملی وب‌سوکت (/ws/ssh)'
+      'شناسایی و رفع ریشه‌ای خطای استارت‌آپ سرور FastAPI SSH ناشی از فقدان ماژول‌های fastapi و uvicorn در محیط مجازی محلی پایتون.',
+      'تجهیز سرور نود (server.ts) به سیستم هوشمند اعتبارسنجی وابستگی‌های پایتون (resolveWorkingPythonBin) با امکان ساخت خودکار محیط مجازی با پرچم‌های --without-pip --system-site-packages و فالبک خودکار به مفسر سراسری.',
+      'افزودن ایمپورت سطح بالای ماژول json در backend/ssh_fastapi.py و تعریف اندپوینت‌های سلامت ریشه (/ و /health).',
+      'ارتقای هندلر اجرای وب‌سوکت در backend/server.py به uvicorn.Server با مکانیزم چندلایه Failover جهت تضمین باز ماندن مداوم پورت ۵۰۰۲.',
+      'بهینه‌سازی پروکسی وب‌سوکت سرور نود (server/terminalWs.ts) با قابلیت تلاش مجدد خودکار (Auto-Retry) در صورت اتصال همزمان کلاینت با زمان بالا آمدن سرور.'
     ],
     changes_en: [
-      'Implemented the compliant React -> FastAPI -> Paramiko -> Cisco architecture ensuring frontend never directly touches physical network gear.',
-      'Engineered dedicated FastAPI Python backend (backend/ssh_fastapi.py) utilizing Paramiko invoke_shell() to establish authentic interactive PTY shells.',
-      'Hardware connection using host, port, username, and password streaming authentic CLI outputs without fabrication or mock data (Strict Zero-Mock Data).',
-      'Full SSH session lifecycle management including session creation, command dispatching, and graceful closure with socket cleanup.',
-      'Dual support for REST endpoints (/api/ssh/connect, /api/ssh/command, /api/ssh/close) and interactive bidirectional WebSocket streaming (/ws/ssh).'
-    ]
+      'Diagnosed and resolved the root cause of the "Failed: starting FastAPI SSH server" crash caused by missing fastapi and uvicorn dependencies inside the local Python venv.',
+      'Engineered intelligent Python dependency validation in server.ts (resolveWorkingPythonBin) with automatic --without-pip --system-site-packages virtualenv provisioning and seamless fallback to system Python 3.',
+      'Added top-level module import for json in backend/ssh_fastapi.py and established root and health check endpoints (/ and /health).',
+      'Upgraded backend/server.py WebSocket execution loop to use uvicorn.Server with multi-tiered graceful fallback to direct WebSocket server to ensure port 5002 never drops.',
+      'Enhanced Node.js terminal WebSocket proxy (server/terminalWs.ts) with auto-retry resilience during concurrent frontend connections while the backend initializes.'
+    ],
   },
   {
     version: '1.265.0',

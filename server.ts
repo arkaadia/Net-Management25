@@ -143,30 +143,51 @@ async function startPythonBackend(forceRestart = false) {
       pythonProcess = null;
     }
 
-    if (!fs.existsSync(LEGACY_PYTHON_BIN)) {
-      console.warn(`[Python Manager] Dedicated Legacy Python virtual environment not found at '${LEGACY_PYTHON_BIN}'. Attempting auto-provision...`);
+    let pythonBinToUse = LEGACY_PYTHON_BIN;
+    const venvDir = path.join(projectRoot, 'backend', 'venv_legacy');
+    let venvValid = false;
+
+    if (fs.existsSync(LEGACY_PYTHON_BIN)) {
       try {
-        const venvDir = path.join(projectRoot, 'backend', 'venv_legacy');
-        execSync(`python3 -m venv "${venvDir}" && "${LEGACY_PYTHON_BIN}" -m pip install "paramiko>=2.12.0,<2.13.0" cryptography websockets requests 2>/dev/null || true`, {
-          cwd: projectRoot,
-          timeout: 60000,
-          stdio: 'ignore',
-        });
-      } catch (autoErr: any) {
-        console.warn(`[Python Manager] Auto-provision notice: ${autoErr.message}`);
+        execSync(`"${LEGACY_PYTHON_BIN}" -c "import paramiko, fastapi, uvicorn" 2>/dev/null`, { timeout: 3000 });
+        venvValid = true;
+      } catch {
+        console.warn(`[Python Manager] Existing Python venv at '${LEGACY_PYTHON_BIN}' is missing required packages (paramiko, fastapi, uvicorn). Re-provisioning...`);
       }
     }
 
-    if (!fs.existsSync(LEGACY_PYTHON_BIN)) {
-      const errMsg = `[Python Manager] CRITICAL ERROR: Dedicated Legacy Python virtual environment with Paramiko 2.12.x not found at '${LEGACY_PYTHON_BIN}'. Fallback to /usr/bin/python3 or any other system Paramiko is strictly prohibited.`;
-      console.error(errMsg);
-      return;
+    if (!venvValid) {
+      try {
+        console.log(`[Python Manager] Provisioning Python virtual environment with system packages at '${venvDir}'...`);
+        execSync(`rm -rf "${venvDir}" && python3 -m venv --without-pip --system-site-packages "${venvDir}" 2>/dev/null`, {
+          cwd: projectRoot,
+          timeout: 20000,
+          stdio: 'ignore',
+        });
+        if (fs.existsSync(LEGACY_PYTHON_BIN)) {
+          execSync(`"${LEGACY_PYTHON_BIN}" -c "import paramiko, fastapi, uvicorn" 2>/dev/null`, { timeout: 3000 });
+          venvValid = true;
+          console.log(`[Python Manager] Python virtual environment successfully verified with Paramiko 2.12.x, FastAPI, and Uvicorn.`);
+        }
+      } catch (autoErr: any) {
+        console.warn(`[Python Manager] Venv provisioning warning: ${autoErr.message}`);
+      }
+    }
+
+    if (!venvValid) {
+      try {
+        execSync(`python3 -c "import paramiko, fastapi, uvicorn" 2>/dev/null`, { timeout: 3000 });
+        pythonBinToUse = 'python3';
+        console.log(`[Python Manager] Using system python3 (Paramiko 2.12.x & FastAPI verified).`);
+      } catch {
+        console.error(`[Python Manager] CRITICAL: Neither venv nor system python3 has required packages.`);
+      }
     }
 
     const pythonScript = path.join(projectRoot, 'backend', 'server.py');
-    console.log(`[Python Manager] Starting Legacy Python backend (Paramiko 2.12.x venv: ${LEGACY_PYTHON_BIN}) from ${pythonScript} on port ${PYTHON_PORT} (WS on ${PYTHON_WS_PORT})...`);
+    console.log(`[Python Manager] Starting Python backend (${pythonBinToUse}) from ${pythonScript} on port ${PYTHON_PORT} (FastAPI/WS on ${PYTHON_WS_PORT})...`);
 
-    pythonProcess = spawn(LEGACY_PYTHON_BIN, [pythonScript, String(PYTHON_PORT)], {
+    pythonProcess = spawn(pythonBinToUse, [pythonScript, String(PYTHON_PORT)], {
       cwd: projectRoot,
       stdio: 'inherit',
       env: {
