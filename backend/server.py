@@ -4213,16 +4213,13 @@ def start_websocket_server(ws_port: int):
                 session.close()
 
     def run_ws_loop():
-        ws_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(ws_loop)
-        async def main():
-            async with websockets.serve(terminal_ws_handler, "127.0.0.1", ws_port):
-                print(f"[Python WS Server] Real Paramiko SSH WebSocket server running on ws://127.0.0.1:{ws_port}")
-                await asyncio.Future()
         try:
-            ws_loop.run_until_complete(main())
+            import uvicorn
+            from backend.ssh_fastapi import app as fastapi_ssh_app
+            print(f"[FastAPI Paramiko Cisco Server] Running on http://127.0.0.1:{ws_port} and ws://127.0.0.1:{ws_port}")
+            uvicorn.run(fastapi_ssh_app, host="127.0.0.1", port=ws_port, log_level="warning")
         except Exception as e:
-            print(f"[Python WS Server] WebSocket server loop error: {e}")
+            print(f"[FastAPI Paramiko Cisco Server] Error starting FastAPI server: {e}")
 
     t = threading.Thread(target=run_ws_loop, daemon=True)
     t.start()

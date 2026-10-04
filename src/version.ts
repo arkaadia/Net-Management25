@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.265.0';
+export const APP_VERSION = '1.266.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.266.0',
+    releaseDate: '2026-10-04',
+    type: 'minor',
+    title: 'پیاده‌سازی بک‌اند اتصال SSH با FastAPI و Paramiko جهت اتصال واقعی به تجهیزات سیسکو (React → FastAPI → Paramiko → Cisco)',
+    title_en: 'Implementation of FastAPI and Paramiko SSH Connection Backend for Cisco Hardware (React → FastAPI → Paramiko → Cisco)',
+    changes: [
+      'پیاده‌سازی معماری استاندارد React → FastAPI → Paramiko → Cisco بدون اتصال مستقیم فرانت‌اند به تجهیزات سخت‌افزاری',
+      'ایجاد موتور بک‌اند پایتون مبتنی بر FastAPI (فایل backend/ssh_fastapi.py) با بهره‌گیری از کتابخانه Paramiko و قابلیت invoke_shell() جهت ایجاد ترمینال تعاملی PTY',
+      'برقراری ارتباط با دیوایس بر اساس پارامترهای host, port, username و password و استریم زنده خروجی واقعی CLI بدون تولید داده ساختگی یا شبیه‌سازی‌شده (Strict Zero-Mock Data)',
+      'مدیریت چرخه حیات نشست‌های SSH شامل ایجاد، اجرای دستورات و بستن صحیح نشست و آزاد‌سازی منابع سوکت',
+      'پشتیبانی دوگانه از اندپوینت‌های REST (/api/ssh/connect, /api/ssh/command, /api/ssh/close) و استریم تعاملی وب‌سوکت (/ws/ssh)'
+    ],
+    changes_en: [
+      'Implemented the compliant React -> FastAPI -> Paramiko -> Cisco architecture ensuring frontend never directly touches physical network gear.',
+      'Engineered dedicated FastAPI Python backend (backend/ssh_fastapi.py) utilizing Paramiko invoke_shell() to establish authentic interactive PTY shells.',
+      'Hardware connection using host, port, username, and password streaming authentic CLI outputs without fabrication or mock data (Strict Zero-Mock Data).',
+      'Full SSH session lifecycle management including session creation, command dispatching, and graceful closure with socket cleanup.',
+      'Dual support for REST endpoints (/api/ssh/connect, /api/ssh/command, /api/ssh/close) and interactive bidirectional WebSocket streaming (/ws/ssh).'
+    ]
+  },
   {
     version: '1.265.0',
     releaseDate: '2026-10-03',
