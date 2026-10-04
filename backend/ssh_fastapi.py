@@ -15,6 +15,7 @@ import sys
 import json
 import time
 import socket
+import threading
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
@@ -106,7 +107,7 @@ class SSHSession:
         self.username = username
         self.client = client
         self.channel = channel
-        self.transport = transport or client.get_transport()
+        self.transport = transport or (client.get_transport() if client else None)
         self.platform = platform
         self.is_legacy = is_legacy
         self.created_at = time.time()
@@ -119,6 +120,42 @@ class SSHSession:
         if not self.transport or not self.transport.is_active():
             return False
         return True
+
+    def send_command_and_read(self, command: str, timeout: float = 3.0) -> str:
+        """
+        Sends command text to the interactive shell channel and gathers authentic raw CLI output.
+        Zero mock / fake generation (Rule 8).
+        """
+        if not self.channel or self.channel.closed:
+            raise RuntimeError(f"Session '{self.session_id}' channel is closed.")
+
+        cmd_text = command
+        if not cmd_text.endswith("\n"):
+            cmd_text += "\n"
+
+        self.channel.send(cmd_text)
+        self.last_activity = time.time()
+
+        time.sleep(0.15)
+        chunks = []
+        start_wait = time.time()
+        while time.time() - start_wait < timeout:
+            if self.channel.recv_ready():
+                raw = self.channel.recv(4096).decode("utf-8", errors="replace")
+                chunks.append(raw)
+                start_wait = time.time()  # reset timer on new data
+            elif chunks:
+                break
+            time.sleep(0.04)
+
+        return "".join(chunks)
+
+    def resize_pty(self, cols: int, rows: int):
+        if self.channel and not self.channel.closed:
+            try:
+                self.channel.resize_pty(width=cols, height=rows)
+            except Exception as e:
+                logger.warning(f"[SSHSession] PTY resize notice: {e}")
 
     def close(self):
         self.status = "closed"
@@ -144,52 +181,158 @@ class SSHSession:
             self.transport = None
 
 
-class SSHSessionManager:
+class SSHConnectionManager:
+    """
+    Authoritative Thread-Safe SSH Connection Manager powered by Paramiko 2.12.0.
+    Pipeline: React -> FastAPI -> Paramiko -> Cisco (Physical / Virtual Hardware)
+
+    Provides:
+    - Real SSH connection instantiation via Paramiko SSHClient / Transport
+    - Interactive shell via invoke_shell() with full PTY allocation
+    - Authentic command dispatching and raw CLI output reading (Zero Mock Data)
+    - Full session lifecycle management (create, track, close, close_all)
+    - Thread-safe session registry protected by threading.Lock
+    """
     def __init__(self):
         self.sessions: Dict[str, SSHSession] = {}
+        self._lock = threading.Lock()
+        self._engine_version = getattr(paramiko, "__version__", "unknown")
+        logger.info(f"[SSHConnectionManager] Initialized with Paramiko engine version: {self._engine_version}")
 
-    def add_session(self, session: SSHSession):
-        self.sessions[session.session_id] = session
+    def create_connection(
+        self,
+        host: str,
+        port: int = 22,
+        username: str = "admin",
+        password: str = "",
+        enable_password: str = "",
+        platform: str = "cisco_ios",
+        term: str = "xterm-256color",
+        cols: int = 120,
+        rows: int = 36,
+        timeout: float = 10.0,
+        use_legacy: bool = False
+    ) -> SSHSession:
+        """
+        Creates an authentic SSH connection to physical/virtual Cisco equipment using Paramiko 2.12.0,
+        allocates a PTY, and invokes an interactive shell via invoke_shell().
+        """
+        client, channel, is_legacy = open_paramiko_cisco_session(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            term=term,
+            cols=cols,
+            rows=rows,
+            timeout=timeout,
+            use_legacy=use_legacy
+        )
 
-    def get_session(self, session_id: str) -> Optional[SSHSession]:
-        sess = self.sessions.get(session_id)
-        if sess and not sess.is_active():
-            sess.close()
-            self.sessions.pop(session_id, None)
-            return None
+        session_id = f"cisco-{int(time.time()*1000)}-{os.urandom(3).hex()}"
+        sess = SSHSession(
+            session_id=session_id,
+            host=host,
+            port=port,
+            username=username,
+            client=client,
+            channel=channel,
+            platform=platform,
+            is_legacy=is_legacy
+        )
+
+        with self._lock:
+            self.sessions[session_id] = sess
+
         return sess
 
+    def add_session(self, session: SSHSession):
+        with self._lock:
+            self.sessions[session.session_id] = session
+
+    def get_session(self, session_id: str) -> Optional[SSHSession]:
+        with self._lock:
+            sess = self.sessions.get(session_id)
+            if sess and not sess.is_active():
+                sess.close()
+                self.sessions.pop(session_id, None)
+                return None
+            return sess
+
+    def execute_command(self, session_id: str, command: str, timeout: float = 3.0) -> str:
+        """
+        Sends command text to the interactive shell channel and gathers authentic raw CLI output.
+        Zero mock / fake generation.
+        """
+        sess = self.get_session(session_id)
+        if not sess or not sess.is_active():
+            raise ValueError(f"SSH session '{session_id}' not found or disconnected.")
+
+        return sess.send_command_and_read(command, timeout=timeout)
+
+    def close_session(self, session_id: str) -> bool:
+        with self._lock:
+            sess = self.sessions.pop(session_id, None)
+            if sess:
+                sess.close()
+                return True
+            return False
+
     def remove_session(self, session_id: str) -> bool:
-        sess = self.sessions.pop(session_id, None)
-        if sess:
-            sess.close()
-            return True
-        return False
+        return self.close_session(session_id)
+
+    def close_all(self) -> int:
+        with self._lock:
+            count = 0
+            for sess in list(self.sessions.values()):
+                try:
+                    sess.close()
+                    count += 1
+                except Exception:
+                    pass
+            self.sessions.clear()
+            return count
 
     def list_sessions(self) -> List[Dict[str, Any]]:
-        result = []
-        expired = []
-        for s_id, s in self.sessions.items():
-            if s.is_active():
-                result.append({
-                    "session_id": s.session_id,
-                    "host": s.host,
-                    "port": s.port,
-                    "username": s.username,
-                    "platform": s.platform,
-                    "status": s.status,
-                    "created_at": s.created_at,
-                    "uptime_seconds": round(time.time() - s.created_at, 1),
-                    "is_legacy": s.is_legacy,
-                })
-            else:
-                expired.append(s_id)
-        for s_id in expired:
-            self.remove_session(s_id)
-        return result
+        with self._lock:
+            result = []
+            expired = []
+            for s_id, s in self.sessions.items():
+                if s.is_active():
+                    result.append({
+                        "session_id": s.session_id,
+                        "host": s.host,
+                        "port": s.port,
+                        "username": s.username,
+                        "platform": s.platform,
+                        "status": s.status,
+                        "created_at": s.created_at,
+                        "uptime_seconds": round(time.time() - s.created_at, 1),
+                        "is_legacy": s.is_legacy,
+                    })
+                else:
+                    expired.append(s_id)
+            for s_id in expired:
+                sess = self.sessions.pop(s_id, None)
+                if sess:
+                    sess.close()
+            return result
+
+    def health(self) -> Dict[str, Any]:
+        with self._lock:
+            active_count = sum(1 for s in self.sessions.values() if s.is_active())
+        return {
+            "status": "healthy",
+            "engine": "FastAPI Paramiko Cisco Backend",
+            "paramiko_version": self._engine_version,
+            "active_sessions": active_count
+        }
 
 
-session_manager = SSHSessionManager()
+# Aliases for compatibility
+SSHSessionManager = SSHConnectionManager
+connection_manager = SSHConnectionManager()
+session_manager = connection_manager
 
 
 # ==============================================================================
@@ -316,62 +459,46 @@ def open_paramiko_cisco_session(
 @app.get("/health")
 @app.get("/api/ssh/health")
 def health_check():
-    return {
-        "status": "healthy",
-        "engine": "FastAPI Paramiko Cisco Backend",
-        "paramiko_version": getattr(paramiko, "__version__", "unknown"),
-        "active_sessions": len(session_manager.sessions)
-    }
+    return connection_manager.health()
 
 @app.post("/api/ssh/connect")
 def connect_ssh(req: SSHConnectRequest):
     """
     Establishes real SSH connection to Cisco hardware and invokes interactive shell.
     """
-    session_id = f"cisco-{int(time.time()*1000)}-{os.urandom(3).hex()}"
     start_t = time.time()
     try:
-        client, channel, is_legacy = open_paramiko_cisco_session(
+        sess = connection_manager.create_connection(
             host=req.host,
             port=req.port,
             username=req.username,
             password=req.password or "",
+            enable_password=req.enable_password or "",
+            platform=req.platform or "cisco_ios",
             term=req.term or "xterm-256color",
             cols=req.cols or 120,
             rows=req.rows or 36,
             timeout=req.timeout or 10.0,
             use_legacy=req.use_legacy or False
         )
-        latency_ms = round((time.time() - start_t) * 1000, 1)
-
-        sess = SSHSession(
-            session_id=session_id,
-            host=req.host,
-            port=req.port,
-            username=req.username,
-            client=client,
-            channel=channel,
-            platform=req.platform or "cisco_ios",
-            is_legacy=is_legacy
-        )
-        session_manager.add_session(sess)
+        latency_ms = max(1.0, round((time.time() - start_t) * 1000, 1))
 
         # Allow Cisco banner/prompt to arrive
         time.sleep(0.3)
         initial_output = ""
-        if channel.recv_ready():
-            initial_output = channel.recv(4096).decode("utf-8", errors="replace")
+        if sess.channel and sess.channel.recv_ready():
+            initial_output = sess.channel.recv(4096).decode("utf-8", errors="replace")
 
         return {
             "success": True,
-            "session_id": session_id,
+            "session_id": sess.session_id,
             "status": "connected",
             "host": req.host,
             "port": req.port,
             "username": req.username,
             "is_real": True,
             "latency_ms": latency_ms,
-            "is_legacy": is_legacy,
+            "is_legacy": sess.is_legacy,
             "initial_output": initial_output,
             "message": f"Authentic Cisco interactive shell established on {req.host}:{req.port}"
         }
@@ -394,38 +521,15 @@ def send_command(req: SSHCommandRequest):
     """
     Sends a CLI command to the active Cisco interactive shell and returns the authentic response.
     """
-    sess = session_manager.get_session(req.session_id)
-    if not sess or not sess.is_active():
-        raise HTTPException(status_code=404, detail="SSH session not found or disconnected")
-
     try:
-        cmd_text = req.command
-        if not cmd_text.endswith("\n"):
-            cmd_text += "\n"
-
-        sess.channel.send(cmd_text)
-        sess.last_activity = time.time()
-
-        # Read authentic output from Cisco CLI
-        time.sleep(0.3)
-        chunks = []
-        max_wait = 3.0
-        start_wait = time.time()
-        while time.time() - start_wait < max_wait:
-            if sess.channel.recv_ready():
-                raw = sess.channel.recv(4096).decode("utf-8", errors="replace")
-                chunks.append(raw)
-                start_wait = time.time()  # reset timer on new data
-            elif chunks:
-                break
-            time.sleep(0.05)
-
-        output = "".join(chunks)
+        output = connection_manager.execute_command(req.session_id, req.command)
         return {
             "success": True,
             "session_id": req.session_id,
             "output": output
         }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to execute command: {e}")
 
@@ -434,7 +538,7 @@ def close_session(req: SSHCloseRequest):
     """
     Properly closes an active SSH session and frees all Paramiko socket resources.
     """
-    removed = session_manager.remove_session(req.session_id)
+    removed = connection_manager.close_session(req.session_id)
     return {
         "success": removed,
         "session_id": req.session_id,
@@ -445,7 +549,16 @@ def close_session(req: SSHCloseRequest):
 def list_active_sessions():
     return {
         "success": True,
-        "sessions": session_manager.list_sessions()
+        "sessions": connection_manager.list_sessions()
+    }
+
+@app.post("/api/ssh/sessions/close-all")
+def close_all_sessions():
+    closed_count = connection_manager.close_all()
+    return {
+        "success": True,
+        "closed_count": closed_count,
+        "message": f"Closed {closed_count} active SSH session(s)."
     }
 
 

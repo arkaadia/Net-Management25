@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.266.1';
+export const APP_VERSION = '1.267.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.267.0',
+    releaseDate: '2026-10-04',
+    type: 'minor',
+    title: 'تکمیل فاز ۱ بک‌اند SSH با FastAPI، موتور Paramiko 2.12.0 و SSHConnectionManager جامع (Phase 1: FastAPI SSH Paramiko Engine)',
+    title_en: 'Phase 1 Completion: Full FastAPI SSH Backend, Paramiko 2.12.0 Engine & Unified SSHConnectionManager',
+    changes: [
+      'تکمیل و ارتقای ساختار بک‌اند FastAPI و استفاده انحصاری از موتور Paramiko 2.12.0 جهت اتصال به تجهیزات سیسکو (React -> FastAPI -> Paramiko -> Cisco).',
+      'پیاده‌سازی کلاس تردسیف SSHConnectionManager با قابلیت مدیریت کامل چرخه حیات نشست‌های SSH، تفکیک خودکار الگوریتم‌های مدرن و سنتی سیسکو، و آزادسازی تمیز منابع سوکت.',
+      'پشتیبانی از شل تعاملی واقعی invoke_shell() همراه با تخصیص PTY و ارسال دستورات و دریافت خروجی خام متنی (Raw CLI Output).',
+      'توسعه اندپوینت‌های کامل REST (/api/ssh/connect, /api/ssh/command, /api/ssh/close, /api/ssh/sessions, /api/ssh/sessions/close-all) و وب‌سوکت دوطرفه.',
+      'تضمین سیاست عدم استفاده از داده‌های فیک یا ساختگی (Strict Zero-Mock Data) و شفافیت کامل در گزارش خطاهای ارتباطی.',
+      'افزودن مجموعه تست‌های واحد و یکپارچگی (Unit & Integration Tests) در backend/tests/test_ssh_fastapi_backend.py بدون ارسال ترافیک به شبکه محلی یا تجهیزات فیزیکی کاربر.'
+    ],
+    changes_en: [
+      'Completed and structured the FastAPI SSH backend utilizing exclusively the Paramiko 2.12.0 engine for network hardware connectivity (React -> FastAPI -> Paramiko -> Cisco).',
+      'Engineered the thread-safe SSHConnectionManager with complete SSH session lifecycle management, automatic modern vs legacy Cisco cipher negotiation, and socket resource cleanup.',
+      'Full support for authentic interactive PTY shells via invoke_shell(), raw CLI command dispatching, and unadulterated terminal output streaming.',
+      'Exposed full REST API suite (/api/ssh/connect, /api/ssh/command, /api/ssh/close, /api/ssh/sessions, /api/ssh/sessions/close-all) and bidirectional WebSocket streaming.',
+      'Enforced strict Zero-Mock Data policy guaranteeing zero simulated hardware or fake CLI outputs, with authentic transparent error propagation.',
+      'Created comprehensive unit and integration test suite (backend/tests/test_ssh_fastapi_backend.py) passing cleanly without network dependencies or local IP probes.'
+    ],
+  },
   {
     version: '1.266.1',
     releaseDate: '2026-10-04',
